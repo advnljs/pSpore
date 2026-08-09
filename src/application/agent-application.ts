@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 
+import type { AgentSessionHost } from "../agents/agent-manager.js";
+import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "../agents/types.js";
 import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";
 import type {
   AgentRuntimePort,
@@ -34,6 +36,27 @@ export interface AutomationControl {
   cancel(runId: string, reason?: string): Promise<RunRecord>;
 }
 
+export interface AgentControl {
+  registerRoot(input: { id: string; budget: RunBudget; jobId?: string; agentPath?: readonly string[] }): void;
+  unregisterRoot(id: string): void;
+  parentIdForSession(sessionId: string): string;
+  spawn(input: AgentSpawnRequest): Promise<AgentRecord>;
+  send(input: {
+    senderId: string;
+    recipientId: string;
+    text: string;
+    mode: AgentMessageMode;
+    priority?: "normal" | "high";
+    correlationId?: string;
+  }): Promise<AgentMessage>;
+  join(agentIds: readonly string[], timeoutMs: number, signal?: AbortSignal): Promise<AgentRecord[]>;
+  cancel(agentId: string, reason?: string): Promise<AgentRecord>;
+  cancelChildren(parentId: string, reason: string): Promise<void>;
+  sessionAvailable(sessionId: string): Promise<void>;
+  list(): AgentRecord[];
+  listMessages(): AgentMessage[];
+}
+
 export class AgentRunBudgetError extends Error {
   constructor(message: string) {
     super(message);
@@ -41,7 +64,7 @@ export class AgentRunBudgetError extends Error {
   }
 }
 
-export class AgentApplication {
+export class AgentApplication implements AgentSessionHost {
   readonly #runtime: AgentRuntimePort;
   readonly #kernel: KernelLoop;
   readonly #approvals: ApprovalService;
@@ -55,6 +78,7 @@ export class AgentApplication {
   readonly #unsubscribers = new Map<SessionId, () => void>();
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
   #automation: AutomationControl | undefined;
+  #agents: AgentControl | undefined;
 
   constructor(options: AgentApplicationOptions) {
     this.#runtime = options.runtime;
@@ -85,9 +109,14 @@ export class AgentApplication {
         const sessionId = requiredSessionId(command);
         return this.#serializeSession(sessionId, async () => {
           await this.#ensureSession(sessionId);
-          if (mode === "steer") return this.#runtime.steer(sessionId, text);
-          if (mode === "follow_up") return this.#runtime.followUp(sessionId, text);
-          return this.#runtime.prompt(sessionId, text);
+          const accepted =
+            mode === "steer"
+              ? await this.#runtime.steer(sessionId, text)
+              : mode === "follow_up"
+                ? await this.#runtime.followUp(sessionId, text)
+                : await this.#runtime.prompt(sessionId, text);
+          setImmediate(() => void this.#agents?.sessionAvailable(sessionId));
+          return accepted;
         });
       }
       case "session.abort": {
@@ -97,6 +126,7 @@ export class AgentApplication {
         return this.#serializeSession(sessionId, async () => {
           this.#assertSession(sessionId);
           await this.#approvals.cancelSession(sessionId);
+          await this.#agents?.cancelChildren(this.#agents.parentIdForSession(sessionId), reason);
           await this.#runtime.abort(sessionId, reason);
           return { aborted: true };
         });
@@ -128,6 +158,46 @@ export class AgentApplication {
       case "notifications.list":
         exactPayload(command.payload, [], command.type);
         return this.#notifications.list();
+      case "agents.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireAgents().list();
+      case "agent.messages":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireAgents().listMessages();
+      case "agent.spawn": {
+        const payload = exactPayload(command.payload, ["parentId", "objective", "cwd", "workspaceMode", "budget"], command.type);
+        return this.#requireAgents().spawn({
+          parentId: optionalString(payload["parentId"], "payload.parentId") ?? "main",
+          objective: nonEmptyString(payload["objective"], "payload.objective"),
+          cwd: optionalString(payload["cwd"], "payload.cwd") ?? this.#sessionTemplate.cwd,
+          workspaceMode: requiredEnum(payload["workspaceMode"], ["shared-read", "shared-write"], "payload.workspaceMode"),
+          budget: parseRunBudget(payload["budget"], "payload.budget"),
+        });
+      }
+      case "agent.send": {
+        const payload = exactPayload(command.payload, ["agentId", "message", "mode"], command.type);
+        return this.#requireAgents().send({
+          senderId: "user",
+          recipientId: nonEmptyString(payload["agentId"], "payload.agentId"),
+          text: nonEmptyString(payload["message"], "payload.message"),
+          mode: requiredEnum(payload["mode"], ["steer", "follow_up", "next"], "payload.mode"),
+          priority: "high",
+        });
+      }
+      case "agent.join": {
+        const payload = exactPayload(command.payload, ["agentIds", "timeoutMs"], command.type);
+        return this.#requireAgents().join(
+          stringArray(payload["agentIds"], "payload.agentIds", 32),
+          positiveIntegerValue(payload["timeoutMs"], "payload.timeoutMs", 600_000),
+        );
+      }
+      case "agent.cancel": {
+        const payload = exactPayload(command.payload, ["agentId", "reason"], command.type);
+        return this.#requireAgents().cancel(
+          nonEmptyString(payload["agentId"], "payload.agentId"),
+          optionalString(payload["reason"], "payload.reason"),
+        );
+      }
       case "job.put": {
         const payload = exactPayload(command.payload, ["job", "expectedSha256"], command.type);
         return this.#requireAutomation().putJob(
@@ -160,16 +230,22 @@ export class AgentApplication {
     this.#automation = automation;
   }
 
+  setAgents(agents: AgentControl): void {
+    if (this.#agents) throw new Error("Agent control is already configured");
+    this.#agents = agents;
+  }
+
   executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot> {
     const activity = run.activity;
     if (activity.kind !== "agent") throw new Error(`Run ${run.id} is not an agent activity`);
     const sessionId = `run:${run.id}`;
     return this.#serializeSession(sessionId, async () => {
-      await this.#ensureSession(sessionId, activity.cwd, {
-        agentPath: ["automation", run.jobId ?? run.source, run.id],
-        runId: run.id,
+      const agentPath = ["automation", run.jobId ?? run.source, run.id];
+      this.#agents?.registerRoot({
+        id: sessionId,
+        budget: run.budget,
         ...(run.jobId === undefined ? {} : { jobId: run.jobId }),
-        allowedApprovalScopes: run.jobId === undefined ? ["once", "session"] : ["once", "session", "job"],
+        agentPath,
       });
       let turns = 0;
       let toolCalls = 0;
@@ -183,7 +259,7 @@ export class AgentApplication {
         violation = new AgentRunBudgetError(reason);
         void abortSession(reason);
       };
-      const unsubscribeBudget = this.#runtime.subscribe(sessionId, checkBudget);
+      let unsubscribeBudget: () => void = () => undefined;
       let abortTask: Promise<void> | undefined;
       const abortSession = (reason: string): Promise<void> => {
         abortTask ??= Promise.allSettled([
@@ -195,6 +271,13 @@ export class AgentApplication {
       const abort = () => void abortSession("automation run aborted");
       signal.addEventListener("abort", abort, { once: true });
       try {
+        await this.#ensureSession(sessionId, activity.cwd, {
+          agentPath,
+          runId: run.id,
+          ...(run.jobId === undefined ? {} : { jobId: run.jobId }),
+          allowedApprovalScopes: run.jobId === undefined ? ["once", "session"] : ["once", "session", "job"],
+        });
+        unsubscribeBudget = this.#runtime.subscribe(sessionId, checkBudget);
         if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Automation run aborted");
         await this.#runtime.prompt(sessionId, activity.prompt);
         await this.#runtime.waitForIdle(sessionId);
@@ -214,9 +297,67 @@ export class AgentApplication {
         signal.removeEventListener("abort", abort);
         unsubscribeBudget();
         if (abortTask) await abortTask;
+        await this.#agents?.cancelChildren(sessionId, `automation run ${run.id} stopped`).catch(() => undefined);
         await this.#disposeSession(sessionId);
+        this.#agents?.unregisterRoot(sessionId);
       }
     });
+  }
+
+  async createAgentSession(
+    sessionId: string,
+    cwd: string,
+    authorization: NonNullable<AgentSessionSpec["authorization"]>,
+  ): Promise<void> {
+    await this.#serializeSession(sessionId, async () => this.#ensureSession(sessionId, cwd, authorization));
+  }
+
+  hasAgentSession(sessionId: string): boolean {
+    return this.#sessions.has(sessionId);
+  }
+
+  async startAgentPrompt(sessionId: string, text: string): Promise<void> {
+    await this.#serializeSession(sessionId, async () => {
+      this.#assertSession(sessionId);
+      await this.#runtime.prompt(sessionId, text);
+    });
+    await this.#agents?.sessionAvailable(sessionId);
+  }
+
+  async sendAgentMessage(sessionId: string, text: string, mode: AgentMessageMode): Promise<void> {
+    await this.#serializeSession(sessionId, async () => {
+      this.#assertSession(sessionId);
+      if (mode === "steer") await this.#runtime.steer(sessionId, text);
+      else if (mode === "follow_up") await this.#runtime.followUp(sessionId, text);
+      else if (this.#runtime.snapshot(sessionId).status === "running") await this.#runtime.followUp(sessionId, text);
+      else await this.#runtime.prompt(sessionId, text);
+    });
+  }
+
+  async waitForAgentIdle(sessionId: string): Promise<void> {
+    this.#assertSession(sessionId);
+    await this.#runtime.waitForIdle(sessionId);
+  }
+
+  async abortAgentSession(sessionId: string, reason: string): Promise<void> {
+    if (!this.#sessions.has(sessionId)) return;
+    await this.#approvals.cancelSession(sessionId);
+    await this.#agents?.cancelChildren(this.#agents.parentIdForSession(sessionId), reason);
+    await this.#runtime.abort(sessionId, reason);
+  }
+
+  snapshotAgentSession(sessionId: string): AgentSnapshot {
+    this.#assertSession(sessionId);
+    return this.#runtime.snapshot(sessionId);
+  }
+
+  subscribeAgentSession(sessionId: string, sink: (event: RuntimeEvent) => void): () => void {
+    this.#assertSession(sessionId);
+    return this.#runtime.subscribe(sessionId, sink);
+  }
+
+  async closeAgentSession(sessionId: string): Promise<void> {
+    await this.#disposeSession(sessionId);
   }
 
   async dispose(): Promise<void> {
@@ -296,6 +437,11 @@ export class AgentApplication {
     return this.#automation;
   }
 
+  #requireAgents(): AgentControl {
+    if (!this.#agents) throw new CommandError("agents_unavailable", "Agent manager is not initialized");
+    return this.#agents;
+  }
+
   #serializeSession<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {
     const previous = this.#sessionTails.get(sessionId) ?? Promise.resolve();
     const result = previous.then(operation, operation);
@@ -347,6 +493,12 @@ function optionalEnum<const T extends string>(value: unknown, allowed: readonly 
   return value as T;
 }
 
+function requiredEnum<const T extends string>(value: unknown, allowed: readonly T[], path: string): T {
+  const parsed = optionalEnum(value, allowed, path);
+  if (parsed === undefined) throw new CommandError("invalid_command", `${path} is required`);
+  return parsed;
+}
+
 function booleanValue(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") throw new CommandError("invalid_command", `${path} must be boolean`);
   return value;
@@ -358,6 +510,47 @@ function nullableSha256(value: unknown, path: string): string | null {
     throw new CommandError("invalid_command", `${path} must be null or a 64-character SHA-256`);
   }
   return value.toLowerCase();
+}
+
+function parseRunBudget(value: unknown, path: string): RunBudget {
+  const budget = exactPayload(
+    value,
+    ["maxTurns", "maxToolCalls", "maxInputTokens", "maxOutputTokens", "maxChildren", "maxCostUsd"],
+    path,
+  );
+  const maxCostUsd = budget["maxCostUsd"];
+  if (maxCostUsd !== undefined && (typeof maxCostUsd !== "number" || !Number.isFinite(maxCostUsd) || maxCostUsd <= 0)) {
+    throw new CommandError("invalid_command", `${path}.maxCostUsd must be positive`);
+  }
+  return {
+    maxTurns: positiveIntegerValue(budget["maxTurns"], `${path}.maxTurns`, 10_000),
+    maxToolCalls: positiveIntegerValue(budget["maxToolCalls"], `${path}.maxToolCalls`, 100_000),
+    maxInputTokens: positiveIntegerValue(budget["maxInputTokens"], `${path}.maxInputTokens`, 100_000_000),
+    maxOutputTokens: positiveIntegerValue(budget["maxOutputTokens"], `${path}.maxOutputTokens`, 100_000_000),
+    maxChildren: nonNegativeIntegerValue(budget["maxChildren"], `${path}.maxChildren`, 1_000),
+    ...(maxCostUsd === undefined ? {} : { maxCostUsd }),
+  };
+}
+
+function stringArray(value: unknown, path: string, maximum: number): string[] {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maximum) {
+    throw new CommandError("invalid_command", `${path} must contain between 1 and ${maximum} strings`);
+  }
+  return value.map((item, index) => nonEmptyString(item, `${path}[${index}]`));
+}
+
+function positiveIntegerValue(value: unknown, path: string, maximum: number): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > maximum) {
+    throw new CommandError("invalid_command", `${path} must be an integer between 1 and ${maximum}`);
+  }
+  return Number(value);
+}
+
+function nonNegativeIntegerValue(value: unknown, path: string, maximum: number): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > maximum) {
+    throw new CommandError("invalid_command", `${path} must be an integer between 0 and ${maximum}`);
+  }
+  return Number(value);
 }
 
 function budgetViolation(

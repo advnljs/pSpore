@@ -53,7 +53,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
   const innerWidth = safeWidth - 2;
   const leftWidth = Math.min(28, Math.max(20, Math.floor(innerWidth * 0.2)));
   const rightWidth = innerWidth - leftWidth - 1;
-  const bodyRows = safeHeight - 10;
+  const bodyRows = safeHeight - 11;
   const top = `┌${"─".repeat(innerWidth)}┐`;
   const header = fullRow(
     ` pSpore v1 core  daemon:${state.kernel.daemon.phase}  ${state.connected ? "connected" : "disconnected"}  revision:${state.kernel.revision}`,
@@ -75,7 +75,8 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
     ? ` EVENT GAP ${state.gap.streamId}: expected ${state.gap.expected}, received ${state.gap.received}`
     : ` ${state.notice}`;
   const divider = `├${"─".repeat(innerWidth)}┤`;
-  const help = " /steer /follow /abort /approve /deny /jobs /runs /notifications /run JOB /cancel RUN /quit  Ctrl+C abort/exit";
+  const sessionHelp = " session: /steer /follow /abort /compact /approve /deny /select ID /quit";
+  const taskHelp = " tasks: /agents /agent-spawn TEXT /agent ID MSG /agent-join ID... /agent-cancel ID /jobs /runs /notifications /run JOB /cancel RUN";
   const prompt = ` prompt> ${input}`;
   return [
     top,
@@ -86,7 +87,8 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
     fullRow(approvalText, innerWidth),
     fullRow(notice, innerWidth),
     divider,
-    fullRow(help, innerWidth),
+    fullRow(sessionHelp, innerWidth),
+    fullRow(taskHelp, innerWidth),
     fullRow(prompt, innerWidth),
     `└${"─".repeat(innerWidth)}┘`,
   ];
@@ -96,7 +98,18 @@ function renderSidebar(state: TuiStoreSnapshot, width: number): string[] {
   const sessions = Object.values(state.kernel.sessions);
   const lines = ["SESSIONS"];
   if (sessions.length === 0) lines.push("  main  not started");
-  for (const session of sessions) lines.push(`› ${session.sessionId}  ${session.status}`);
+  for (const session of sessions) {
+    const marker = session.sessionId === state.selectedSessionId ? "›" : " ";
+    lines.push(`${marker} ${session.sessionId}  ${session.status}`);
+  }
+  const agents = Object.values(state.kernel.agents);
+  if (agents.length > 0) {
+    lines.push("", "AGENTS");
+    for (const agent of agents) {
+      const marker = agent.sessionId === state.selectedSessionId ? "›" : "↳";
+      lines.push(`${"  ".repeat(agent.depth)}${marker} ${agent.id} ${agent.status}`);
+    }
+  }
   lines.push("", "DAEMON", `  ${state.kernel.daemon.phase}`, `  seq ${Math.max(0, ...Object.values(state.cursors))}`);
   const main = state.kernel.sessions["main"];
   if (main) {
@@ -123,11 +136,11 @@ function renderSidebar(state: TuiStoreSnapshot, width: number): string[] {
 }
 
 function renderTranscript(state: TuiStoreSnapshot, width: number): string[] {
-  const main = state.kernel.sessions["main"];
-  const lines = ["TRANSCRIPT  main"];
-  if (!main || main.messages.length === 0) lines.push("No messages yet. Type a prompt below.");
-  for (const message of main?.messages ?? []) lines.push(...renderMessage(message, width));
-  const streaming = state.streamingText["main"];
+  const selected = state.kernel.sessions[state.selectedSessionId];
+  const lines = [`TRANSCRIPT  ${state.selectedSessionId}`];
+  if (!selected || selected.messages.length === 0) lines.push("No messages yet. Type a prompt below.");
+  for (const message of selected?.messages ?? []) lines.push(...renderMessage(message, width));
+  const streaming = state.streamingText[state.selectedSessionId];
   if (streaming) lines.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width));
   return lines;
 }

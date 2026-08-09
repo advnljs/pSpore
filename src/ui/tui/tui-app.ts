@@ -139,6 +139,66 @@ export class PsporeTuiApp {
         );
         return;
       }
+      if (input === "/agents") {
+        const agents = await this.#command("agents.list", {}) as Array<{ id: string; status: string; depth: number }>;
+        this.#store.setNotice(
+          agents.length > 0
+            ? agents.slice(-4).map((agent) => `${"·".repeat(agent.depth)}${agent.id}:${agent.status}`).join("  ")
+            : "No child agents",
+        );
+        return;
+      }
+      if (input.startsWith("/select ")) {
+        const selected = this.#store.selectSession(input.slice(8).trim());
+        this.#store.setNotice(`Selected session ${selected}`);
+        return;
+      }
+      if (input.startsWith("/agent-spawn ")) {
+        const objective = input.slice(13).trim();
+        if (!objective) throw new Error("Usage: /agent-spawn OBJECTIVE");
+        const agent = await this.#command("agent.spawn", {
+          parentId: "main",
+          objective,
+          workspaceMode: "shared-read",
+          budget: {
+            maxTurns: 8,
+            maxToolCalls: 24,
+            maxInputTokens: 50_000,
+            maxOutputTokens: 8_000,
+            maxChildren: 0,
+          },
+        }) as { id: string; status: string };
+        this.#store.setNotice(`Agent ${agent.id}: ${agent.status}`);
+        return;
+      }
+      if (input.startsWith("/agent-join ")) {
+        const agentIds = input.slice(12).trim().split(/\s+/).filter(Boolean);
+        if (agentIds.length === 0) throw new Error("Usage: /agent-join AGENT_ID...");
+        const agents = await this.#command("agent.join", { agentIds, timeoutMs: 300_000 }) as Array<{
+          id: string;
+          status: string;
+        }>;
+        this.#store.setNotice(agents.map((agent) => `${agent.id}:${agent.status}`).join("  "));
+        return;
+      }
+      if (input.startsWith("/agent-cancel ")) {
+        const agent = await this.#command("agent.cancel", { agentId: input.slice(14).trim() }) as {
+          id: string;
+          status: string;
+        };
+        this.#store.setNotice(`Agent ${agent.id}: ${agent.status}`);
+        return;
+      }
+      if (input.startsWith("/agent ")) {
+        const separator = input.indexOf(" ", 7);
+        if (separator < 0) throw new Error("Usage: /agent AGENT_ID MESSAGE");
+        const agentId = input.slice(7, separator).trim();
+        const message = input.slice(separator + 1).trim();
+        if (!agentId || !message) throw new Error("Usage: /agent AGENT_ID MESSAGE");
+        await this.#command("agent.send", { agentId, message, mode: "next" });
+        this.#store.setNotice(`Message queued for ${agentId}`);
+        return;
+      }
       if (input.startsWith("/run ")) {
         const run = await this.#command("job.run", { jobId: input.slice(5).trim() }) as { id: string; status: string };
         this.#store.setNotice(`Run ${run.id}: ${run.status}`);

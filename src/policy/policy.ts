@@ -163,6 +163,22 @@ export class PolicyEngine {
           riskReasons: action === "list" ? [] : ["scheduled activity persists beyond the current session"],
         };
       }
+      case "agent_spawn":
+        return {
+          capability: "agent.spawn",
+          canonicalTarget: request.sessionId,
+          summary: `spawn a child agent from ${request.sessionId}`,
+          riskReasons: ["creates an independent model/tool activity"],
+        };
+      case "agent_send":
+      case "agent_join":
+      case "agent_cancel":
+        return {
+          capability: "agent.message",
+          canonicalTarget: stringInput(input, "agentId") ?? request.sessionId,
+          summary: `${request.toolName} for ${stringInput(input, "agentId") ?? request.sessionId}`,
+          riskReasons: [],
+        };
       default:
         return {
           capability: "external.side_effect",

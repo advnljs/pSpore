@@ -115,3 +115,18 @@
 - 验证方式与结果：增量严格 typecheck 与 21 项 schedule/notification/policy/daemon/scheduler/TUI 测试通过；完整 `npm run check` 通过（51 项测试 + production build）。最新构建 live smoke 完成 `schedule put → jobs → run heartbeat → notifications → status`，run succeeded 且通知持久可读；graceful SIGINT 后 endpoint/socket/lock 与临时 home 已清理。
 - 当前状态：schedule/notify 纵切可运行；验收实例已停止，当前无常驻实例，TUI 仍按 `160×45` 验收。
 - 遗留问题：进入 Phase 3 subagent、MCP 与 plugin trust。
+
+## 2026-08-10 00:52 CST — Phase 3 Subagent 双工纵切
+
+- 阶段目标：用同进程独立 Pi session 完成可限制、可取消、可观测的 child agent tree 与用户/parent 双工消息。
+- 完成内容：
+  - 实现 `AgentManager`、独立 child session、全局并发队列、默认深度/活动 child/root child 上限、workspace realpath 边界、per-agent turn/tool/token/cost budget 与终态结果。
+  - 实现带 sender/recipient/sequence/correlation/priority/mode/token estimate 的串行 mailbox，支持 `steer/follow_up/next`、join deadline/abort、parent-child 路由、结构化 completion 回传与级联取消。
+  - 新增 bundled `agent_spawn/send/join/cancel` tools，并将 child 授权与 parent ceiling 求交；`shared-read` 明确禁止写、Shell、网络与外部副作用，`allow_all` 也不能越过 ceiling。
+  - UDS/CLI/TUI 新增 agent list/spawn/send/join/cancel；Kernel/protocol store 广播 agent tree/message。TUI 可选中活动 child session 查看实时 transcript。
+  - Daemon 关停顺序先停止 child tree，automation root 结束时取消子树并清理独立 session。
+- 修改文件：`src/agents/`、Application/Daemon/Kernel/policy/Pi adapter/CLI/TUI、对应 unit/integration tests、README 与 memory-bank。
+- 验证方式与结果：`npm run check` 通过（严格类型检查、55 项测试、production build）；Daemon/UDS fake-model 集成用例实际完成两个 child 并发、用户中途 steering、parent 收到两个结构化结果与 child session 清理。
+- 运行验证：最新 `dist/` 在真实 PTY `160×45` 下启动 TUI，连接 Daemon、执行 `/agents`、`/quit` 后正常恢复 terminal；Daemon SIGINT exit 0，验收 home 已删除。
+- 当前状态：Subagent 纵切完成并已用 TUI/UDS 验证；当前无常驻验收实例。
+- 遗留问题：继续 Phase 3 MCP lazy adapter、plugin trust/staging 与 skills/resource reload；随后进入 Electron 43。

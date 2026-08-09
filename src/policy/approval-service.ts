@@ -267,6 +267,9 @@ export class PolicyToolGate implements ToolGate {
 
   async authorize(request: ToolAuthorizationRequest): Promise<ToolAuthorizationResult> {
     const evaluation = await this.#policy.evaluate(request);
+    if (request.deniedCapabilities?.includes(evaluation.capability)) {
+      return { decision: "deny", reason: "Denied by parent agent permission ceiling", terminate: false };
+    }
     if (evaluation.decision === "deny") {
       return { decision: "deny", reason: "Denied by pSpore policy", terminate: false };
     }

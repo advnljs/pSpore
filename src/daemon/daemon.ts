@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
+import { AgentManager } from "../agents/agent-manager.js";
+import { createAgentTools } from "../agents/agent-tools.js";
 import { AgentApplication } from "../application/agent-application.js";
 import { createAutomationTools } from "../automation/automation-tools.js";
 import { DaemonRunExecutor } from "../automation/daemon-run-executor.js";
@@ -60,6 +62,7 @@ export class PsporeDaemon {
   readonly #application: AgentApplication;
   readonly #approvals: ApprovalService;
   readonly #scheduler: Scheduler;
+  readonly #agents: AgentManager;
   readonly #lock: DaemonLock;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -77,6 +80,7 @@ export class PsporeDaemon {
     application: AgentApplication;
     approvals: ApprovalService;
     scheduler: Scheduler;
+    agents: AgentManager;
     lock: DaemonLock;
     clock: () => Date;
     idFactory: () => string;
@@ -89,6 +93,7 @@ export class PsporeDaemon {
     this.#application = options.application;
     this.#approvals = options.approvals;
     this.#scheduler = options.scheduler;
+    this.#agents = options.agents;
     this.#lock = options.lock;
     this.#clock = options.clock;
     this.#idFactory = options.idFactory;
@@ -113,6 +118,7 @@ export class PsporeDaemon {
     let application: AgentApplication | undefined;
     let approvals: ApprovalService | undefined;
     let scheduler: Scheduler | undefined;
+    let agents: AgentManager | undefined;
     let daemon: PsporeDaemon | undefined;
     const startedAt = clock().toISOString();
     const kernel = new KernelLoop((effect) => {
@@ -178,11 +184,16 @@ export class PsporeDaemon {
         if (!scheduler) throw new Error("Scheduler is not initialized");
         return scheduler;
       };
+      const agentControl = () => {
+        if (!agents) throw new Error("Agent manager is not initialized");
+        return agents;
+      };
       const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
         ...coreTools,
         ...createMemoryTools(sessionId, memory),
         ...createNotificationTools(sessionId, notifications),
         ...createAutomationTools(automationControl),
+        ...createAgentTools(sessionId, agentControl),
       ];
       const tools = toolsFor("main");
       const runtime = options.runtimeFactory
@@ -221,6 +232,17 @@ export class PsporeDaemon {
         idFactory,
         onShutdownRequested: () => setImmediate(() => void daemon?.stop()),
       });
+      agents = await AgentManager.create({
+        workspaceRoot: paths.workspace,
+        host: application,
+        maxConcurrentAgents: config.runtime.maxConcurrentAgents,
+        clock,
+        idFactory,
+        onAgent: (agent) => void kernel.dispatch(event({ type: "agent.updated", agent })),
+        onMessage: (message) => void kernel.dispatch(event({ type: "agent.message", message })),
+        onError: (error) => void markDegraded(kernel, event, error),
+      });
+      application.setAgents(agents);
       const ledger = new RunLedger({
         root: paths.runs,
         recoveryDirectory: join(paths.artifacts, "recovery"),
@@ -262,6 +284,7 @@ export class PsporeDaemon {
         application,
         approvals,
         scheduler,
+        agents,
         lock,
         clock,
         idFactory,
@@ -286,6 +309,7 @@ export class PsporeDaemon {
     } catch (error) {
       if (gateway) await gateway.stop().catch(() => undefined);
       if (scheduler) await scheduler.stop().catch(() => undefined);
+      if (agents) await agents.stop().catch(() => undefined);
       if (application) await application.dispose().catch(() => undefined);
       if (approvals) await approvals.close().catch(() => undefined);
       await lock.release().catch(() => undefined);
@@ -329,6 +353,7 @@ export class PsporeDaemon {
       }),
     );
     await step(async () => this.#scheduler.stop());
+    await step(async () => this.#agents.stop());
     await step(async () => this.#approvals.close());
     await step(async () => this.#application.dispose());
     await step(async () => this.#transition("stopped"));

@@ -72,6 +72,16 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       });
       return broadcast(next, event, "notification.created", { notification, revision: next.revision }, true);
     }
+    case "agent.updated": {
+      const agent = structuredClone(event.agent);
+      const next = changed(state, { ...state, agents: { ...state.agents, [agent.id]: agent } });
+      return broadcast(next, event, "agent.updated", { agent, revision: next.revision }, true);
+    }
+    case "agent.message": {
+      const message = structuredClone(event.message);
+      const next = changed(state, { ...state, agentMessages: [...state.agentMessages, message].slice(-500) });
+      return broadcast(next, event, "agent.message", { message, revision: next.revision }, true);
+    }
     case "approval.resolved": {
       const approvals = { ...state.approvals };
       delete approvals[event.request.id];

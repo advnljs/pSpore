@@ -13,9 +13,10 @@
 | P2 | 实现 cron、BOOT、run ledger 与恢复 | Done | 无 | 已覆盖 slot 去重、DST、misfire、并发、timeout、unknown/queued 恢复和非阻塞 BOOT |
 | P2 | 实现 schedule 原子 mutation 与 run delivery/notification | Done | 无 | 已实现 expected-hash atomic put、runtime reload、notify tool、run delivery 与 durable protocol state |
 | P3 | 选择 MCP SDK 与版本 | Done | 无；用户已确认 | 已锁定官方 `@modelcontextprotocol/sdk@1.30.0`，只通过 adapter port 使用 |
-| P3 | 实现 subagent 双工、MCP 与 plugin trust 流程 | Pending | Phase 2 | 先用 fake MCP 和 fake model 做集成测试 |
+| P3 | 实现 subagent tree/mailbox/budget/cancel 双工 | Done | 无 | 已用 fake model + Daemon/UDS 覆盖两 child 并发、steering、result、ceiling 与 cascade cancel |
+| P3 | 实现 MCP lazy adapter、plugin trust/staging 与 skills reload | In progress | 无 | 用 fake MCP contract 验证 discover/activation/policy/abort/health/backoff |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
-| P4 | Electron 43 桌面客户端 | Deferred | 核心与 TUI v1 尚未稳定 | 核心验收后连接同一 protocol/gateway；不再实现 Tauri |
+| P4 | Electron 43 桌面客户端 | Pending | MCP/plugin 纵切 | 核心验收后连接同一 protocol/gateway；不再实现 Tauri |
 
 ## 已知风险
 

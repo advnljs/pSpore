@@ -59,19 +59,24 @@ describe("TUI 160x45 snapshot", () => {
     const store = new TuiStore();
     store.applyHello(hello());
     store.setNotice("Ready for verification");
+    assert.equal(store.selectSession("child-1"), "agent:child-1");
     const lines = renderTuiSnapshot(store.snapshot(), 160, 45, "inspect workspace");
     assert.equal(lines.length, 45);
     assert.ok(lines.every((line) => visibleWidth(line) === 160));
     const screen = lines.join("\n");
     assert.match(screen, /pSpore v1 core/);
-    assert.match(screen, /TRANSCRIPT  main/);
-    assert.match(screen, /assistant> hello from fake/);
+    assert.match(screen, /TRANSCRIPT  agent:child-1/);
+    assert.match(screen, /assistant> child result in progress/);
+    assert.match(screen, /child-1 running/);
     assert.match(screen, /APPROVAL approval-1/);
     assert.match(screen, /\/steer/);
     assert.match(screen, /\/notifications/);
+    assert.match(screen, /\/agent-spawn/);
+    assert.match(screen, /\/agent-join/);
+    assert.match(screen, /\/select/);
     assert.match(screen, /\/quit/);
     assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "4bf0e9ffc5dd5055235b92ab7f4343335dc16d44d469a301f46eb7a9fdc6cf99");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "a2229781fb058a7df6e7359c8c2fb43d263153615f1fe9573ab14fd57c062f89");
   });
 });
 
@@ -90,11 +95,45 @@ function hello(): ServerHelloFrame {
     queue: { steering: [], followUp: [] },
     usage: { input: 12, output: 4, cacheRead: 6, cacheWrite: 2, total: 24, costUsd: 0 },
   };
+  const child: AgentSnapshot = {
+    ...session,
+    sessionId: "agent:child-1",
+    upstreamSessionId: "pi-child-1",
+    status: "running",
+    messages: [
+      { role: "user", text: "inspect the public API" },
+      { role: "assistant", text: "child result in progress" },
+    ],
+    usage: { input: 7, output: 3, cacheRead: 0, cacheWrite: 0, total: 10, costUsd: 0 },
+  };
   const kernel = {
     ...initialKernelState(),
     revision: 4,
     daemon: { phase: "ready" as const, instanceId: "daemon-test" },
-    sessions: { main: session },
+    sessions: { main: session, [child.sessionId]: child },
+    agents: {
+      "child-1": {
+        version: 1 as const,
+        id: "child-1",
+        sessionId: child.sessionId,
+        parentId: "main",
+        rootId: "main",
+        objective: "inspect the public API",
+        cwd: "/workspace",
+        depth: 1,
+        workspaceMode: "shared-read" as const,
+        budget: {
+          maxTurns: 2,
+          maxToolCalls: 4,
+          maxInputTokens: 1_000,
+          maxOutputTokens: 500,
+          maxChildren: 0,
+        },
+        status: "running" as const,
+        createdAt: "2026-08-09T00:00:00.000Z",
+        startedAt: "2026-08-09T00:00:01.000Z",
+      },
+    },
     approvals: {
       "approval-1": {
         id: "approval-1",

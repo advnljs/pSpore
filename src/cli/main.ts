@@ -64,6 +64,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "notifications":
       requireNoArgs(args, "notifications");
       return printProtocolList(home, "notifications.list");
+    case "agents":
+      requireNoArgs(args, "agents");
+      return printProtocolList(home, "agents.list");
+    case "agent":
+      return runAgentCommand(home, args);
     case "schedule":
       if (args.length !== 2 || args[0] !== "put") throw new CliError("schedule usage: schedule put JOB.json");
       return putJobFile(home, args[1] as string);
@@ -207,7 +212,7 @@ async function runPrompt(home: string, text: string): Promise<number> {
 
 async function printProtocolList(
   home: string,
-  command: "jobs.list" | "runs.list" | "notifications.list",
+  command: "jobs.list" | "runs.list" | "notifications.list" | "agents.list",
 ): Promise<number> {
   const client = await connectFromEndpoint(home, command.split(".")[0] ?? "list");
   try {
@@ -249,6 +254,51 @@ async function putJobFile(home: string, path: string): Promise<number> {
       expectedSha256: current?.sourceSha256 ?? null,
     });
     process.stdout.write(`${updated.id} ${current ? "updated" : "created"} ${updated.sourceSha256 ?? ""}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
+async function runAgentCommand(home: string, args: readonly string[]): Promise<number> {
+  const action = args[0];
+  const client = await connectFromEndpoint(home, "agent");
+  try {
+    let result: unknown;
+    if (action === "spawn") {
+      const objective = args.slice(1).join(" ").trim();
+      if (!objective) throw new CliError("agent spawn requires an objective");
+      const config = await loadConfig(home);
+      result = await client.command("agent.spawn", {
+        parentId: "main",
+        objective,
+        cwd: config.runtime.workspace,
+        workspaceMode: "shared-read",
+        budget: {
+          maxTurns: 8,
+          maxToolCalls: 24,
+          maxInputTokens: 50_000,
+          maxOutputTokens: 8_000,
+          maxChildren: 0,
+        },
+      });
+    } else if (action === "send") {
+      const agentId = args[1];
+      const message = args.slice(2).join(" ").trim();
+      if (!agentId || !message) throw new CliError("agent send requires AGENT_ID and MESSAGE");
+      result = await client.command("agent.send", { agentId, message, mode: "next" });
+    } else if (action === "cancel") {
+      const agentId = args[1];
+      if (!agentId || args.length !== 2) throw new CliError("agent cancel requires exactly one AGENT_ID");
+      result = await client.command("agent.cancel", { agentId, reason: "cancelled from CLI" });
+    } else if (action === "join") {
+      const agentIds = args.slice(1);
+      if (agentIds.length === 0) throw new CliError("agent join requires at least one AGENT_ID");
+      result = await client.command("agent.join", { agentIds, timeoutMs: 300_000 });
+    } else {
+      throw new CliError("agent usage: agent spawn OBJECTIVE | send ID MESSAGE | join ID... | cancel ID");
+    }
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
     return 0;
   } finally {
     await client.close();
@@ -316,7 +366,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

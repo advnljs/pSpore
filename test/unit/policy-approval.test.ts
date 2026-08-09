@@ -75,6 +75,31 @@ describe("policy", () => {
       "deny",
     );
   });
+
+  test("enforces a parent agent capability ceiling even under allow_all", async () => {
+    const { root, state } = await rootFixture();
+    const approvals = new ApprovalService({
+      pendingPath: join(state, "pending.json"),
+      auditPath: join(state, "audit.jsonl"),
+      timeoutMs: 2_000,
+    });
+    await approvals.initialize();
+    const policy = await PolicyEngine.create({ mode: "allow_all", rules: [], workspaceRoot: root, cwd: root });
+    const result = await new PolicyToolGate(policy, approvals).authorize({
+      sessionId: "agent:read-only",
+      toolCallId: "write-attempt",
+      toolName: "edit",
+      input: { path: join(root, "result.txt") },
+      deniedCapabilities: ["fs.write"],
+    });
+    assert.deepEqual(result, {
+      decision: "deny",
+      reason: "Denied by parent agent permission ceiling",
+      terminate: false,
+    });
+    assert.equal(approvals.list().length, 0);
+    await approvals.close();
+  });
 });
 
 describe("approval", () => {

@@ -56,3 +56,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-09：默认 lexical retrieval 落地为可删除 JSON cache；源 Markdown/JSONL 始终是事实源，索引按内容 hash 重建，pinned context 超预算或越界时拒绝启动而不静默截断。
 - 2026-08-10：Phase 2 自动化落地：五字段/IANA cron adapter、durable run ledger、slot 去重、并发/misfire/timeout、非阻塞 BOOT，以及跨重启 job approval grant；run 状态进入共享 Kernel/protocol store。
 - 2026-08-10：补齐 schedule 原子 create/update 与 runtime cron reload；run delivery/agent notify 统一写 durable notification JSONL，再由 TUI 与 Electron 共享消费。
+- 2026-08-10：Subagent 落地为同进程独立 Pi session actor；`AgentManager` 管理有界 tree、串行 mailbox、budget/permission ceiling 和级联取消，Kernel 仅归并 agent/message 领域事件。

@@ -372,6 +372,9 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
               ...(spec.authorization?.allowedApprovalScopes === undefined
                 ? {}
                 : { allowedApprovalScopes: [...spec.authorization.allowedApprovalScopes] }),
+              ...(spec.authorization?.deniedCapabilities === undefined
+                ? {}
+                : { deniedCapabilities: [...spec.authorization.deniedCapabilities] }),
             });
             if (result.decision === "allow") {
               return undefined;

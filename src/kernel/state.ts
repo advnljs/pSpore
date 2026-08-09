@@ -1,4 +1,5 @@
 import type { AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
+import type { AgentMessage, AgentRecord } from "../agents/types.js";
 import type { RunRecord } from "../automation/types.js";
 import type { NotificationRecord } from "../notifications/notification-service.js";
 import type { ApprovalRequest, ApprovalResolution } from "../policy/approval-service.js";
@@ -19,6 +20,8 @@ export interface KernelState {
   approvals: Readonly<Record<string, ApprovalRequest>>;
   runs: Readonly<Record<string, RunRecord>>;
   notifications: readonly NotificationRecord[];
+  agents: Readonly<Record<string, AgentRecord>>;
+  agentMessages: readonly AgentMessage[];
 }
 
 interface EventMetadata {
@@ -36,6 +39,8 @@ export type KernelEvent =
   | (EventMetadata & { type: "approval.requested"; request: ApprovalRequest })
   | (EventMetadata & { type: "automation.run"; run: RunRecord })
   | (EventMetadata & { type: "notification.created"; notification: NotificationRecord })
+  | (EventMetadata & { type: "agent.updated"; agent: AgentRecord })
+  | (EventMetadata & { type: "agent.message"; message: AgentMessage })
   | (EventMetadata & {
       type: "approval.resolved";
       request: ApprovalRequest;
@@ -67,5 +72,7 @@ export function initialKernelState(): KernelState {
     approvals: {},
     runs: {},
     notifications: [],
+    agents: {},
+    agentMessages: [],
   };
 }

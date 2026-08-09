@@ -5,6 +5,7 @@ import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
 export interface TuiStoreSnapshot {
   connected: boolean;
   instanceId?: string;
+  selectedSessionId: string;
   kernel: KernelState;
   cursors: Readonly<Record<string, number>>;
   gap?: { streamId: string; expected: number; received: number };
@@ -15,6 +16,7 @@ export interface TuiStoreSnapshot {
 export class TuiStore {
   #state: TuiStoreSnapshot = {
     connected: false,
+    selectedSessionId: "main",
     kernel: initialKernelState(),
     cursors: {},
     streamingText: {},
@@ -30,6 +32,7 @@ export class TuiStore {
       ...this.#state,
       connected: true,
       instanceId: hello.instanceId,
+      selectedSessionId: hello.snapshot.sessions[this.#state.selectedSessionId] ? this.#state.selectedSessionId : "main",
       kernel: structuredClone(hello.snapshot),
       cursors: { ...this.#state.cursors, [hello.streamId]: hello.latestSeq },
       notice: "Connected",
@@ -43,6 +46,15 @@ export class TuiStore {
 
   setNotice(notice: string): void {
     this.#state = { ...this.#state, notice };
+  }
+
+  selectSession(id: string): string {
+    const sessionId = this.#state.kernel.sessions[id]
+      ? id
+      : this.#state.kernel.agents[id]?.sessionId;
+    if (!sessionId || !this.#state.kernel.sessions[sessionId]) throw new Error(`Session is not active: ${id}`);
+    this.#state = { ...this.#state, selectedSessionId: sessionId, notice: `Selected ${id}` };
+    return sessionId;
   }
 
   applyEvent(event: EventEnvelope): void {
@@ -99,6 +111,9 @@ export class TuiStore {
         revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
         sessions,
       };
+      if (this.#state.selectedSessionId === payload["sessionId"]) {
+        this.#state = { ...this.#state, selectedSessionId: "main" };
+      }
       streamingText = nextStreaming;
     }
     if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
@@ -144,6 +159,22 @@ export class TuiStore {
         notifications: [...kernel.notifications, structuredClone(notification)].slice(-200),
       };
       this.#state = { ...this.#state, notice: `${notification.title}: ${notification.body}` };
+    }
+    if (event.type === "agent.updated" && isRecord(payload["agent"]) && typeof payload["agent"]["id"] === "string") {
+      const agent = payload["agent"] as unknown as KernelState["agents"][string];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        agents: { ...kernel.agents, [agent.id]: structuredClone(agent) },
+      };
+    }
+    if (event.type === "agent.message" && isRecord(payload["message"]) && typeof payload["message"]["id"] === "string") {
+      const message = payload["message"] as unknown as KernelState["agentMessages"][number];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        agentMessages: [...kernel.agentMessages, structuredClone(message)].slice(-500),
+      };
     }
     this.#state = { ...this.#state, kernel, cursors, streamingText };
   }

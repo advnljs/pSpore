@@ -26,6 +26,7 @@ export interface AgentSessionSpec {
     runId?: string;
     jobId?: string;
     allowedApprovalScopes: readonly ("once" | "session" | "job")[];
+    deniedCapabilities?: readonly string[];
   };
 }
 
@@ -117,6 +118,7 @@ export interface ToolAuthorizationRequest {
   runId?: string;
   jobId?: string;
   allowedApprovalScopes?: readonly ("once" | "session" | "job")[];
+  deniedCapabilities?: readonly string[];
 }
 
 export type ToolAuthorizationResult =
