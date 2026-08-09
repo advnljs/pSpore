@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pSpore</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div id="app-shell" class="app-shell">
+      <header class="topbar">
+        <div class="brand-lockup" aria-label="pSpore local agent">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <div>
+            <strong>pSpore</strong>
+            <span>LOCAL AGENT</span>
+          </div>
+        </div>
+        <div class="topbar-center">
+          <span id="connection-badge" class="connection-badge disconnected"><i></i>OFFLINE</span>
+          <span id="daemon-instance" class="muted">等待本地守护进程</span>
+        </div>
+        <div class="topbar-metrics" aria-label="Runtime metrics">
+          <span><small>REV</small><b id="revision-value">0</b></span>
+          <span><small>CONTEXT</small><b id="usage-value">0</b></span>
+          <span><small>CACHE</small><b id="cache-value">0</b></span>
+          <button id="refresh-button" class="icon-button" type="button" title="刷新列表" aria-label="刷新列表">↻</button>
+        </div>
+      </header>
+
+      <div id="connection-banner" class="connection-banner" role="status">
+        <span class="spinner" aria-hidden="true"></span>
+        <span id="connection-message">正在连接本地守护进程…</span>
+      </div>
+
+      <main class="workspace-grid">
+        <aside class="left-rail panel" aria-label="Sessions and agents">
+          <section class="rail-section sessions-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">CONTEXT</span><h2>会话树</h2></div>
+              <span id="session-count" class="count-pill">0</span>
+            </div>
+            <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
+          </section>
+
+          <section class="rail-section spawn-section">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">DELEGATE</span><h2>新建子 Agent</h2></div>
+            </div>
+            <form id="spawn-form" class="compact-form">
+              <label for="spawn-objective">目标</label>
+              <textarea id="spawn-objective" rows="3" maxlength="16384" placeholder="例如：检查测试失败的根因"></textarea>
+              <button class="secondary-button" type="submit"><span>＋</span>启动有界任务</button>
+            </form>
+            <div id="child-controls" class="child-controls" hidden>
+              <button id="join-agent-button" class="ghost-button" type="button">等待完成</button>
+              <button id="cancel-agent-button" class="danger-ghost-button" type="button">取消 Agent</button>
+            </div>
+          </section>
+
+          <section class="rail-section staging-section">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">TRUST GATE</span><h2>暂存资源</h2></div>
+            </div>
+            <form id="inspect-form" class="compact-form inline-form">
+              <label for="staging-name">workspace/staging/</label>
+              <div>
+                <input id="staging-name" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="resource-name" />
+                <button class="ghost-button" type="submit">检查</button>
+              </div>
+            </form>
+            <div id="inspection-result" class="inspection-result" hidden></div>
+          </section>
+
+          <footer class="rail-footer">
+            <span id="version-line">pSpore — · Pi —</span>
+            <span id="runtime-line">Electron — · Node —</span>
+          </footer>
+        </aside>
+
+        <section class="conversation panel" aria-label="Conversation">
+          <header class="conversation-header">
+            <div>
+              <span class="eyebrow">ACTIVE SESSION</span>
+              <h1 id="session-title">main</h1>
+            </div>
+            <div class="session-health">
+              <span id="session-status" class="status-chip idle">IDLE</span>
+              <span id="model-name" class="muted">未配置模型</span>
+            </div>
+          </header>
+
+          <div id="transcript" class="transcript" tabindex="0" aria-live="polite"></div>
+
+          <div class="composer-wrap">
+            <div id="notice-line" class="notice-line" role="status">正在启动…</div>
+            <form id="composer-form" class="composer">
+              <textarea id="composer-input" rows="3" maxlength="65536" placeholder="向 main 发送消息…" aria-label="消息"></textarea>
+              <div class="composer-toolbar">
+                <label class="mode-select"><span>发送方式</span>
+                  <select id="composer-mode">
+                    <option value="prompt">Prompt</option>
+                    <option value="steer">Steer</option>
+                    <option value="follow_up">Follow-up</option>
+                  </select>
+                </label>
+                <div class="composer-actions">
+                  <button id="compact-button" class="ghost-button" type="button">压缩上下文</button>
+                  <button id="abort-button" class="danger-ghost-button" type="button">中止</button>
+                  <button id="send-button" class="primary-button" type="submit">发送 <kbd>Ctrl ↵</kbd></button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </section>
+
+        <aside class="right-rail panel" aria-label="Activity and automation">
+          <section class="right-section activity-section">
+            <div class="section-heading">
+              <div><span class="eyebrow">LIVE TRACE</span><h2>活动</h2></div>
+              <span id="activity-count" class="count-pill">0</span>
+            </div>
+            <div id="activity-list" class="activity-list"></div>
+          </section>
+
+          <section class="right-section">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">AUTOMATION</span><h2>计划与运行</h2></div>
+            </div>
+            <div id="job-list" class="dense-list"></div>
+            <div id="run-list" class="dense-list"></div>
+          </section>
+
+          <section class="right-section integrations-section">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">EXTENSIONS</span><h2>集成状态</h2></div>
+            </div>
+            <div id="integration-list" class="dense-list"></div>
+          </section>
+
+          <section class="right-section notification-section">
+            <div class="section-heading compact">
+              <div><span class="eyebrow">INBOX</span><h2>最近通知</h2></div>
+            </div>
+            <div id="notification-list" class="dense-list"></div>
+          </section>
+        </aside>
+      </main>
+    </div>
+
+    <div id="approval-overlay" class="approval-overlay" hidden>
+      <section class="approval-dialog" role="dialog" aria-modal="true" aria-labelledby="approval-title" aria-describedby="approval-summary">
+        <div class="approval-icon" aria-hidden="true">!</div>
+        <span class="eyebrow warning">PERMISSION REQUIRED</span>
+        <h2 id="approval-title">需要确认操作</h2>
+        <p id="approval-summary"></p>
+        <dl class="approval-details">
+          <div><dt>能力</dt><dd id="approval-capability"></dd></div>
+          <div><dt>目标</dt><dd id="approval-target"></dd></div>
+          <div><dt>原因</dt><dd id="approval-reasons"></dd></div>
+        </dl>
+        <pre id="approval-command" class="approval-command" hidden></pre>
+        <div id="approval-actions" class="approval-actions"></div>
+      </section>
+    </div>
+
+    <script type="module" src="./renderer.js"></script>
+  </body>
+</html>

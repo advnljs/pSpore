@@ -1,6 +1,6 @@
 # pSpore 详细设计
 
-> 状态：Implementation Active / Phase 1<br>
+> 状态：v1 Implemented / Phase 0—4 verified<br>
 > 版本：0.2<br>
 > 日期：2026-08-09（Asia/Shanghai）<br>
 > 适用范围：Linux、本地单用户、Pi `v0.84.1` 基线
@@ -148,7 +148,7 @@ src/
   plugins/                # host API、loader、trust、MCP adapter
   storage/                # atomic JSON、JSONL、locks、recovery
   ui/tui/                 # Pi TUI renderer + protocol client
-desktop/                  # Electron main/preload/renderer；核心稳定后实现
+  desktop/                # Electron main/preload/renderer、IPC allowlist 与视觉 smoke
 test/
   contract/ integration/ fixtures/ visual/
 ```
@@ -766,12 +766,12 @@ UI 必须让用户明确选择：
 - Ctrl+C 第一次 abort 当前 run，空闲时再次触发 graceful exit；不得直接遗留 raw mode/PTY。
 - terminal snapshot tests 固定宽高和颜色能力，测试中使用 fake clock/ID。
 
-### 15.5 Electron UI（核心 v1 后实现）
+### 15.5 Electron UI（Phase 4 已实现）
 
-- 固定 Electron 43；Phase 0 锁定工具链版本 `43.3.0`。renderer 技术保持轻量，是否引入 UI framework 在客户端阶段单独确认，不影响 protocol/domain。
+- 固定 Electron 43；工具链版本为 `43.3.0`。v1 renderer 使用原生 DOM/TypeScript，不增加 UI framework，仍只依赖 protocol store。
 - Electron main process 持有 UDS 连接；renderer 启用 `contextIsolation` 与 sandbox，关闭 `nodeIntegration`，仅通过 allowlisted preload API 发送和订阅已知协议类型。
 - 禁止任意 channel 名、任意文件路径 IPC、remote module、外部导航和未受控新窗口；设置严格 CSP，不加载第三方远程 script。
-- Electron 崩溃或退出不拥有 Daemon 状态；重启后按 cursor/snapshot 规则恢复。
+- Electron 崩溃或退出不拥有 Daemon 状态；重启后按 cursor/snapshot 规则恢复。main bridge 在 gap/断线后指数退避重连，并在 renderer 边界合并连续 delta。
 - PC Electron 第一验收 viewport 为 `1920 × 1080`，检查布局、overflow、scroll、approval modal、fixed elements 和主操作路径。手机响应式不在验收范围。
 
 ## 16. 持久化与目录
@@ -1021,7 +1021,7 @@ UI 必须让用户明确选择：
 
 1. Daemon 启动、ready、graceful shutdown 和 crash recovery 有测试；BOOT 不阻塞 ready。
 2. Pi `v0.84.1` adapter contract 全部通过，版本被精确锁定。
-3. TUI 可查看同一主/子会话、接收流、steer/follow-up/abort、断线恢复；Electron 客户端作为核心 v1 后的独立阶段验收。
+3. TUI 与 Electron 可同时查看同一主/子会话、接收流、steer/follow-up/abort、回答审批并断线恢复；Electron 作为 Phase 4 独立完成安全与视觉验收。
 4. `ask_all`、`ask_risky`、`allow_all` 行为、scope、audit 和 first-response-wins 可验证。
 5. Shell 使用解析后的用户 shell，pipe/PTY/timeout/output artifact 可用；sudo secret 不进入模型或持久化。
 6. pinned memory、session JSONL、exact/BM25 搜索、按引用读取和增量重建可用。

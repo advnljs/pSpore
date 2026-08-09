@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { execFile } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
+import { execFile, spawn } from "node:child_process";
+import { access, readFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { PsporeDaemon } from "../daemon/daemon.js";
@@ -56,6 +57,9 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "tui":
       requireNoArgs(args, "tui");
       return runTui(home);
+    case "desktop":
+      requireNoArgs(args, "desktop");
+      return runDesktop(home);
     case "jobs":
       requireNoArgs(args, "jobs");
       return printProtocolList(home, "jobs.list");
@@ -203,6 +207,26 @@ async function runTui(home: string): Promise<number> {
   }
   await new PsporeTuiApp({ socketPath: endpoint.socket }).run();
   return 0;
+}
+
+async function runDesktop(home: string): Promise<number> {
+  const entry = fileURLToPath(new URL("../desktop/main.js", import.meta.url));
+  try {
+    await access(entry);
+  } catch {
+    throw new CliError(`Electron entry is not built at ${entry}; run \`npm run build\` first`);
+  }
+  const require = createRequire(import.meta.url);
+  const electron: unknown = require("electron");
+  if (typeof electron !== "string") throw new CliError("The local Electron executable could not be resolved");
+  return new Promise<number>((resolve, reject) => {
+    const child = spawn(electron, [entry, "--home", home], { stdio: "inherit", env: process.env });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (signal) reject(new CliError(`Electron exited after signal ${signal}`));
+      else resolve(code ?? 1);
+    });
+  });
 }
 
 async function runPrompt(home: string, text: string): Promise<number> {
@@ -466,7 +490,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  desktop          Open the secure Electron 43 client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

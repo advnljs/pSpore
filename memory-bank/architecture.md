@@ -42,6 +42,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 15. MCP 结果受 byte budget 约束，超限内容写入私有 artifact；audit 只保存参数哈希。transport 失败进入指数退避，空闲连接自动关闭；v1 没有 sandbox executor，因此 `sandboxed` 配置 fail closed。
 16. 生成资源只允许从 `workspace/staging` 检查；目录内容形成 deterministic SHA-256，显式安装必须提交相同 digest。安装使用不可变私有目录，trust store 只信任 exact content，不执行 staging 代码，也不自动运行依赖 lifecycle scripts。
 17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
+18. Electron main 是桌面侧唯一 UDS owner；renderer 使用原生 DOM，仅通过固定 preload API 发送离散 action。main 对 action、snapshot/event、JSON 深度/大小和 event type 做二次校验，连续 delta 可合并但 cursor 顺序不可跳过。
 
 ## 重要约束
 
@@ -63,3 +64,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-10：Subagent 落地为同进程独立 Pi session actor；`AgentManager` 管理有界 tree、串行 mailbox、budget/permission ceiling 和级联取消，Kernel 仅归并 agent/message 领域事件。
 - 2026-08-10：MCP 落地为官方 SDK adapter；stdio/Streamable HTTP 均严格配置、lazy connect、allow/deny schema 激活、统一 policy gate、取消/超时/空闲关闭/退避和 health event，不将第三方协议对象泄漏到公共协议。
 - 2026-08-10：资源信任与扩展生命周期落地：staging inspect、内容寻址安装/撤销、symlink/tamper fail closed、host manifest/capability/restart activation，以及 Pi skills 的 session-boundary progressive disclosure。
+- 2026-08-10：Phase 4 Electron 43 落地：安全 main/preload/原生 DOM renderer、固定 action IPC、UDS 重连与 delta coalescing、共享 protocol store、审批/agent/automation/integration UI，以及可重复的 1920×1080 Xvfb 安全视觉验收。

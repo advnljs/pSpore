@@ -160,3 +160,24 @@
 - 运行验证：最新 `dist/` 完成 `init → daemon → resource inspect → exact install → skills/status/doctor`；真实 `160×45` TTY 显示 active skill，执行 `/skills` 与 `/quit` 后终端恢复；Daemon SIGINT exit 0，临时 home 已删除。
 - 当前状态：Phase 3 完成，当前无常驻验收实例；进入 Electron 43 最后阶段。
 - 遗留问题：Electron 43 客户端与最终跨客户端/安全/视觉验收。
+
+## 2026-08-10 02:28 CST — Phase 4 Electron 43 与功能 v1 完成
+
+- 阶段目标：在不采用 Tauri 的前提下完成 Electron 43 客户端，使其与 TUI 共享同一 Daemon，并通过安全、重连、交互和 `1920×1080` 视觉验收。
+- 完成内容：
+  - 实现 Electron main process `DaemonBridge`：独占 UDS、authoritative snapshot/cursor、gap 断开、指数退避重连和保序连续 delta coalescing；Electron 退出不停止 Daemon。
+  - 实现严格 `DesktopCommand` allowlist 与 runtime decoder；renderer 不可提交 protocol type/channel 或任意路径。resource 操作只接受单层 staging name，由 main 解析到配置 workspace，Daemon 再做 canonical containment。
+  - main 对 server hello、Kernel snapshot、event type/payload 和返回值做 JSON depth/node/string/collection 边界校验；不把未经验证的 UDS 对象送入 renderer。
+  - preload 仅暴露 `bootstrap/dispatch/subscribe`；BrowserWindow 启用 `contextIsolation/sandbox`，关闭 Node integration/webview/insecure content，拒绝权限、下载、远程请求、外部导航和新窗口；HTML 使用严格 CSP。
+  - 使用原生 DOM/TypeScript 实现 main/child session tree、transcript/streaming、prompt/steer/follow-up/abort/compact、child spawn/send/join/cancel、approval overlay、job/run、MCP、trusted resource、notification 和 activity UI；动态内容只写 Text node/`textContent`。
+  - 构建流程同步 preload/HTML/CSS；新增 `pspore desktop`、`npm run desktop` 与自包含 `npm run test:electron`。
+- 修改文件：`src/desktop/`、`scripts/copy-desktop-assets.mjs`、`scripts/electron-smoke.mjs`、`src/cli/main.ts`、`package.json`、4 个 desktop unit/integration test、README、详细设计与 memory-bank。
+- 验证方式与结果：
+  - `npm run check`：通过；严格 typecheck、75 项测试、production build 全部成功。
+  - `npm run test:electron`：通过；真实临时 Daemon + Electron `43.3.0` + Xvfb，精确 viewport/capture 均为 `1920×1080`，自动验证断线重连与 allowlisted IPC round trip。
+  - renderer probe：`process/require/Buffer/electron` 全为 `undefined`，全局 API 仅 `bootstrap/dispatch/subscribe`；任意 `shell.exec` action 被 main 拒绝；CSP 与安全基线一致。
+  - 视觉/交互 probe 与人工截图检查：document 无横纵溢出；transcript 可滚动、长代码在自身区域横向滚动、tool output 默认折叠、streaming delta 可见、composer 完整固定可见、approval modal 不越界、背景 inert 且初始焦点落在“拒绝”。
+  - 跨客户端 live smoke：真实 `160×45` TUI 与 Electron 同时连接同一 socket，`ss` 显示两个 ESTAB；TUI `/quit` exit 0 并恢复 terminal，Electron 单独 SIGTERM exit 0，Daemon SIGINT exit 0。
+  - 环境与供应链：Node `v24.19.0`、Electron `v43.3.0`；`npm audit --omit=dev --audit-level=high` 为 0 vulnerabilities；源码与 `dist` desktop 静态资源一致，package/lockfile 无 Tauri dependency。
+- 当前状态：Phase 0—4 与功能 v1 全部完成；最新 `dist/` 已构建。当前无常驻验收实例，因为 Xvfb、Daemon 和临时 home 均已在验证后正常停止/删除；可用 `npm run desktop` 启动真实客户端，或用 `npm run test:electron` 完整复现验收。
+- 遗留问题：真实付费 provider 与真实 sudo 未在自动测试中使用；sandbox/vector/remote/mobile 仍按 v1 非目标延期，不阻塞 v1。

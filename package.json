@@ -11,10 +11,12 @@
     "pspore": "./dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/copy-desktop-assets.mjs",
+    "desktop": "npm run build && electron dist/desktop/main.js",
     "dev": "tsx src/cli/main.ts",
     "start": "node dist/cli/main.js",
     "test": "tsx --test test/**/*.test.ts",
+    "test:electron": "npm run build && node scripts/electron-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run build"
   },

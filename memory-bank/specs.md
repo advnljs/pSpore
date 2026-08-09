@@ -38,5 +38,7 @@
 - subagent 有预算、权限继承、取消、文件并发和消息路由定义。
 - token/KV cache 有稳定前缀、动态上下文与真实指标策略。
 - Electron 后置阶段视觉测试主基准为 `1920 × 1080`；核心 v1 使用固定 `160 × 45` TUI snapshot，未要求时不扩展设备矩阵。
+- Electron renderer 必须保持 `contextIsolation + sandbox`、关闭 Node integration，只暴露固定 allowlisted API；外部导航、新窗口、下载、远程 script 和任意 channel/path IPC 均不得开放。
+- Electron 验收必须覆盖与 TUI 同时连接同一 Daemon、断线重连、streaming delta、长消息/代码 overflow、transcript scroll、工具输出折叠、固定 composer、审批 modal 与焦点。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。

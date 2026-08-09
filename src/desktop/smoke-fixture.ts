@@ -1,0 +1,235 @@
+import type { AgentSnapshot, RuntimeMessage } from "../domain/runtime.js";
+import type { AgentMessage } from "../agents/types.js";
+import { initialKernelState, type KernelState } from "../kernel/state.js";
+import type { NotificationRecord } from "../notifications/notification-service.js";
+
+const NOW = "2026-08-10T08:30:00.000Z";
+
+export function createDesktopSmokeState(base: KernelState | null, includeApproval: boolean): KernelState {
+  const seed = base ?? initialKernelState();
+  const mainMessages: RuntimeMessage[] = [
+    { role: "user", text: "请检查工作区、验证测试，并给出一个可以执行的结论。" },
+    {
+      role: "assistant",
+      text: "我已经读取项目约束，正在并行核对构建、测试与运行状态。这里的状态来自本地 Daemon；关闭桌面窗口不会中断权威会话。",
+    },
+    {
+      role: "tool",
+      text: Array.from({ length: 48 }, (_, index) => `${String(index + 1).padStart(3, "0")}  test/integration/check-${index + 1}.test.ts  PASS  ${18 + index}ms`).join("\n"),
+    },
+    {
+      role: "assistant",
+      text: "长代码块会在自身容器中滚动，不会撑破会话布局：\n\n```ts\nexport async function reconcileAuthoritativeSnapshot(snapshot: KernelState, cursor: number): Promise<void> {\n  const deliberatelyLongIdentifierForHorizontalOverflowVerification = snapshot.sessions['main']?.messages.map((message) => message.text).join(' → ');\n  await commit({ snapshot, cursor, deliberatelyLongIdentifierForHorizontalOverflowVerification });\n}\n```\n\n接下来等待子 Agent 汇总资源信任检查。",
+    },
+    { role: "user", text: "同时确认 MCP 不会在启动时被提前连接。" },
+    { role: "assistant", text: "已确认：MCP 保持 idle，只会在 discover、ping 或实际调用时按需连接；不受信配置会 fail closed。" },
+  ];
+  const childMessages: RuntimeMessage[] = [
+    { role: "user", text: "审阅扩展加载边界，并把证据发回主会话。" },
+    { role: "assistant", text: "正在检查 manifest、内容摘要与 capability grant。已验证 staging 内容在信任前不会执行。" },
+  ];
+  const main = session("main", "upstream-main", mainMessages, "idle", {
+    input: 18_420,
+    output: 3_180,
+    cacheRead: 12_900,
+    cacheWrite: 1_200,
+    total: 35_700,
+    costUsd: 0.042,
+  });
+  const child = session("agent-resource-audit", "upstream-child", childMessages, "running", {
+    input: 6_400,
+    output: 980,
+    cacheRead: 4_200,
+    cacheWrite: 320,
+    total: 11_900,
+    costUsd: 0.011,
+  });
+
+  return {
+    ...structuredClone(seed),
+    revision: 42,
+    daemon: {
+      phase: "ready",
+      instanceId: seed.daemon.instanceId ?? "desktop-smoke-daemon",
+      startedAt: seed.daemon.startedAt ?? "2026-08-10T08:00:00.000Z",
+    },
+    sessions: { ...seed.sessions, main, [child.sessionId]: child },
+    approvals: includeApproval
+      ? {
+          "approval-desktop-smoke": {
+            id: "approval-desktop-smoke",
+            sessionId: "main",
+            agentPath: ["main", "agent-resource-audit"],
+            toolCallId: "tool-shell-42",
+            capability: "process.exec",
+            canonicalTarget: "/home/user/project",
+            display: {
+              summary: "执行项目发布前检查",
+              command: "npm run check && git status --short",
+              cwd: "/home/user/project",
+            },
+            riskReasons: ["命令会启动子进程", "工作区可能包含未提交改动"],
+            requestedAt: NOW,
+            expiresAt: "2026-08-10T08:35:00.000Z",
+            allowedScopes: ["once", "session"],
+          },
+        }
+      : {},
+    runs: {
+      ...seed.runs,
+      "run-nightly-health": {
+        version: 1,
+        revision: 3,
+        id: "run-nightly-health",
+        slotKey: "health:2026-08-10T08:30",
+        source: "cron",
+        jobId: "nightly-health",
+        scheduledFor: NOW,
+        receivedAt: NOW,
+        objective: "Run local health checks",
+        activity: { kind: "command", command: "npm run check", cwd: "/home/user/project" },
+        policyRef: "default",
+        concurrency: "forbid",
+        timeoutMs: 120_000,
+        budget: { maxTurns: 2, maxToolCalls: 8, maxInputTokens: 8_000, maxOutputTokens: 2_000, maxChildren: 0 },
+        delivery: { kind: "local-notification" },
+        status: "running",
+        startedAt: NOW,
+      },
+      "run-boot-summary": {
+        version: 1,
+        revision: 2,
+        id: "run-boot-summary",
+        slotKey: "boot:desktop-smoke-daemon",
+        source: "boot",
+        scheduledFor: "2026-08-10T08:00:00.000Z",
+        receivedAt: "2026-08-10T08:00:00.000Z",
+        objective: "BOOT.md",
+        activity: { kind: "agent", prompt: "Summarize startup state", cwd: "/home/user/project" },
+        policyRef: "default",
+        concurrency: "forbid",
+        timeoutMs: 60_000,
+        budget: { maxTurns: 2, maxToolCalls: 6, maxInputTokens: 6_000, maxOutputTokens: 1_500, maxChildren: 0 },
+        delivery: { kind: "none" },
+        status: "succeeded",
+        startedAt: "2026-08-10T08:00:01.000Z",
+        finishedAt: "2026-08-10T08:00:04.000Z",
+      },
+    },
+    notifications: [
+      ...seed.notifications,
+      {
+        version: 1,
+        id: "notification-smoke",
+        ts: "2026-08-10T08:29:00.000Z",
+        level: "success",
+        title: "资源检查完成",
+        body: "skill/review-helper 的摘要与安装内容一致。",
+        source: { kind: "agent", sessionId: "agent-resource-audit" },
+        target: { kind: "local-notification" },
+      } satisfies NotificationRecord,
+    ].slice(-200),
+    agents: {
+      ...seed.agents,
+      "agent-resource-audit": {
+        version: 1,
+        id: "agent-resource-audit",
+        sessionId: child.sessionId,
+        parentId: "main",
+        rootId: "main",
+        objective: "审阅扩展加载边界",
+        cwd: "/home/user/project",
+        depth: 1,
+        workspaceMode: "shared-read",
+        budget: { maxTurns: 8, maxToolCalls: 24, maxInputTokens: 50_000, maxOutputTokens: 8_000, maxChildren: 0 },
+        status: "running",
+        createdAt: "2026-08-10T08:27:00.000Z",
+        startedAt: "2026-08-10T08:27:01.000Z",
+      },
+    },
+    agentMessages: [
+      ...seed.agentMessages,
+      {
+        version: 1,
+        id: "agent-message-smoke",
+        senderId: "main",
+        recipientId: "agent-resource-audit",
+        sequence: 1,
+        correlationId: "desktop-smoke",
+        priority: "high",
+        mode: "steer",
+        text: "特别核对 capability grant。",
+        tokenEstimate: 12,
+        ts: "2026-08-10T08:28:00.000Z",
+      } satisfies AgentMessage,
+    ].slice(-500),
+    mcpServers: {
+      ...seed.mcpServers,
+      filesystem: {
+        version: 1,
+        serverId: "filesystem",
+        status: "idle",
+        transport: "stdio",
+        toolCount: 7,
+        failureCount: 0,
+        updatedAt: NOW,
+      },
+      research: {
+        version: 1,
+        serverId: "research",
+        status: "ready",
+        transport: "streamable-http",
+        toolCount: 4,
+        failureCount: 0,
+        updatedAt: NOW,
+        connectedAt: "2026-08-10T08:29:20.000Z",
+      },
+    },
+    resources: {
+      ...seed.resources,
+      "skill:review-helper": {
+        version: 1,
+        key: "skill:review-helper",
+        kind: "skill",
+        name: "review-helper",
+        resourceVersion: "1.0.0",
+        digest: "a".repeat(64),
+        status: "active",
+        updatedAt: NOW,
+        restartRequired: false,
+      },
+      "host-plugin:local-trigger": {
+        version: 1,
+        key: "host-plugin:local-trigger",
+        kind: "host-plugin",
+        name: "local-trigger",
+        resourceVersion: "1.1.0",
+        digest: "b".repeat(64),
+        status: "ready",
+        updatedAt: NOW,
+        restartRequired: false,
+      },
+    },
+  };
+}
+
+function session(
+  sessionId: string,
+  upstreamSessionId: string,
+  messages: RuntimeMessage[],
+  status: AgentSnapshot["status"],
+  usage: AgentSnapshot["usage"],
+): AgentSnapshot {
+  return {
+    sessionId,
+    upstreamSessionId,
+    cwd: "/home/user/project",
+    status,
+    model: { provider: "local", model: "v1-smoke" },
+    thinking: "medium",
+    messages,
+    entries: messages,
+    queue: { steering: [], followUp: [] },
+    usage,
+  };
+}

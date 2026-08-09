@@ -25,7 +25,10 @@
 | `src/notifications/` | durable notification store、run delivery 与 notify tool |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
-| `src/cli/main.ts` | init/daemon/status/doctor/tui/prompt/version 入口 |
+| `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、IPC validation、安全基线与 smoke fixture |
+| `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
+| `scripts/electron-smoke.mjs` | 临时 Daemon + Xvfb + 1920×1080 Electron 自动验收与清理 |
+| `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
 | `.gitignore` | 未来 Node 产物、环境文件、私钥与本地 pSpore 数据排除 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
 | `memory-bank/architecture.md` | 架构摘要、边界、决策与历史 |
@@ -39,6 +42,7 @@
 - `module-policy-shell.md`：权限、审批、Shell、PTY、sudo 与安全。
 - `module-automation-agents.md`：trigger、BOOT、cron、subagent 与双工。
 - `module-interface-protocol.md`：Gateway、协议、TUI/Electron 与重连。
+- `module-desktop.md`：Electron main/preload/renderer、安全边界、视觉与 smoke harness。
 - `module-extensions-integrations.md`：skills、plugins、MCP 与信任边界。
 - `module-storage-daemon.md`：home、原子存储、锁、Daemon 启停与 CLI。
 
@@ -49,7 +53,7 @@
 - Pi 边界：`src/pi/pi-runtime-adapter.ts`
 - Protocol/Gateway：`src/protocol/`、`src/gateway/`
 - TUI：`src/ui/tui/`
-- 测试：`test/unit/`、`test/contract/`、`test/integration/`
+- 测试：`test/unit/`、`test/contract/`、`test/integration/`；Electron 实机 smoke 由 `scripts/electron-smoke.mjs` 驱动。
 
 ## 构建、运行与测试
 
@@ -63,13 +67,15 @@
 - 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
+- Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；要求已有 Daemon，固定视觉基准 `1920×1080`。
+- Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动创建/清理临时 home；`PSPORE_KEEP_SMOKE=1` 保留证据）。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。
 - Subagent：`npm run dev -- agents`；`agent spawn <objective>`、`agent send <id> <message>`、`agent join <id...>`、`agent cancel <id>`。
 - MCP：`npm run dev -- mcp list`；`mcp discover <server-id>`、`mcp tools`、`mcp ping <server-id>`。配置位于 `config.json#mcpServers`，secret 仅通过 `envRefs/headerRefs` 引用。
 - 资源：`npm run dev -- resources|skills|plugins`；`resource inspect <staging-path>`、`resource install <path> <sha256>`、`resource disable <kind> <name> <sha256>`。staging 位于 `workspace/staging/`，trust store 位于 `state/resource-trust.json`。
-- Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。
+- Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。`npm run build` 会同步 desktop 静态资源。
 
 ## 配置与运行数据
 

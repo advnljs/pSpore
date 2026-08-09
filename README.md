@@ -4,7 +4,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 
 ## 当前状态
 
-项目已进入实现阶段：Phase 0 运行时契约、Phase 1 可运行核心纵切、Phase 2 memory/automation，以及 Phase 3 subagent、MCP、resource trust/skills/plugin lifecycle 已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、pinned memory、exact/BM25、cron/BOOT、durable run ledger、可限制双工 subagent tree、按需 MCP、受信资源安装、UDS Daemon、CLI 和可重连 TUI；Electron 是剩余的最后实现阶段。不要把详细设计中尚未落地的接口或命令误认为已经实现。
+功能 v1 已完成。Phase 0—4 的 Node/Pi 契约、Kernel、私有存储、权限/审批、Shell、pinned memory、exact/BM25、cron/BOOT、durable run ledger、双工 subagent tree、按需 MCP、受信资源生命周期、UDS Daemon、CLI、可重连 TUI，以及安全 Electron 43 客户端均已落地。TUI 与 Electron 同时连接同一个权威 Daemon；桌面 renderer 不拥有 Node 或文件系统权限。
 
 - 原始想法：[initial_design.txt](initial_design.txt)
 - 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
@@ -27,6 +27,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 ```bash
 npm install
 npm run check
+npm run test:electron
 npm run build
 
 node dist/cli/main.js init
@@ -39,6 +40,7 @@ node dist/cli/main.js daemon
 node dist/cli/main.js status
 node dist/cli/main.js doctor
 node dist/cli/main.js tui
+node dist/cli/main.js desktop
 node dist/cli/main.js jobs
 node dist/cli/main.js runs
 node dist/cli/main.js notifications
@@ -64,6 +66,10 @@ Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 
 
 生成或复制来的 skill/host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
 
-## 下一步
+Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/subscribe` 三个固定 API；renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。桌面端支持主/子会话、流式消息、steer/follow-up/abort、审批、run、MCP 与受信资源操作。
 
-完成 Electron 43 main/preload/renderer、安全 IPC、共享 protocol store 与 `1920 × 1080` 验收。
+`npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home、启动真实 Daemon，并在 `1920 × 1080` viewport 自动验证重连、IPC allowlist、renderer 权限隔离、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留临时截图与 JSON 探针。
+
+## v1 之后
+
+默认不继续扩大到 sandbox executor、vector、remote transport、mobile 或插件市场；这些能力只有在明确提出需求并重新评估边界后进入后续版本。
