@@ -11,6 +11,15 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
+| `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
+| `src/application/agent-application.ts` | UDS command use cases 与 per-session 串行化 |
+| `src/kernel/` | 纯 reducer、权威 state 与串行 effect loop |
+| `src/storage/` | home/config 初始化、atomic write、JSONL、PID+start lock |
+| `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
+| `src/tools/core-tools.ts` | read/edit/search/shell 固定基础工具 |
+| `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
+| `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
+| `src/cli/main.ts` | init/daemon/status/doctor/tui/prompt/version 入口 |
 | `.gitignore` | 未来 Node 产物、环境文件、私钥与本地 pSpore 数据排除 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
 | `memory-bank/architecture.md` | 架构摘要、边界、决策与历史 |
@@ -25,14 +34,16 @@
 - `module-automation-agents.md`：trigger、BOOT、cron、subagent 与双工。
 - `module-interface-protocol.md`：Gateway、协议、TUI/Electron 与重连。
 - `module-extensions-integrations.md`：skills、plugins、MCP 与信任边界。
+- `module-storage-daemon.md`：home、原子存储、锁、Daemon 启停与 CLI。
 
-## 未来实现入口（设计目标，尚不存在）
+## 实现入口
 
-- CLI：`src/cli/`
-- Kernel：`src/kernel/`
-- Pi 边界：`src/pi/`
+- CLI：`src/cli/main.ts`
+- Kernel/Application/Daemon：`src/kernel/`、`src/application/`、`src/daemon/`
+- Pi 边界：`src/pi/pi-runtime-adapter.ts`
 - Protocol/Gateway：`src/protocol/`、`src/gateway/`
-- 测试：`test/unit/`、`test/contract/`、`test/integration/`、`test/visual/`
+- TUI：`src/ui/tui/`
+- 测试：`test/unit/`、`test/contract/`、`test/integration/`
 
 ## 构建、运行与测试
 
@@ -41,10 +52,15 @@
 - 测试：`npm test`
 - 构建：`npm run build`
 - 全量阶段检查：`npm run check`
-- 当前尚无可启动 Daemon/TUI；`npm run dev` 将在 Phase 1 CLI 入口落地后可用。
+- 源码 CLI：`npm run dev -- <command>`；构建后 CLI：`node dist/cli/main.js <command>`。
+- 初始化：`npm run dev -- init`。
+- 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
+- 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
+- TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
+- 单 prompt：`npm run dev -- prompt "..."`。
 - Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。
 
-## 配置与运行数据（设计目标，尚不存在）
+## 配置与运行数据
 
 - 默认根目录：`~/.pspore/`
 - 配置：`~/.pspore/config.json`

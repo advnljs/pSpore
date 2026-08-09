@@ -48,3 +48,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 
 - 2026-08-09：从概念草案建立首版详细架构；修正“单物理 loop”“完全相同 shell 环境”“cron exactly-once”“审批可约束插件代码”等不成立假设。
 - 2026-08-09：实现阶段固定 Node 24 与 Pi `v0.84.1`，最终客户端由 Tauri 改为 Electron 43；核心先由 TUI 验收。
+- 2026-08-09：Phase 1 落地模块化单体纵切；Daemon 通过私有 UDS 暴露自有 v1 协议，Application 串行化同 session 命令，Kernel 仍是唯一权威状态提交点，TUI 仅维护可丢弃的协议 store。

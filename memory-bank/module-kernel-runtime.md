@@ -6,13 +6,15 @@
 
 ## 入口文件
 
-当前入口：`src/pi/pi-runtime-adapter.ts`；Kernel loop/reducer 将在 Phase 1 实现。
+当前入口：`src/daemon/daemon.ts`、`src/application/agent-application.ts`、`src/kernel/loop.ts`、`src/kernel/reducer.ts`、`src/pi/pi-runtime-adapter.ts`。
 
 ## 关键文件
 
 - 详细契约：`docs/detailed-design.md` 第 6、7 节。
 - 架构摘要：`memory-bank/architecture.md`。
 - 版本与兼容决策：`docs/adr/0001-runtime-and-pi-baseline.md`。
+- `test/unit/kernel.test.ts`：纯 reducer 与串行 commit。
+- `test/integration/daemon.test.ts`：ready、懒 session、UDS prompt、幂等与 graceful shutdown。
 
 ## 对外接口
 
@@ -26,7 +28,7 @@
 
 ## 外部依赖
 
-`PiRuntimeAdapter` 计划依赖锁定版本的 `@earendil-works/pi-coding-agent`，Kernel 本身不依赖 Pi。
+`PiRuntimeAdapter` 依赖锁定版本的 `@earendil-works/pi-coding-agent`；Kernel 本身只依赖领域类型，不导入 Pi、Node I/O 或 UI。
 
 ## 注意事项
 
@@ -34,6 +36,7 @@
 - session replacement 后必须重新绑定 Pi 事件订阅。
 - Pi `agent_end` 不是 settled；需要等 retry/compaction/follow-up 全部结束。
 - effect 成功、失败、取消都必须回投事件，不能直接改 state。
+- 当前只完成单 main session 纵切；durable event log、session mapping/resume、run ledger 与多 actor budget 尚未实现。
 
 ## 常见修改点
 

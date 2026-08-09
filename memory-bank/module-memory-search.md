@@ -6,7 +6,7 @@
 
 ## 入口文件
 
-设计目标：`src/memory/context-loader.ts`、`src/memory/search-service.ts`、`src/memory/bm25-index.ts`。当前尚未实现。
+当前 Phase 1 基础入口：`src/daemon/daemon.ts` 读取配置中的 pinned files；`src/tools/core-tools.ts` 提供有输出上限的 ripgrep exact search。受限 context loader、memory tools、BM25/index 尚未实现。
 
 ## 关键文件
 
@@ -32,6 +32,7 @@ storage atomic writer、token estimator、path policy、artifact reader。
 - 搜索片段进入上下文后会发送给模型 provider。
 - 默认排除 secret、binary、vendor/cache；symlink 必须 canonicalize。
 - `MEMORY.md` 修改会影响 KV prefix，应低频、受控、可追踪。
+- 当前 pinned loader 尚未执行 `maxPinnedTokens`、workspace 边界与 hash reload 约束，因此只算基础接线，不能宣称 memory v1 完成。
 
 ## 常见修改点
 

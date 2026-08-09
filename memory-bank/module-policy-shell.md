@@ -6,12 +6,14 @@
 
 ## 入口文件
 
-当前入口：`src/shell/shell-service.ts`；policy/approval 将在 Phase 1 实现。
+当前入口：`src/policy/policy.ts`、`src/policy/approval-service.ts`、`src/shell/shell-service.ts`、`src/tools/core-tools.ts`。
 
 ## 关键文件
 
 - 详细契约：`docs/detailed-design.md` 第 11、12 节。
 - Linux contract：`test/integration/shell-service.test.ts`。
+- policy/approval contract：`test/unit/policy-approval.test.ts`。
+- 基础工具 integration：`test/integration/core-tools.test.ts`。
 
 ## 对外接口
 
@@ -25,7 +27,7 @@ Kernel event bus、storage/audit、gateway approval channel、run budget、path 
 
 ## 外部依赖
 
-Linux user/shell/PTY/process APIs；具体 PTY library 需在 Phase 0 经依赖确认。
+Linux user/shell/process APIs；PTY 通过系统 util-linux `script` 与受控 Node bridge 实现，不新增 native PTY 依赖。
 
 ## 注意事项
 
@@ -33,6 +35,8 @@ Linux user/shell/PTY/process APIs；具体 PTY library 需在 Phase 0 经依赖�
 - `allow_all` 可导致当前用户级任意代码执行；sudo 可能到 root。
 - secret input 必须是用户到 PTY 的独立通道，模型不可见且不可持久化。
 - plugin/extension/MCP server 加载属于代码信任，不能只靠 tool approval。
+- approval 必须先写 `pending.json` 再发布；first response wins，timeout/持久化失败/重启恢复均 fail closed。
+- 当前 session scope grant 已实现；job scope 只有协议字段，需随 scheduler/run grant 一起实现。
 
 ## 常见修改点
 

@@ -4,7 +4,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 
 ## 当前状态
 
-项目已进入实现阶段：Phase 0 的 Node/TypeScript 工程、Pi adapter contract 和 Linux Shell/PTY 风险 spike 已落地；Kernel、Daemon、TUI 与其余 v1 模块仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
+项目已进入实现阶段：Phase 0 运行时契约与 Phase 1 的可运行核心纵切已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、UDS Daemon、CLI 和可重连 TUI；memory/BM25、cron/BOOT、subagent、MCP 与 Electron 仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
 
 - 原始想法：[initial_design.txt](initial_design.txt)
 - 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
@@ -20,6 +20,29 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 - skills、Pi extensions、pSpore plugins 和本地 MCP server 都可能执行任意代码，只能在显式信任后加载。
 - 默认记忆检索为精确搜索与 BM25；向量搜索保留为可插拔扩展，不属于首版范围。
 
+## 当前可运行流程
+
+要求 Node.js 24。项目使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
+
+```bash
+npm install
+npm run check
+npm run build
+
+node dist/cli/main.js init
+node dist/cli/main.js daemon
+```
+
+另开终端后可运行：
+
+```bash
+node dist/cli/main.js status
+node dist/cli/main.js doctor
+node dist/cli/main.js tui
+```
+
+Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。TUI 普通输入创建新 prompt，忙时必须显式使用 `/steer` 或 `/follow`；`/abort`、`/approve`、`/deny`、`/compact` 和 `/quit` 可直接使用。
+
 ## 下一步
 
-继续完成详细设计的 Phase 1：Kernel、storage、policy、UDS 和 TUI 的可运行纵向切片。
+继续完成详细设计的 Phase 2：受限 pinned context、memory append/curate、exact + BM25 索引、cron/BOOT 与故障恢复。
