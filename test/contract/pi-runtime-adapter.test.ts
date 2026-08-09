@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -28,6 +28,7 @@ async function fixture(
     tokenSize?: { min: number; max: number };
     toolGate?: ToolGate;
     createTools?: () => readonly ToolDefinition[];
+    createSkillPaths?: () => readonly string[] | Promise<readonly string[]>;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "pspore-pi-contract-"));
@@ -49,6 +50,7 @@ async function fixture(
     resolveModel: () => faux.getModel(),
     ...(options.toolGate ? { toolGate: options.toolGate } : {}),
     ...(options.createTools ? { createTools: options.createTools } : {}),
+    ...(options.createSkillPaths ? { createSkillPaths: options.createSkillPaths } : {}),
   });
   cleanups.push(async () => {
     await adapter.disposeAll();
@@ -257,5 +259,56 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
 
     assert.ok(events.some((event) => event.type === "compaction.started"));
     assert.ok(events.some((event) => event.type === "compaction.completed"));
+  });
+
+  test("reloads trusted skill paths only at a session boundary and keeps full instructions out of the prompt", async () => {
+    let skillPaths: string[] = [];
+    const readTool = defineTool({
+      name: "read",
+      label: "Read",
+      description: "Read a file for the skill progressive-disclosure contract.",
+      parameters: Type.Object({ path: Type.String() }),
+      execute: async () => ({ content: [{ type: "text" as const, text: "unused" }], details: {} }),
+    });
+    const { adapter, faux, root } = await fixture({
+      createTools: () => [readTool],
+      createSkillPaths: () => skillPaths,
+    });
+    const prompts: string[] = [];
+    faux.setResponses([
+      (context) => {
+        prompts.push(context.systemPrompt ?? "");
+        return fauxAssistantMessage("before skill install");
+      },
+      (context) => {
+        prompts.push(context.systemPrompt ?? "");
+        return fauxAssistantMessage("after skill install");
+      },
+    ]);
+    await adapter.create(spec(root));
+    await adapter.prompt("main", "before");
+    await adapter.waitForIdle("main");
+
+    const skill = join(root, "trusted-skill");
+    await mkdir(skill);
+    await writeFile(join(skill, "SKILL.md"), [
+      "---",
+      "name: trusted-review",
+      "description: Reviews code only when a review task matches.",
+      "---",
+      "",
+      "FULL_SKILL_BODY_SENTINEL must only be read on demand.",
+      "",
+    ].join("\n"));
+    skillPaths = [skill];
+    await adapter.newSession("main");
+    await adapter.prompt("main", "after");
+    await adapter.waitForIdle("main");
+
+    assert.doesNotMatch(prompts[0] ?? "", /trusted-review/);
+    assert.match(prompts[1] ?? "", /<name>trusted-review<\/name>/);
+    assert.match(prompts[1] ?? "", /Reviews code only when a review task matches/);
+    assert.match(prompts[1] ?? "", /SKILL\.md/);
+    assert.doesNotMatch(prompts[1] ?? "", /FULL_SKILL_BODY_SENTINEL/);
   });
 });

@@ -28,6 +28,7 @@ import { createMcpTools } from "../mcp/mcp-tools.js";
 import { NotificationService } from "../notifications/notification-service.js";
 import { createNotificationTools } from "../notifications/notification-tools.js";
 import { PiRuntimeAdapter } from "../pi/pi-runtime-adapter.js";
+import { ExtensionManager } from "../plugins/extension-manager.js";
 import { ApprovalService, PolicyToolGate } from "../policy/approval-service.js";
 import { PolicyEngine } from "../policy/policy.js";
 import { ShellService } from "../shell/shell-service.js";
@@ -40,6 +41,7 @@ export interface DaemonRuntimeFactoryContext {
   config: PsporeConfig;
   toolGate: ToolGate;
   tools: readonly ToolDefinition[];
+  skillPaths: () => Promise<readonly string[]>;
 }
 
 export interface StartDaemonOptions {
@@ -66,6 +68,7 @@ export class PsporeDaemon {
   readonly #scheduler: Scheduler;
   readonly #agents: AgentManager;
   readonly #mcp: McpManager;
+  readonly #extensions: ExtensionManager;
   readonly #lock: DaemonLock;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -85,6 +88,7 @@ export class PsporeDaemon {
     scheduler: Scheduler;
     agents: AgentManager;
     mcp: McpManager;
+    extensions: ExtensionManager;
     lock: DaemonLock;
     clock: () => Date;
     idFactory: () => string;
@@ -99,6 +103,7 @@ export class PsporeDaemon {
     this.#scheduler = options.scheduler;
     this.#agents = options.agents;
     this.#mcp = options.mcp;
+    this.#extensions = options.extensions;
     this.#lock = options.lock;
     this.#clock = options.clock;
     this.#idFactory = options.idFactory;
@@ -125,6 +130,7 @@ export class PsporeDaemon {
     let scheduler: Scheduler | undefined;
     let agents: AgentManager | undefined;
     let mcp: McpManager | undefined;
+    let extensions: ExtensionManager | undefined;
     let daemon: PsporeDaemon | undefined;
     const startedAt = clock().toISOString();
     const kernel = new KernelLoop((effect) => {
@@ -166,6 +172,16 @@ export class PsporeDaemon {
         cwd: paths.workspace,
       });
       const toolGate = new PolicyToolGate(policy, approvals);
+      extensions = await ExtensionManager.create({
+        stagingRoot: join(paths.workspace, "staging"),
+        skillsRoot: join(paths.workspace, "skills"),
+        pluginsRoot: paths.plugins,
+        trustPath: paths.resourceTrust,
+        activations: config.plugins,
+        clock,
+        onHealth: (health) => void kernel.dispatch(event({ type: "resource.health", health })),
+      });
+      await extensions.startHostPlugins();
       mcp = await McpManager.create({
         configs: config.mcpServers,
         artifactRoot: paths.artifacts,
@@ -217,12 +233,13 @@ export class PsporeDaemon {
       ];
       const tools = toolsFor("main");
       const runtime = options.runtimeFactory
-        ? await options.runtimeFactory({ paths, config, toolGate, tools })
+        ? await options.runtimeFactory({ paths, config, toolGate, tools, skillPaths: () => extensions?.skillPaths() ?? Promise.resolve([]) })
         : await PiRuntimeAdapter.create({
             agentDir: paths.agentDir,
             sessionRoot: paths.sessions,
             toolGate,
             createTools: toolsFor,
+            createSkillPaths: () => extensions?.skillPaths() ?? [],
           });
       const context = await new PinnedContextLoader({
         workspaceRoot: paths.workspace,
@@ -263,6 +280,7 @@ export class PsporeDaemon {
       });
       application.setAgents(agents);
       application.setMcp(mcp);
+      application.setResources(extensions);
       const ledger = new RunLedger({
         root: paths.runs,
         recoveryDirectory: join(paths.artifacts, "recovery"),
@@ -306,18 +324,27 @@ export class PsporeDaemon {
         scheduler,
         agents,
         mcp,
+        extensions,
         lock,
         clock,
         idFactory,
       });
-      await kernel.dispatch(
-        event({ type: "daemon.transition", daemon: { phase: "ready", instanceId: lock.instanceId, startedAt } }),
-      );
+      const resourceFailure = extensions.listHealth().find((health) => health.status === "blocked" || health.status === "degraded");
+      const phase = resourceFailure ? "degraded" as const : "ready" as const;
+      await kernel.dispatch(event({
+        type: "daemon.transition",
+        daemon: {
+          phase,
+          instanceId: lock.instanceId,
+          startedAt,
+          ...(resourceFailure?.message === undefined ? {} : { error: resourceFailure.message }),
+        },
+      }));
       await writeEndpoint(paths.endpoint, {
         instanceId: lock.instanceId,
         socket: paths.socket,
         pid: process.pid,
-        state: "ready",
+        state: phase,
         startedAt,
       });
       if (config.scheduler.enabled) void scheduler.start().catch((error: unknown) => void markDegraded(kernel, event, error));
@@ -332,6 +359,7 @@ export class PsporeDaemon {
       if (scheduler) await scheduler.stop().catch(() => undefined);
       if (agents) await agents.stop().catch(() => undefined);
       if (application) await application.dispose().catch(() => undefined);
+      if (extensions) await extensions.stop("daemon startup failed").catch(() => undefined);
       if (mcp) await mcp.stop().catch(() => undefined);
       if (approvals) await approvals.close().catch(() => undefined);
       await lock.release().catch(() => undefined);
@@ -378,6 +406,7 @@ export class PsporeDaemon {
     await step(async () => this.#agents.stop());
     await step(async () => this.#approvals.close());
     await step(async () => this.#application.dispose());
+    await step(async () => this.#extensions.stop());
     await step(async () => this.#mcp.stop());
     await step(async () => this.#transition("stopped"));
     await step(async () => this.kernel.idle());

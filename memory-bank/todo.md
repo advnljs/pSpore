@@ -15,9 +15,9 @@
 | P3 | 选择 MCP SDK 与版本 | Done | 无；用户已确认 | 已锁定官方 `@modelcontextprotocol/sdk@1.30.0`，只通过 adapter port 使用 |
 | P3 | 实现 subagent tree/mailbox/budget/cancel 双工 | Done | 无 | 已用 fake model + Daemon/UDS 覆盖两 child 并发、steering、result、ceiling 与 cascade cancel |
 | P3 | 实现 MCP lazy adapter | Done | 无 | 已用官方 SDK fake stdio server 与真实 UDS/CLI 验证 discover/activation/policy/abort/health/idle reconnect/backoff |
-| P3 | 实现 plugin trust/staging 与 skills reload | In progress | 无 | 严格 manifest、内容 digest、显式 trust/install 与 session-boundary resource reload |
+| P3 | 实现 plugin trust/staging 与 skills reload | Done | 无 | 已覆盖 exact digest、symlink/tamper、capability grant、restart lifecycle 与 Pi progressive disclosure |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
-| P4 | Electron 43 桌面客户端 | Pending | MCP/plugin 纵切 | 核心验收后连接同一 protocol/gateway；不再实现 Tauri |
+| P4 | Electron 43 桌面客户端 | In progress | 无 | 连接同一 protocol/gateway，完成安全 main/preload/renderer 与 1920×1080 验收；不实现 Tauri |
 
 ## 已知风险
 

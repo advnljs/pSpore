@@ -40,6 +40,8 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 13. schedule mutation 使用 source SHA-256 compare-and-swap 后原子替换并热重载；notification 先 append JSONL，再发布到客户端 store。
 14. MCP server 只在 discover/call/ping 时连接；配置只保存环境变量引用，不保存 secret。允许列表过滤后才激活 schema，动态 tool registry 在 session 边界更新；当前 session 使用固定的 `mcp_call` bridge。
 15. MCP 结果受 byte budget 约束，超限内容写入私有 artifact；audit 只保存参数哈希。transport 失败进入指数退避，空闲连接自动关闭；v1 没有 sandbox executor，因此 `sandboxed` 配置 fail closed。
+16. 生成资源只允许从 `workspace/staging` 检查；目录内容形成 deterministic SHA-256，显式安装必须提交相同 digest。安装使用不可变私有目录，trust store 只信任 exact content，不执行 staging 代码，也不自动运行依赖 lifecycle scripts。
+17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
 
 ## 重要约束
 
@@ -60,3 +62,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-10：补齐 schedule 原子 create/update 与 runtime cron reload；run delivery/agent notify 统一写 durable notification JSONL，再由 TUI 与 Electron 共享消费。
 - 2026-08-10：Subagent 落地为同进程独立 Pi session actor；`AgentManager` 管理有界 tree、串行 mailbox、budget/permission ceiling 和级联取消，Kernel 仅归并 agent/message 领域事件。
 - 2026-08-10：MCP 落地为官方 SDK adapter；stdio/Streamable HTTP 均严格配置、lazy connect、allow/deny schema 激活、统一 policy gate、取消/超时/空闲关闭/退避和 health event，不将第三方协议对象泄漏到公共协议。
+- 2026-08-10：资源信任与扩展生命周期落地：staging inspect、内容寻址安装/撤销、symlink/tamper fail closed、host manifest/capability/restart activation，以及 Pi skills 的 session-boundary progressive disclosure。

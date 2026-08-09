@@ -41,6 +41,7 @@ export interface PiRuntimeAdapterOptions {
   modelRuntime?: ModelRuntime;
   resolveModel?: (ref: ModelRef | undefined, runtime: ModelRuntime) => Model<string> | undefined;
   createTools?: (sessionId: SessionId) => readonly ToolDefinition[];
+  createSkillPaths?: (sessionId: SessionId) => readonly string[] | Promise<readonly string[]>;
   toolGate?: ToolGate;
   clock?: Clock;
   idFactory?: IdFactory;
@@ -66,6 +67,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #modelRuntime: ModelRuntime;
   readonly #resolveModel: NonNullable<PiRuntimeAdapterOptions["resolveModel"]>;
   readonly #createTools: NonNullable<PiRuntimeAdapterOptions["createTools"]>;
+  readonly #createSkillPaths: NonNullable<PiRuntimeAdapterOptions["createSkillPaths"]>;
   readonly #toolGate: ToolGate | undefined;
   readonly #clock: Clock;
   readonly #idFactory: IdFactory;
@@ -79,6 +81,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       options.resolveModel ??
       ((ref, runtime) => (ref ? (runtime.getModel(ref.provider, ref.model) as Model<string> | undefined) : undefined));
     this.#createTools = options.createTools ?? (() => []);
+    this.#createSkillPaths = options.createSkillPaths ?? (() => []);
     this.#toolGate = options.toolGate;
     this.#clock = options.clock ?? (() => new Date());
     this.#idFactory = options.idFactory ?? randomUUID;
@@ -308,6 +311,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
       const policyExtension = this.#policyExtension(spec);
       const contextFiles = spec.contextFiles ? [...spec.contextFiles] : [];
+      const skillPaths = [...await this.#createSkillPaths(spec.sessionId)].sort();
       const extensionFactories = policyExtension ? [policyExtension] : [];
       const services = await createAgentSessionServices({
         cwd,
@@ -319,6 +323,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
           noPromptTemplates: true,
           noThemes: true,
           noContextFiles: true,
+          ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
           ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           ...(contextFiles.length > 0

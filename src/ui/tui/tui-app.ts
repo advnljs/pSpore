@@ -170,6 +170,56 @@ export class PsporeTuiApp {
         );
         return;
       }
+      if (input === "/resources" || input === "/skills" || input === "/plugins") {
+        const command = input === "/skills" ? "skills.list" : input === "/plugins" ? "plugins.list" : "resources.list";
+        const resources = await this.#command(command, {}) as Array<{
+          record: { kind: string; name: string };
+          health: { status: string };
+        }>;
+        this.#store.setNotice(
+          resources.length > 0
+            ? resources.map((resource) => `${resource.record.kind}:${resource.record.name}:${resource.health.status}`).join("  ")
+            : "No trusted resources",
+        );
+        return;
+      }
+      if (input.startsWith("/resource-inspect ")) {
+        const stagingPath = input.slice(18).trim();
+        if (!stagingPath) throw new Error("Usage: /resource-inspect STAGING_PATH");
+        const inspected = await this.#command("resources.inspect", { stagingPath }) as {
+          kind: string;
+          name: string;
+          digest: string;
+          installable: boolean;
+        };
+        this.#store.setNotice(`${inspected.kind}:${inspected.name} ${inspected.installable ? "installable" : "blocked"} sha256:${inspected.digest}`);
+        return;
+      }
+      if (input.startsWith("/resource-install ")) {
+        const parts = input.slice(18).trim().split(/\s+/);
+        if (parts.length !== 2 || !parts[0] || !parts[1]) {
+          throw new Error("Usage: /resource-install STAGING_PATH SHA256");
+        }
+        const installed = await this.#command("resources.install", {
+          stagingPath: parts[0],
+          expectedDigest: parts[1],
+        }) as { record: { kind: string; name: string }; health: { status: string } };
+        this.#store.setNotice(`Installed ${installed.record.kind}:${installed.record.name} (${installed.health.status})`);
+        return;
+      }
+      if (input.startsWith("/resource-disable ")) {
+        const parts = input.slice(18).trim().split(/\s+/);
+        if (parts.length !== 3 || !parts[0] || !parts[1] || !parts[2]) {
+          throw new Error("Usage: /resource-disable KIND NAME SHA256");
+        }
+        const disabled = await this.#command("resources.disable", {
+          kind: parts[0],
+          name: parts[1],
+          expectedDigest: parts[2],
+        }) as { record: { kind: string; name: string }; health: { status: string } };
+        this.#store.setNotice(`Disabled ${disabled.record.kind}:${disabled.record.name} (${disabled.health.status})`);
+        return;
+      }
       if (input.startsWith("/select ")) {
         const selected = this.#store.selectSession(input.slice(8).trim());
         this.#store.setNotice(`Selected session ${selected}`);

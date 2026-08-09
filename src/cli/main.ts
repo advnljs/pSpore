@@ -8,6 +8,7 @@ import { PsporeDaemon } from "../daemon/daemon.js";
 import type { AgentSnapshot } from "../domain/runtime.js";
 import type { KernelState } from "../kernel/state.js";
 import { ProtocolClient } from "../protocol/client.js";
+import { readResourceTrustSummary } from "../plugins/extension-manager.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { ShellService } from "../shell/shell-service.js";
 import { initializePsporeHome, loadConfig, psporePaths } from "../storage/home.js";
@@ -71,6 +72,17 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       return runAgentCommand(home, args);
     case "mcp":
       return runMcpCommand(home, args);
+    case "resources":
+      requireNoArgs(args, "resources");
+      return printResourceList(home, "resources.list");
+    case "skills":
+      requireNoArgs(args, "skills");
+      return printResourceList(home, "skills.list");
+    case "plugins":
+      requireNoArgs(args, "plugins");
+      return printResourceList(home, "plugins.list");
+    case "resource":
+      return runResourceCommand(home, args);
     case "schedule":
       if (args.length !== 2 || args[0] !== "put") throw new CliError("schedule usage: schedule put JOB.json");
       return putJobFile(home, args[1] as string);
@@ -90,7 +102,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
 async function runDaemon(home: string): Promise<number> {
   const daemon = await PsporeDaemon.start({ home });
-  process.stdout.write(`pSpore daemon ready (PID ${process.pid})\nSocket: ${daemon.paths.socket}\n`);
+  process.stdout.write(`pSpore daemon ${daemon.kernel.snapshot().daemon.phase} (PID ${process.pid})\nSocket: ${daemon.paths.socket}\n`);
   let stopping = false;
   const stop = () => {
     if (stopping) return;
@@ -123,6 +135,7 @@ async function printStatus(home: string): Promise<number> {
         `Pending approvals: ${Object.keys(status.approvals).length}`,
         `Runs: ${Object.keys(status.runs).length} (${Object.values(status.runs).filter((run) => run.status === "running").length} running)`,
         `MCP servers: ${Object.keys(status.mcpServers).length} (${Object.values(status.mcpServers).filter((server) => server.status === "ready").length} ready)`,
+        `Resources: ${Object.keys(status.resources).length} (${Object.values(status.resources).filter((resource) => resource.status === "active" || resource.status === "ready").length} active)`,
       ].join("\n") + "\n",
     );
     return 0;
@@ -147,6 +160,12 @@ async function doctor(home: string): Promise<number> {
       name: "MCP config",
       ok: true,
       detail: `${config.mcpServers.length} configured (${config.mcpServers.filter((server) => server.enabled).length} enabled)`,
+    });
+    const resourceTrust = await readResourceTrustSummary(psporePaths(home, config.runtime.workspace).resourceTrust);
+    checks.push({
+      name: "Resource trust",
+      ok: true,
+      detail: `${resourceTrust.trusted} trusted, ${resourceTrust.disabled} disabled (${resourceTrust.skills} skills, ${resourceTrust.hostPlugins} host plugins)`,
     });
     const shell = new ShellService({
       artifactRoot: psporePaths(home, config.runtime.workspace).artifacts,
@@ -338,6 +357,54 @@ async function runMcpCommand(home: string, args: readonly string[]): Promise<num
   }
 }
 
+async function printResourceList(
+  home: string,
+  command: "resources.list" | "skills.list" | "plugins.list",
+): Promise<number> {
+  const client = await connectFromEndpoint(home, command.split(".")[0] ?? "resources");
+  try {
+    const result = await client.command(command, {});
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
+async function runResourceCommand(home: string, args: readonly string[]): Promise<number> {
+  const action = args[0];
+  const client = await connectFromEndpoint(home, "resource");
+  try {
+    let result: unknown;
+    if (action === "inspect") {
+      const stagingPath = args[1];
+      if (!stagingPath || args.length !== 2) throw new CliError("resource inspect requires exactly one STAGING_PATH");
+      result = await client.command("resources.inspect", { stagingPath });
+    } else if (action === "install") {
+      const stagingPath = args[1];
+      const expectedDigest = args[2];
+      if (!stagingPath || !expectedDigest || args.length !== 3) {
+        throw new CliError("resource install requires STAGING_PATH and the exact inspected SHA256");
+      }
+      result = await client.command("resources.install", { stagingPath, expectedDigest });
+    } else if (action === "disable") {
+      const kind = args[1];
+      const name = args[2];
+      const expectedDigest = args[3];
+      if ((kind !== "skill" && kind !== "host-plugin") || !name || !expectedDigest || args.length !== 4) {
+        throw new CliError("resource disable requires KIND(skill|host-plugin), NAME, and exact SHA256");
+      }
+      result = await client.command("resources.disable", { kind, name, expectedDigest });
+    } else {
+      throw new CliError("resource usage: resource inspect PATH | install PATH SHA256 | disable KIND NAME SHA256");
+    }
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
 async function cancelRun(home: string, runId: string): Promise<number> {
   const client = await connectFromEndpoint(home, "cancel");
   try {
@@ -399,7 +466,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

@@ -105,6 +105,44 @@ describe("config and home initialization", () => {
     );
   });
 
+  test("pins host plugin activation to an exact digest and capability grant", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    const digest = "a".repeat(64);
+    const parsed = parseConfig({
+      ...base,
+      plugins: [{
+        name: "fixture-plugin",
+        enabled: true,
+        digest,
+        grantedCapabilities: ["network.http"],
+      }],
+    }, home);
+    assert.deepEqual(parsed.plugins, [{
+      name: "fixture-plugin",
+      enabled: true,
+      digest,
+      grantedCapabilities: ["network.http"],
+    }]);
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        plugins: [{ name: "fixture-plugin", enabled: true, digest: "latest", grantedCapabilities: [] }],
+      }, home),
+      /lowercase SHA-256/,
+    );
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        plugins: [
+          { name: "same", enabled: true, digest, grantedCapabilities: [] },
+          { name: "same", enabled: false, digest, grantedCapabilities: [] },
+        ],
+      }, home),
+      /duplicate names/,
+    );
+  });
+
   test("fails rather than repairing a malformed existing config", async () => {
     const home = await mkdtemp(join(tmpdir(), "pspore-bad-home-"));
     roots.push(home);

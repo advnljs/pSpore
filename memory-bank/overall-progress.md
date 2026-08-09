@@ -145,3 +145,18 @@
 - 验证方式与结果：`npm run check` 通过（严格类型检查、59 项测试、production build）；真实 SDK stdio contract 覆盖 discovery、allow/deny、schema、call、artifact `0600`、abort、audit、idle reconnect、backoff 与 secret redaction。构建产物 live smoke 完成 Daemon ready、doctor/status、`mcp list → discover → tools → ping`，随后 SIGINT exit 0 并删除临时 home。
 - 当前状态：MCP 纵切完成；当前无常驻验收实例。TUI 以 `160×45` 实际渲染并固定 golden SHA-256，新增 MCP 状态和命令均可见。
 - 遗留问题：继续 plugin trust/staging 与 skills/resource reload；随后进入 Electron 43。
+
+## 2026-08-10 01:47 CST — Phase 3 Resource trust、Skills 与 Host Plugin
+
+- 阶段目标：确保模型生成或外部复制的 skill/plugin 在未经用户审查和 exact trust 前绝不加载，并在受控 session/restart 边界生效。
+- 完成内容：
+  - 实现 `workspace/staging` canonical containment、目录/文件/深度/byte 上限、special file/symlink/node_modules 拒绝、严格 `SKILL.md`/`pspore.plugin.json` schema、依赖/lifecycle 展示与 host entry `node --check`。
+  - 对排序后的 path/mode/content 生成 deterministic SHA-256；install 必须提交 expected digest，使用内存 byte snapshot 写入私有临时目录、目标重验、atomic rename，并把 exact record 写入 `0600 state/resource-trust.json`。
+  - Skills 安装到内容寻址目录；每个新 Pi session/replacement 都重验 digest，并只通过 `additionalSkillPaths` 加载。Pi contract 证明 system prompt 只有 name/description/path，不含完整 skill body。
+  - Host plugin 安装不 import；只有 trust record、`config.plugins` exact digest、manifest capabilities 与 grantedCapabilities 完全匹配后，才在 Daemon restart import/start。生命周期 timeout/error 转为 resource degraded，stop 在 graceful shutdown 执行。
+  - 支持 trust revoke（保留内容、不热卸载）、tamper blocked health、Kernel/protocol/TUI resource health，以及 CLI/TUI `resources/skills/plugins/inspect/install/disable`。
+- 修改文件：`src/plugins/`、Config/Home/Pi adapter/Application/Daemon/Kernel/CLI/TUI、对应 contract/integration/unit tests、README 与 memory-bank。
+- 验证方式与结果：`npm run check` 通过（严格类型检查、66 项测试、production build）；测试覆盖 staging escape/symlink、错误 digest、篡改、未安装代码不执行、capability 缺失阻止、可信 plugin restart start/health/stop、UDS install/revoke 和 Pi session-boundary progressive disclosure。
+- 运行验证：最新 `dist/` 完成 `init → daemon → resource inspect → exact install → skills/status/doctor`；真实 `160×45` TTY 显示 active skill，执行 `/skills` 与 `/quit` 后终端恢复；Daemon SIGINT exit 0，临时 home 已删除。
+- 当前状态：Phase 3 完成，当前无常驻验收实例；进入 Electron 43 最后阶段。
+- 遗留问题：Electron 43 客户端与最终跨客户端/安全/视觉验收。

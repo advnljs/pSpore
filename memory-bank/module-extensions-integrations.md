@@ -7,7 +7,8 @@
 ## 入口文件
 
 - MCP：`src/mcp/mcp-manager.ts`、`src/mcp/mcp-tools.ts`、`src/mcp/types.ts`。
-- Plugin/skills 设计目标：`src/plugins/` 以及 Pi adapter 的 resource-loader bridge；当前尚未实现。
+- Resource/plugin：`src/plugins/resource-inspector.ts`、`src/plugins/extension-manager.ts`、`src/plugins/types.ts`。
+- Pi resource bridge：`src/pi/pi-runtime-adapter.ts#createSkillPaths`。
 
 ## 关键文件
 
@@ -20,7 +21,7 @@
 ## 对外接口
 
 - 已实现：`McpServerConfig`、`McpManager`、`mcp_discover`、`mcp_call`、动态 normalized MCP tools、`mcp.*` UDS commands。
-- 待实现：`PluginManifest` / `HostPlugin`、plugin context ports、trusted skills resource paths。
+- 已实现：`HostPluginManifest` / `HostPlugin` lifecycle、exact activation config、trusted skills resource paths、resource inspect/install/disable UDS commands。
 
 ## 内部依赖
 
@@ -39,6 +40,9 @@ Pi `DefaultResourceLoader`；官方 `@modelcontextprotocol/sdk@1.30.0`。
 - MCP stdio/HTTP 配置不得内联 secret；只解析显式 env/header reference。结果超限落 `0600` artifact，audit 不保存参数正文。
 - v1 仅执行显式 `trusted-local` MCP；`sandboxed` 在 sandbox executor 实现前拒绝启动。
 - 首版 service plugins 不热替换，skills/resources 只在 session 边界 reload。
+- Staging inspection 不 import host entry；只运行 `node --check` 语法检查。安装复制已读取的有界 byte snapshot，并在目标端重算 digest。
+- `resource-trust.json` 损坏时 Daemon fail closed；已安装内容被修改时 health 变为 blocked，skill 不进入新 session，host plugin 不 import。
+- Host plugin 是同用户 in-process 受信代码，manifest/capability grant 是治理与可见性，不是 sandbox；同步死循环仍可能阻塞 Daemon。
 
 ## 常见修改点
 

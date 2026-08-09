@@ -70,6 +70,7 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(screen, /assistant> child result in progress/);
     assert.match(screen, /child-1 running/);
     assert.match(screen, /fixture ready \(3\)/);
+    assert.match(screen, /\[S\] review-skill active/);
     assert.match(screen, /APPROVAL approval-1/);
     assert.match(screen, /\/steer/);
     assert.match(screen, /\/notifications/);
@@ -77,9 +78,12 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(screen, /\/agent-join/);
     assert.match(screen, /\/select/);
     assert.match(screen, /\/mcp-discover/);
+    assert.match(screen, /\/resource-inspect/);
+    assert.match(screen, /\/resource-install/);
+    assert.match(screen, /\/resource-disable/);
     assert.match(screen, /\/quit/);
     assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "26a641b8c6b4c4c3ce7491f87ac1d697505e82218e3e3c899a346431a000e240");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "b33cc76af9a0c599853047448b07c6f0d52b479bba267cd824907b00d7edb976");
   });
 });
 
@@ -147,6 +151,19 @@ function hello(): ServerHelloFrame {
         failureCount: 0,
         updatedAt: "2026-08-09T00:00:02.000Z",
         connectedAt: "2026-08-09T00:00:02.000Z",
+      },
+    },
+    resources: {
+      "skill:review-skill": {
+        version: 1 as const,
+        key: "skill:review-skill",
+        kind: "skill" as const,
+        name: "review-skill",
+        resourceVersion: "unversioned",
+        digest: "a".repeat(64),
+        status: "active" as const,
+        updatedAt: "2026-08-09T00:00:02.000Z",
+        restartRequired: false,
       },
     },
     approvals: {

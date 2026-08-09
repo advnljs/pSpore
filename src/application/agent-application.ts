@@ -14,6 +14,11 @@ import type { KernelLoop } from "../kernel/loop.js";
 import type { McpHealthRecord, McpToolDescriptor } from "../mcp/types.js";
 import type { NotificationService } from "../notifications/notification-service.js";
 import type { ApprovalService } from "../policy/approval-service.js";
+import type {
+  ResourceCatalogEntry,
+  ResourceKind,
+  StagedResourceInspection,
+} from "../plugins/types.js";
 import { CommandError } from "../protocol/errors.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
 
@@ -65,6 +70,13 @@ export interface McpControl {
   ping(serverId: string, signal?: AbortSignal): Promise<McpHealthRecord>;
 }
 
+export interface ResourceControl {
+  inspect(stagingPath: string): Promise<StagedResourceInspection>;
+  install(stagingPath: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
+  disable(kind: ResourceKind, name: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
+  list(): ResourceCatalogEntry[];
+}
+
 export class AgentRunBudgetError extends Error {
   constructor(message: string) {
     super(message);
@@ -88,6 +100,7 @@ export class AgentApplication implements AgentSessionHost {
   #automation: AutomationControl | undefined;
   #agents: AgentControl | undefined;
   #mcp: McpControl | undefined;
+  #resources: ResourceControl | undefined;
 
   constructor(options: AgentApplicationOptions) {
     this.#runtime = options.runtime;
@@ -221,6 +234,34 @@ export class AgentApplication implements AgentSessionHost {
         const payload = exactPayload(command.payload, ["serverId"], command.type);
         return this.#requireMcp().ping(nonEmptyString(payload["serverId"], "payload.serverId"));
       }
+      case "resources.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireResources().list();
+      case "skills.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireResources().list().filter((entry) => entry.record.kind === "skill");
+      case "plugins.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireResources().list().filter((entry) => entry.record.kind === "host-plugin");
+      case "resources.inspect": {
+        const payload = exactPayload(command.payload, ["stagingPath"], command.type);
+        return this.#requireResources().inspect(nonEmptyString(payload["stagingPath"], "payload.stagingPath"));
+      }
+      case "resources.install": {
+        const payload = exactPayload(command.payload, ["stagingPath", "expectedDigest"], command.type);
+        return this.#requireResources().install(
+          nonEmptyString(payload["stagingPath"], "payload.stagingPath"),
+          sha256Value(payload["expectedDigest"], "payload.expectedDigest"),
+        );
+      }
+      case "resources.disable": {
+        const payload = exactPayload(command.payload, ["kind", "name", "expectedDigest"], command.type);
+        return this.#requireResources().disable(
+          requiredEnum(payload["kind"], ["skill", "host-plugin"], "payload.kind"),
+          nonEmptyString(payload["name"], "payload.name"),
+          sha256Value(payload["expectedDigest"], "payload.expectedDigest"),
+        );
+      }
       case "job.put": {
         const payload = exactPayload(command.payload, ["job", "expectedSha256"], command.type);
         return this.#requireAutomation().putJob(
@@ -261,6 +302,11 @@ export class AgentApplication implements AgentSessionHost {
   setMcp(mcp: McpControl): void {
     if (this.#mcp) throw new Error("MCP control is already configured");
     this.#mcp = mcp;
+  }
+
+  setResources(resources: ResourceControl): void {
+    if (this.#resources) throw new Error("Resource control is already configured");
+    this.#resources = resources;
   }
 
   executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot> {
@@ -475,6 +521,11 @@ export class AgentApplication implements AgentSessionHost {
     return this.#mcp;
   }
 
+  #requireResources(): ResourceControl {
+    if (!this.#resources) throw new CommandError("resources_unavailable", "Resource manager is not initialized");
+    return this.#resources;
+  }
+
   #serializeSession<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {
     const previous = this.#sessionTails.get(sessionId) ?? Promise.resolve();
     const result = previous.then(operation, operation);
@@ -543,6 +594,12 @@ function nullableSha256(value: unknown, path: string): string | null {
     throw new CommandError("invalid_command", `${path} must be null or a 64-character SHA-256`);
   }
   return value.toLowerCase();
+}
+
+function sha256Value(value: unknown, path: string): string {
+  const parsed = nullableSha256(value, path);
+  if (parsed === null) throw new CommandError("invalid_command", `${path} must be a 64-character SHA-256`);
+  return parsed;
 }
 
 function parseRunBudget(value: unknown, path: string): RunBudget {

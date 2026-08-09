@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -275,6 +275,131 @@ describe("daemon vertical slice", () => {
     await waitFor(() => daemon.kernel.snapshot().mcpServers["fixture"]?.status === "ready");
     assert.equal(daemon.kernel.snapshot().mcpServers["fixture"]?.toolCount, 1);
     assert.equal(daemon.kernel.snapshot().daemon.phase, "ready");
+  });
+
+  test("inspects and installs a staged skill through UDS without trusting staged content implicitly", async () => {
+    const home = await configuredHome();
+    const staged = join(home, "workspace", "staging", "daemon-skill");
+    await mkdir(staged, { recursive: true });
+    await writeFile(join(staged, "SKILL.md"), [
+      "---",
+      "name: daemon-skill",
+      "description: Exercises explicit resource installation over the local protocol.",
+      "---",
+      "",
+      "# Daemon skill",
+      "",
+    ].join("\n"));
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => new FakeRuntime(),
+      idFactory: sequence("resource-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "resource-client" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    const hello = await client.connect();
+    assert.deepEqual(hello.snapshot.resources, {});
+    assert.deepEqual(await client.command("skills.list", {}), []);
+
+    const inspected = await client.command<{ digest: string; installable: boolean }>("resources.inspect", {
+      stagingPath: "daemon-skill",
+    });
+    assert.equal(inspected.installable, true);
+    const installed = await client.command<{ record: { digest: string }; health: { status: string } }>("resources.install", {
+      stagingPath: "daemon-skill",
+      expectedDigest: inspected.digest,
+    });
+    assert.equal(installed.record.digest, inspected.digest);
+    assert.equal(installed.health.status, "active");
+    await waitFor(() => daemon.kernel.snapshot().resources["skill:daemon-skill"]?.status === "active");
+    const listed = await client.command<Array<{ record: { name: string } }>>("skills.list", {});
+    assert.deepEqual(listed.map((entry) => entry.record.name), ["daemon-skill"]);
+
+    await client.command("resources.disable", {
+      kind: "skill",
+      name: "daemon-skill",
+      expectedDigest: inspected.digest,
+    });
+    await waitFor(() => daemon.kernel.snapshot().resources["skill:daemon-skill"]?.status === "disabled");
+  });
+
+  test("activates an exact trusted host plugin only after config grant and daemon restart", async () => {
+    const home = await configuredHome();
+    const marker = join(home, "plugin-lifecycle.log");
+    const staged = join(home, "workspace", "staging", "daemon-plugin");
+    await mkdir(staged, { recursive: true });
+    await writeFile(join(staged, "pspore.plugin.json"), `${JSON.stringify({
+      apiVersion: 1,
+      name: "daemon-plugin",
+      version: "1.0.0",
+      entry: "index.mjs",
+      capabilities: ["diagnostic.write"],
+      contributes: [],
+    }, null, 2)}\n`);
+    await writeFile(join(staged, "index.mjs"), [
+      'import { appendFile } from "node:fs/promises";',
+      `const marker = ${JSON.stringify(marker)};`,
+      "export default {",
+      "  async start(context) { await appendFile(marker, `start:${context.digest}\\n`); },",
+      "  health() { return { status: 'ready' }; },",
+      "  async stop(reason) { await appendFile(marker, `stop:${reason}\\n`); },",
+      "};",
+      "",
+    ].join("\n"));
+
+    const first = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => new FakeRuntime(),
+      idFactory: sequence("plugin-install-daemon"),
+    });
+    const firstClient = new ProtocolClient({ socketPath: first.paths.socket, clientId: "plugin-install-client" });
+    let second: PsporeDaemon | undefined;
+    let secondClient: ProtocolClient | undefined;
+    cleanups.push(async () => {
+      await firstClient.close();
+      await first.stop();
+      await secondClient?.close();
+      await second?.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await firstClient.connect();
+    const inspection = await firstClient.command<{ digest: string }>("resources.inspect", { stagingPath: "daemon-plugin" });
+    await firstClient.command("resources.install", {
+      stagingPath: "daemon-plugin",
+      expectedDigest: inspection.digest,
+    });
+    await assert.rejects(access(marker));
+    await firstClient.close();
+    await first.stop();
+
+    const config = defaultConfig(home);
+    config.model = { provider: "fake", model: "fake", thinking: "off" };
+    config.plugins = [{
+      name: "daemon-plugin",
+      enabled: true,
+      digest: inspection.digest,
+      grantedCapabilities: ["diagnostic.write"],
+    }];
+    await atomicWriteJson(join(home, "config.json"), config);
+    second = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => new FakeRuntime(),
+      idFactory: sequence("plugin-active-daemon"),
+    });
+    secondClient = new ProtocolClient({ socketPath: second.paths.socket, clientId: "plugin-active-client" });
+    const hello = await secondClient.connect();
+    assert.equal(hello.snapshot.daemon.phase, "ready");
+    assert.equal(hello.snapshot.resources["host-plugin:daemon-plugin"]?.status, "ready");
+    const plugins = await secondClient.command<Array<{ health: { status: string } }>>("plugins.list", {});
+    assert.deepEqual(plugins.map((entry) => entry.health.status), ["ready"]);
+    assert.match(await readFile(marker, "utf8"), new RegExp(`start:${inspection.digest}`));
+    await secondClient.close();
+    await second.stop();
+    assert.match(await readFile(marker, "utf8"), /stop:daemon shutdown/);
   });
 });
 

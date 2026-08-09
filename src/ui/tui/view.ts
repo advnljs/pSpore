@@ -53,7 +53,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
   const innerWidth = safeWidth - 2;
   const leftWidth = Math.min(28, Math.max(20, Math.floor(innerWidth * 0.2)));
   const rightWidth = innerWidth - leftWidth - 1;
-  const bodyRows = safeHeight - 11;
+  const bodyRows = safeHeight - 12;
   const top = `┌${"─".repeat(innerWidth)}┐`;
   const header = fullRow(
     ` pSpore v1 core  daemon:${state.kernel.daemon.phase}  ${state.connected ? "connected" : "disconnected"}  revision:${state.kernel.revision}`,
@@ -77,6 +77,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
   const divider = `├${"─".repeat(innerWidth)}┤`;
   const sessionHelp = " session: /steer /follow /abort /compact /approve /deny /select ID /quit";
   const taskHelp = " tasks: /agents /agent-spawn TEXT /agent ID MSG /agent-join ID... /agent-cancel ID /jobs /runs /notifications /run JOB /cancel RUN /mcp /mcp-discover ID";
+  const resourceHelp = " resources: /resources /skills /plugins /resource-inspect PATH /resource-install PATH SHA256 /resource-disable KIND NAME SHA256";
   const prompt = ` prompt> ${input}`;
   return [
     top,
@@ -89,6 +90,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
     divider,
     fullRow(sessionHelp, innerWidth),
     fullRow(taskHelp, innerWidth),
+    fullRow(resourceHelp, innerWidth),
     fullRow(prompt, innerWidth),
     `└${"─".repeat(innerWidth)}┘`,
   ];
@@ -136,6 +138,13 @@ function renderSidebar(state: TuiStoreSnapshot, width: number): string[] {
   if (mcpServers.length > 0) {
     lines.push("", "MCP");
     for (const server of mcpServers) lines.push(`  ${server.serverId} ${server.status} (${server.toolCount})`);
+  }
+  const resources = Object.values(state.kernel.resources);
+  if (resources.length > 0) {
+    lines.push("", "RESOURCES");
+    for (const resource of resources) {
+      lines.push(`  [${resource.kind === "skill" ? "S" : "P"}] ${resource.name} ${resource.status}`);
+    }
   }
   return lines.map((line) => truncateToWidth(line, width));
 }

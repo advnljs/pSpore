@@ -184,6 +184,14 @@ export class TuiStore {
         mcpServers: { ...kernel.mcpServers, [health.serverId]: structuredClone(health) },
       };
     }
+    if (event.type === "resource.health" && isRecord(payload["health"]) && typeof payload["health"]["key"] === "string") {
+      const health = payload["health"] as unknown as KernelState["resources"][string];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        resources: { ...kernel.resources, [health.key]: structuredClone(health) },
+      };
+    }
     this.#state = { ...this.#state, kernel, cursors, streamingText };
   }
 }

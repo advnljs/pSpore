@@ -7,6 +7,7 @@ import type {
   McpServerConfig,
   McpTransportConfig,
 } from "../mcp/types.js";
+import type { HostPluginActivationConfig } from "../plugins/types.js";
 
 export type PermissionMode = "deny" | "ask_all" | "ask_risky" | "allow_all";
 
@@ -50,7 +51,7 @@ export interface PsporeConfig {
   boot: {
     enabled: boolean;
   };
-  plugins: unknown[];
+  plugins: HostPluginActivationConfig[];
   mcpServers: McpServerConfig[];
 }
 
@@ -124,7 +125,9 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
   const pinnedFiles = array(context["pinnedFiles"], "config.context.pinnedFiles").map((file, index) =>
     string(file, `config.context.pinnedFiles[${index}]`),
   );
-  const plugins = array(root["plugins"], "config.plugins");
+  const plugins = array(root["plugins"], "config.plugins").map((plugin, index) => parsePluginActivation(plugin, index));
+  const duplicatePlugins = duplicates(plugins.map((plugin) => plugin.name));
+  if (duplicatePlugins.length > 0) throw new Error(`config.plugins contains duplicate names: ${duplicatePlugins.join(", ")}`);
   const mcpServers = array(root["mcpServers"], "config.mcpServers").map((server, index) =>
     parseMcpServer(server, index, home),
   );
@@ -200,6 +203,30 @@ function parsePermissionRule(value: unknown, index: number): PermissionRule {
     effect: enumeration(rule["effect"], ["allow", "ask", "deny"], `${path}.effect`),
     capability: string(rule["capability"], `${path}.capability`),
     ...(target === undefined ? {} : { target: string(target, `${path}.target`) }),
+  };
+}
+
+function parsePluginActivation(value: unknown, index: number): HostPluginActivationConfig {
+  const path = `config.plugins[${index}]`;
+  const plugin = object(value, path);
+  exactShape(plugin, ["name", "enabled", "digest", "grantedCapabilities"], [], path);
+  const name = string(plugin["name"], `${path}.name`);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$/.test(name) || name.includes("--")) {
+    throw new Error(`${path}.name must be 1-64 lowercase letters, numbers, or single hyphens`);
+  }
+  const digest = string(plugin["digest"], `${path}.digest`);
+  if (!/^[a-f0-9]{64}$/.test(digest)) throw new Error(`${path}.digest must be a lowercase SHA-256 digest`);
+  const grantedCapabilities = optionalStringArray(plugin["grantedCapabilities"], `${path}.grantedCapabilities`);
+  for (const [capabilityIndex, capability] of grantedCapabilities.entries()) {
+    if (!/^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$/.test(capability)) {
+      throw new Error(`${path}.grantedCapabilities[${capabilityIndex}] is not a valid capability`);
+    }
+  }
+  return {
+    name,
+    enabled: boolean(plugin["enabled"], `${path}.enabled`),
+    digest,
+    grantedCapabilities,
   };
 }
 

@@ -14,6 +14,7 @@ export interface PsporePaths {
   approvals: string;
   events: string;
   audit: string;
+  resourceTrust: string;
   artifacts: string;
   plugins: string;
   credentials: string;
@@ -48,6 +49,7 @@ export function psporePaths(home: string, workspace?: string): PsporePaths {
     approvals: join(state, "approvals"),
     events: join(state, "events"),
     audit: join(state, "audit"),
+    resourceTrust: join(state, "resource-trust.json"),
     artifacts: join(home, "artifacts"),
     plugins: join(home, "plugins"),
     credentials: join(home, "credentials"),

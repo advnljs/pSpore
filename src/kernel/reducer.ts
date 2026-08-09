@@ -87,6 +87,11 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       const next = changed(state, { ...state, mcpServers: { ...state.mcpServers, [health.serverId]: health } });
       return broadcast(next, event, "mcp.health", { health, revision: next.revision }, true);
     }
+    case "resource.health": {
+      const health = structuredClone(event.health);
+      const next = changed(state, { ...state, resources: { ...state.resources, [health.key]: health } });
+      return broadcast(next, event, "resource.health", { health, revision: next.revision }, true);
+    }
     case "approval.resolved": {
       const approvals = { ...state.approvals };
       delete approvals[event.request.id];
