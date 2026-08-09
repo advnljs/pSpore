@@ -120,6 +120,26 @@ export class PsporeTuiApp {
         this.#store.setNotice("Compaction requested");
         return;
       }
+      if (input === "/jobs") {
+        const jobs = await this.#command("jobs.list", {}) as Array<{ id: string; enabled: boolean }>;
+        this.#store.setNotice(jobs.length > 0 ? jobs.map((job) => `${job.id}:${job.enabled ? "on" : "off"}`).join("  ") : "No jobs");
+        return;
+      }
+      if (input === "/runs") {
+        const runs = await this.#command("runs.list", {}) as Array<{ id: string; status: string }>;
+        this.#store.setNotice(runs.length > 0 ? runs.slice(-3).map((run) => `${run.id}:${run.status}`).join("  ") : "No runs");
+        return;
+      }
+      if (input.startsWith("/run ")) {
+        const run = await this.#command("job.run", { jobId: input.slice(5).trim() }) as { id: string; status: string };
+        this.#store.setNotice(`Run ${run.id}: ${run.status}`);
+        return;
+      }
+      if (input.startsWith("/cancel ")) {
+        const run = await this.#command("run.cancel", { runId: input.slice(8).trim() }) as { id: string; status: string };
+        this.#store.setNotice(`Run ${run.id}: ${run.status}`);
+        return;
+      }
       if (input.startsWith("/steer ")) {
         await this.#prompt(input.slice(7), "steer");
         return;
@@ -158,7 +178,8 @@ export class PsporeTuiApp {
     if (!approvalId) throw new Error("Specify an approval ID");
     const scope = (parts[2] ?? "once") as ApprovalScope;
     if (!(["once", "session", "job"] as const).includes(scope)) throw new Error("Approval scope must be once, session, or job");
-    await this.#command("approval.resolve", { approvalId, approved, scope });
+    const result = await this.#command("approval.resolve", { approvalId, approved, scope }) as { status: string };
+    if (result.status !== "resolved") throw new Error(`Approval was not resolved: ${result.status}`);
     this.#store.setNotice(approved ? "Approval granted" : "Approval denied");
   }
 

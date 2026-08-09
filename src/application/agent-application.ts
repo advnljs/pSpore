@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";
 import type {
   AgentRuntimePort,
   AgentSessionSpec,
@@ -23,6 +24,20 @@ export interface AgentApplicationOptions {
   idFactory?: () => string;
 }
 
+export interface AutomationControl {
+  listJobs(): JobDefinition[];
+  listRuns(): RunRecord[];
+  triggerJob(jobId: string, scheduledFor: Date, source: "user"): Promise<RunRecord>;
+  cancel(runId: string, reason?: string): Promise<RunRecord>;
+}
+
+export class AgentRunBudgetError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AgentRunBudgetError";
+  }
+}
+
 export class AgentApplication {
   readonly #runtime: AgentRuntimePort;
   readonly #kernel: KernelLoop;
@@ -35,6 +50,7 @@ export class AgentApplication {
   readonly #sessions = new Set<SessionId>();
   readonly #unsubscribers = new Map<SessionId, () => void>();
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
+  #automation: AutomationControl | undefined;
 
   constructor(options: AgentApplicationOptions) {
     this.#runtime = options.runtime;
@@ -98,6 +114,23 @@ export class AgentApplication {
         const scope = optionalEnum(payload["scope"], ["once", "session", "job"], "payload.scope") ?? "once";
         return this.#approvals.resolve(approvalId, { approved, scope, actor: command.clientId });
       }
+      case "jobs.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireAutomation().listJobs();
+      case "runs.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireAutomation().listRuns();
+      case "job.run": {
+        const payload = exactPayload(command.payload, ["jobId"], command.type);
+        return this.#requireAutomation().triggerJob(nonEmptyString(payload["jobId"], "payload.jobId"), this.#clock(), "user");
+      }
+      case "run.cancel": {
+        const payload = exactPayload(command.payload, ["runId", "reason"], command.type);
+        return this.#requireAutomation().cancel(
+          nonEmptyString(payload["runId"], "payload.runId"),
+          optionalString(payload["reason"], "payload.reason"),
+        );
+      }
       case "daemon.shutdown":
         exactPayload(command.payload, [], command.type);
         this.#onShutdownRequested?.();
@@ -107,15 +140,80 @@ export class AgentApplication {
     }
   }
 
-  async dispose(): Promise<void> {
-    await Promise.allSettled([...this.#sessionTails.values()]);
-    for (const unsubscribe of this.#unsubscribers.values()) unsubscribe();
-    this.#unsubscribers.clear();
-    await Promise.all([...this.#sessions].map(async (sessionId) => this.#runtime.dispose(sessionId)));
-    this.#sessions.clear();
+  setAutomation(automation: AutomationControl): void {
+    if (this.#automation) throw new Error("Automation control is already configured");
+    this.#automation = automation;
   }
 
-  async #ensureSession(sessionId: SessionId): Promise<void> {
+  executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot> {
+    const activity = run.activity;
+    if (activity.kind !== "agent") throw new Error(`Run ${run.id} is not an agent activity`);
+    const sessionId = `run:${run.id}`;
+    return this.#serializeSession(sessionId, async () => {
+      await this.#ensureSession(sessionId, activity.cwd, {
+        agentPath: ["automation", run.jobId ?? run.source, run.id],
+        runId: run.id,
+        ...(run.jobId === undefined ? {} : { jobId: run.jobId }),
+        allowedApprovalScopes: run.jobId === undefined ? ["once", "session"] : ["once", "session", "job"],
+      });
+      let turns = 0;
+      let toolCalls = 0;
+      let violation: AgentRunBudgetError | undefined;
+      const checkBudget = (event: RuntimeEvent) => {
+        if (event.type === "run.started") turns += 1;
+        if (event.type === "tool.started") toolCalls += 1;
+        const usage = this.#runtime.snapshot(sessionId).usage;
+        const reason = budgetViolation(run.budget, { turns, toolCalls, input: usage.input, output: usage.output, cost: usage.costUsd });
+        if (!reason || violation) return;
+        violation = new AgentRunBudgetError(reason);
+        void abortSession(reason);
+      };
+      const unsubscribeBudget = this.#runtime.subscribe(sessionId, checkBudget);
+      let abortTask: Promise<void> | undefined;
+      const abortSession = (reason: string): Promise<void> => {
+        abortTask ??= Promise.allSettled([
+          this.#approvals.cancelSession(sessionId),
+          this.#runtime.abort(sessionId, reason),
+        ]).then(() => undefined);
+        return abortTask;
+      };
+      const abort = () => void abortSession("automation run aborted");
+      signal.addEventListener("abort", abort, { once: true });
+      try {
+        if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Automation run aborted");
+        await this.#runtime.prompt(sessionId, activity.prompt);
+        await this.#runtime.waitForIdle(sessionId);
+        if (violation) throw violation;
+        if (signal.aborted) throw signal.reason instanceof Error ? signal.reason : new Error("Automation run aborted");
+        const snapshot = this.#runtime.snapshot(sessionId);
+        const finalViolation = budgetViolation(run.budget, {
+          turns,
+          toolCalls,
+          input: snapshot.usage.input,
+          output: snapshot.usage.output,
+          cost: snapshot.usage.costUsd,
+        });
+        if (finalViolation) throw new AgentRunBudgetError(finalViolation);
+        return snapshot;
+      } finally {
+        signal.removeEventListener("abort", abort);
+        unsubscribeBudget();
+        if (abortTask) await abortTask;
+        await this.#disposeSession(sessionId);
+      }
+    });
+  }
+
+  async dispose(): Promise<void> {
+    await Promise.allSettled([...this.#sessionTails.values()]);
+    await Promise.all([...this.#sessions].map(async (sessionId) => this.#disposeSession(sessionId)));
+  }
+
+  async #ensureSession(
+    sessionId: SessionId,
+    cwd?: string,
+    authorization?: AgentSessionSpec["authorization"],
+  ): Promise<void> {
     if (this.#sessions.has(sessionId)) return;
     if (!this.#modelConfigured) {
       throw new CommandError(
@@ -123,7 +221,12 @@ export class AgentApplication {
         "No model is configured. Set config.model.provider, config.model.model, and credentials before prompting.",
       );
     }
-    await this.#runtime.create({ sessionId, ...this.#sessionTemplate });
+    await this.#runtime.create({
+      sessionId,
+      ...this.#sessionTemplate,
+      ...(cwd === undefined ? {} : { cwd }),
+      ...(authorization === undefined ? {} : { authorization }),
+    });
     this.#sessions.add(sessionId);
     this.#unsubscribers.set(sessionId, this.#runtime.subscribe(sessionId, (event) => this.#onRuntimeEvent(event)));
     await this.#publishSnapshot(this.#runtime.snapshot(sessionId));
@@ -149,8 +252,33 @@ export class AgentApplication {
     });
   }
 
+  async #disposeSession(sessionId: SessionId): Promise<void> {
+    if (!this.#sessions.has(sessionId)) return;
+    this.#unsubscribers.get(sessionId)?.();
+    this.#unsubscribers.delete(sessionId);
+    this.#sessions.delete(sessionId);
+    let failure: unknown;
+    try {
+      await this.#runtime.dispose(sessionId);
+    } catch (error) {
+      failure = error;
+    }
+    await this.#kernel.dispatch({
+      id: this.#idFactory(),
+      ts: this.#clock().toISOString(),
+      type: "session.closed",
+      sessionId,
+    });
+    if (failure !== undefined) throw failure;
+  }
+
   #assertSession(sessionId: SessionId): void {
     if (!this.#sessions.has(sessionId)) throw new CommandError("session_not_found", `Session does not exist: ${sessionId}`);
+  }
+
+  #requireAutomation(): AutomationControl {
+    if (!this.#automation) throw new CommandError("automation_unavailable", "Scheduler is not initialized");
+    return this.#automation;
   }
 
   #serializeSession<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {
@@ -207,4 +335,18 @@ function optionalEnum<const T extends string>(value: unknown, allowed: readonly 
 function booleanValue(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") throw new CommandError("invalid_command", `${path} must be boolean`);
   return value;
+}
+
+function budgetViolation(
+  budget: RunBudget,
+  usage: { turns: number; toolCalls: number; input: number; output: number; cost: number },
+): string | undefined {
+  if (usage.turns > budget.maxTurns) return `maxTurns exceeded: ${usage.turns}/${budget.maxTurns}`;
+  if (usage.toolCalls > budget.maxToolCalls) return `maxToolCalls exceeded: ${usage.toolCalls}/${budget.maxToolCalls}`;
+  if (usage.input > budget.maxInputTokens) return `maxInputTokens exceeded: ${usage.input}/${budget.maxInputTokens}`;
+  if (usage.output > budget.maxOutputTokens) return `maxOutputTokens exceeded: ${usage.output}/${budget.maxOutputTokens}`;
+  if (budget.maxCostUsd !== undefined && usage.cost > budget.maxCostUsd) {
+    return `maxCostUsd exceeded: ${usage.cost}/${budget.maxCostUsd}`;
+  }
+  return undefined;
 }

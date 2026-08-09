@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -15,6 +15,7 @@ import type {
   ResumeSessionSpec,
   RuntimeEvent,
 } from "../../src/domain/runtime.js";
+import type { JobDefinition, RunRecord } from "../../src/automation/types.js";
 import { ProtocolClient } from "../../src/protocol/client.js";
 import { atomicWriteJson } from "../../src/storage/atomic.js";
 import { initializePsporeHome } from "../../src/storage/home.js";
@@ -76,12 +77,82 @@ describe("daemon vertical slice", () => {
     await assert.rejects(access(daemon.paths.lock));
     assert.match(await readFile(join(home, "config.json"), "utf8"), /"fake"/);
   });
+
+  test("runs a persisted command job through UDS and exposes its durable run state", async () => {
+    const home = await configuredHome();
+    const workspace = join(home, "workspace");
+    await atomicWriteJson(join(workspace, "jobs", "command-job.json"), jobFile("command-job"));
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => new FakeRuntime(),
+      idFactory: sequence("job-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "job-client" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+    const jobs = await client.command<JobDefinition[]>("jobs.list", {});
+    assert.deepEqual(jobs.map((job) => job.id), ["command-job"]);
+    const run = await client.command<RunRecord>("job.run", { jobId: "command-job" });
+    assert.equal(run.status, "succeeded");
+    const runs = await client.command<RunRecord[]>("runs.list", {});
+    assert.equal(runs.at(-1)?.id, run.id);
+    assert.equal(daemon.kernel.snapshot().runs[run.id]?.status, "succeeded");
+    const artifactDirectories = (await readdir(daemon.paths.artifacts, { withFileTypes: true })).filter(
+      (entry) => entry.isDirectory() && entry.name !== "recovery",
+    );
+    assert.equal(artifactDirectories.length, 1);
+    assert.match(
+      await readFile(join(daemon.paths.artifacts, artifactDirectories[0]?.name ?? "missing", "output.log"), "utf8"),
+      /scheduled-ok/,
+    );
+  });
+
+  test("publishes ready before a BOOT agent run settles", async () => {
+    const home = await configuredHome();
+    const config = defaultConfig(home);
+    config.model = { provider: "fake", model: "fake", thinking: "off" };
+    config.boot.enabled = true;
+    await atomicWriteJson(join(home, "config.json"), config);
+    await writeFile(join(home, "workspace", "BOOT.md"), "# Startup\n\nCheck the local workspace once.\n", { mode: 0o600 });
+    const runtime = new FakeRuntime(false);
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("boot-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "boot-client" });
+    cleanups.push(async () => {
+      runtime.finishAll();
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    const hello = await client.connect();
+    assert.equal(hello.snapshot.daemon.phase, "ready");
+    await waitFor(() => Object.values(daemon.kernel.snapshot().runs).some((run) => run.source === "boot" && run.status === "running"));
+    assert.equal(daemon.kernel.snapshot().daemon.phase, "ready");
+    runtime.finishAll();
+    await waitFor(() => Object.values(daemon.kernel.snapshot().runs).some((run) => run.source === "boot" && run.status === "succeeded"));
+    assert.equal(Object.keys(daemon.kernel.snapshot().sessions).some((sessionId) => sessionId.startsWith("run:")), false);
+  });
 });
 
 class FakeRuntime implements AgentRuntimePort {
   promptCalls = 0;
   readonly #listeners = new Set<(event: RuntimeEvent) => void>();
   #snapshot: AgentSnapshot | undefined;
+  readonly #autoSettle: boolean;
+  readonly #settlers: Array<() => void> = [];
+  #idle: Promise<void> = Promise.resolve();
+  #resolveIdle: (() => void) | undefined;
+
+  constructor(autoSettle = true) {
+    this.#autoSettle = autoSettle;
+  }
 
   async create(spec: AgentSessionSpec): Promise<AgentHandle> {
     this.#snapshot = baseSnapshot(spec);
@@ -95,9 +166,12 @@ class FakeRuntime implements AgentRuntimePort {
   async prompt(sessionId: string, input: string): Promise<Accepted> {
     this.promptCalls += 1;
     const current = this.required();
+    this.#idle = new Promise<void>((resolve) => {
+      this.#resolveIdle = resolve;
+    });
     this.#snapshot = { ...current, status: "running", messages: [...current.messages, { role: "user", text: input }] };
     this.#emit(sessionId, "run.started", true);
-    setImmediate(() => {
+    const settle = () => {
       const running = this.required();
       this.#snapshot = {
         ...running,
@@ -106,7 +180,11 @@ class FakeRuntime implements AgentRuntimePort {
       };
       this.#emit(sessionId, "message.completed", false);
       this.#emit(sessionId, "run.settled", false);
-    });
+      this.#resolveIdle?.();
+      this.#resolveIdle = undefined;
+    };
+    if (this.#autoSettle) setImmediate(settle);
+    else this.#settlers.push(settle);
     return { accepted: true, commandId: "fake-command", acceptedAt: new Date(0).toISOString() };
   }
 
@@ -127,8 +205,14 @@ class FakeRuntime implements AgentRuntimePort {
     this.#listeners.add(sink);
     return () => this.#listeners.delete(sink);
   }
-  async waitForIdle(): Promise<void> {}
+  async waitForIdle(): Promise<void> {
+    await this.#idle;
+  }
   async dispose(): Promise<void> {}
+
+  finishAll(): void {
+    for (const settle of this.#settlers.splice(0)) settle();
+  }
 
   #emit(sessionId: string, type: RuntimeEvent["type"], transient: boolean): void {
     const event: RuntimeEvent = {
@@ -147,6 +231,39 @@ class FakeRuntime implements AgentRuntimePort {
     if (!this.#snapshot) throw new Error("Fake session was not created");
     return this.#snapshot;
   }
+}
+
+async function configuredHome(): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), "pspore-daemon-automation-"));
+  await initializePsporeHome(home);
+  const config = defaultConfig(home);
+  config.model = { provider: "fake", model: "fake", thinking: "off" };
+  await atomicWriteJson(join(home, "config.json"), config);
+  return home;
+}
+
+function jobFile(id: string): Record<string, unknown> {
+  return {
+    version: 1,
+    id,
+    enabled: true,
+    schedule: { cron: "0 0 1 1 *", timezone: "UTC" },
+    cwd: ".",
+    policyRef: "default",
+    concurrency: "forbid",
+    misfire: "skip",
+    timeoutMs: 2_000,
+    budget: {
+      maxTurns: 1,
+      maxToolCalls: 1,
+      maxInputTokens: 1_000,
+      maxOutputTokens: 1_000,
+      maxChildren: 0,
+    },
+    delivery: { kind: "none" },
+    kind: "command",
+    payload: { command: "printf scheduled-ok" },
+  };
 }
 
 function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {

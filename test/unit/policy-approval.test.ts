@@ -134,6 +134,138 @@ describe("approval", () => {
     assert.equal(restarted.list().length, 0);
     assert.match(await readFile(auditPath, "utf8"), /interrupted/);
   });
+
+  test("rejects a scope that was not offered without consuming the pending approval", async () => {
+    const { root, state } = await rootFixture();
+    const published: ApprovalRequest[] = [];
+    const service = new ApprovalService({
+      pendingPath: join(state, "pending.json"),
+      auditPath: join(state, "audit.jsonl"),
+      timeoutMs: 2_000,
+      onRequested: (request) => published.push(request),
+    });
+    await service.initialize();
+    const policy = await PolicyEngine.create({ mode: "ask_all", rules: [], workspaceRoot: root, cwd: root });
+    const authorization = new PolicyToolGate(policy, service).authorize({
+      sessionId: "main",
+      toolCallId: "tool-invalid-scope",
+      toolName: "shell",
+      input: { command: "printf ok", cwd: root },
+    });
+    await waitFor(() => published.length === 1);
+    const id = published[0]?.id;
+    assert.ok(id);
+    assert.deepEqual(published[0]?.allowedScopes, ["once", "session"]);
+    assert.deepEqual(
+      await service.resolve(id, { approved: true, scope: "job", actor: "test-client" }),
+      { status: "invalid_scope" },
+    );
+    assert.equal(service.list().length, 1);
+    assert.deepEqual(
+      await service.resolve(id, { approved: false, scope: "once", actor: "test-client" }),
+      { status: "resolved" },
+    );
+    const result = await authorization;
+    assert.equal(result.decision, "deny");
+    await service.close();
+  });
+
+  test("restores exact job grants after restart while explicit deny remains authoritative", async () => {
+    const { root, state } = await rootFixture();
+    const pendingPath = join(state, "pending.json");
+    const auditPath = join(state, "audit.jsonl");
+    const grantsPath = join(state, "job-grants.json");
+    const published: ApprovalRequest[] = [];
+    const service = new ApprovalService({
+      pendingPath,
+      auditPath,
+      grantsPath,
+      timeoutMs: 2_000,
+      onRequested: (request) => published.push(request),
+    });
+    await service.initialize();
+    const askPolicy = await PolicyEngine.create({ mode: "ask_all", rules: [], workspaceRoot: root, cwd: root });
+    const first = new PolicyToolGate(askPolicy, service).authorize({
+      sessionId: "run:one",
+      toolCallId: "tool-job-grant",
+      toolName: "shell",
+      input: { command: "printf first", cwd: root },
+      agentPath: ["automation", "daily", "run-one"],
+      runId: "run-one",
+      jobId: "daily",
+      allowedApprovalScopes: ["once", "session", "job"],
+    });
+    await waitFor(() => published.length === 1);
+    const request = published[0];
+    assert.ok(request);
+    assert.deepEqual(request.agentPath, ["automation", "daily", "run-one"]);
+    assert.equal(request.runId, "run-one");
+    assert.equal(request.jobId, "daily");
+    assert.deepEqual(request.allowedScopes, ["once", "session", "job"]);
+    assert.deepEqual(
+      await service.resolve(request.id, { approved: true, scope: "job", actor: "test-client" }),
+      { status: "resolved" },
+    );
+    assert.deepEqual(await first, { decision: "allow" });
+    assert.match(await readFile(grantsPath, "utf8"), /"jobId": "daily"/);
+    await service.close();
+
+    const reasked: ApprovalRequest[] = [];
+    const restarted = new ApprovalService({
+      pendingPath,
+      auditPath,
+      grantsPath,
+      timeoutMs: 2_000,
+      onRequested: (approval) => reasked.push(approval),
+    });
+    await restarted.initialize();
+    const restoredGate = new PolicyToolGate(askPolicy, restarted);
+    assert.deepEqual(
+      await restoredGate.authorize({
+        sessionId: "run:two",
+        toolCallId: "tool-restored-grant",
+        toolName: "shell",
+        input: { command: "printf second", cwd: root },
+        jobId: "daily",
+        allowedApprovalScopes: ["once", "session", "job"],
+      }),
+      { decision: "allow" },
+    );
+    assert.equal(reasked.length, 0);
+
+    const denyPolicy = await PolicyEngine.create({
+      mode: "allow_all",
+      rules: [{ effect: "deny", capability: "process.exec" }],
+      workspaceRoot: root,
+      cwd: root,
+    });
+    assert.deepEqual(
+      await new PolicyToolGate(denyPolicy, restarted).authorize({
+        sessionId: "run:three",
+        toolCallId: "tool-denied-despite-grant",
+        toolName: "shell",
+        input: { command: "printf third", cwd: root },
+        jobId: "daily",
+      }),
+      { decision: "deny", reason: "Denied by pSpore policy", terminate: false },
+    );
+    assert.equal(reasked.length, 0);
+    await restarted.close();
+  });
+
+  test("fails closed when the durable job grant store is malformed", async () => {
+    const { state } = await rootFixture();
+    const grantsPath = join(state, "job-grants.json");
+    const { atomicWriteJson } = await import("../../src/storage/atomic.js");
+    await atomicWriteJson(grantsPath, { version: 1, grants: [{ version: 1, jobId: "missing-fields" }] });
+    const service = new ApprovalService({
+      pendingPath: join(state, "pending.json"),
+      auditPath: join(state, "audit.jsonl"),
+      grantsPath,
+      timeoutMs: 25,
+    });
+    await assert.rejects(service.initialize(), /capability is invalid/);
+  });
 });
 
 async function waitFor(predicate: () => boolean, timeoutMs = 1_000): Promise<void> {

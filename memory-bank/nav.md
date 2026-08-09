@@ -18,6 +18,7 @@
 | `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
 | `src/tools/core-tools.ts` | read/edit/search/shell 固定基础工具 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
+| `src/automation/` | cron adapter、job parser、run ledger、scheduler 与 Daemon executor |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/prompt/version 入口 |
@@ -59,6 +60,7 @@
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
 - 单 prompt：`npm run dev -- prompt "..."`。
+- 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。
 
 ## 配置与运行数据
@@ -67,5 +69,5 @@
 - 配置：`~/.pspore/config.json`
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
-- sessions/runs/audit：`~/.pspore/state/`
+- sessions/runs/approval grants/audit：`~/.pspore/state/`
 - lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。

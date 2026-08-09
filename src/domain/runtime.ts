@@ -21,6 +21,12 @@ export interface AgentSessionSpec {
   systemPrompt?: string;
   contextFiles?: readonly PinnedContextFile[];
   enabledTools?: readonly string[];
+  authorization?: {
+    agentPath: readonly string[];
+    runId?: string;
+    jobId?: string;
+    allowedApprovalScopes: readonly ("once" | "session" | "job")[];
+  };
 }
 
 export interface ResumeSessionSpec extends AgentSessionSpec {
@@ -107,6 +113,10 @@ export interface ToolAuthorizationRequest {
   toolCallId: string;
   toolName: string;
   input: Readonly<Record<string, unknown>>;
+  agentPath?: readonly string[];
+  runId?: string;
+  jobId?: string;
+  allowedApprovalScopes?: readonly ("once" | "session" | "job")[];
 }
 
 export type ToolAuthorizationResult =

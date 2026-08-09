@@ -27,6 +27,14 @@ describe("kernel reducer", () => {
     assert.equal(first.state.revision, 1);
     assert.equal(first.state.sessions["main"]?.status, "idle");
     assert.equal(first.effects[0]?.event.type, "session.snapshot");
+    const closed = reduceKernel(first.state, {
+      id: "e-2",
+      ts: "2026-08-09T00:00:01.000Z",
+      type: "session.closed",
+      sessionId: "main",
+    });
+    assert.equal(closed.state.sessions["main"], undefined);
+    assert.equal(closed.effects[0]?.event.type, "session.closed");
   });
 });
 

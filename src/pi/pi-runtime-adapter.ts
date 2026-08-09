@@ -306,7 +306,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
 
   #runtimeFactory(spec: AgentSessionSpec): CreateAgentSessionRuntimeFactory {
     return async ({ cwd, agentDir, sessionManager, sessionStartEvent }) => {
-      const policyExtension = this.#policyExtension(spec.sessionId);
+      const policyExtension = this.#policyExtension(spec);
       const contextFiles = spec.contextFiles ? [...spec.contextFiles] : [];
       const extensionFactories = policyExtension ? [policyExtension] : [];
       const services = await createAgentSessionServices({
@@ -349,7 +349,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     };
   }
 
-  #policyExtension(sessionId: SessionId): InlineExtension | undefined {
+  #policyExtension(spec: AgentSessionSpec): InlineExtension | undefined {
     const gate = this.#toolGate;
     if (!gate) {
       return undefined;
@@ -360,10 +360,18 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         pi.on("tool_call", async (event) => {
           try {
             const result = await gate.authorize({
-              sessionId,
+              sessionId: spec.sessionId,
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               input: { ...event.input },
+              ...(spec.authorization?.agentPath === undefined
+                ? {}
+                : { agentPath: [...spec.authorization.agentPath] }),
+              ...(spec.authorization?.runId === undefined ? {} : { runId: spec.authorization.runId }),
+              ...(spec.authorization?.jobId === undefined ? {} : { jobId: spec.authorization.jobId }),
+              ...(spec.authorization?.allowedApprovalScopes === undefined
+                ? {}
+                : { allowedApprovalScopes: [...spec.authorization.allowedApprovalScopes] }),
             });
             if (result.decision === "allow") {
               return undefined;

@@ -55,6 +55,18 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "tui":
       requireNoArgs(args, "tui");
       return runTui(home);
+    case "jobs":
+      requireNoArgs(args, "jobs");
+      return printProtocolList(home, "jobs.list");
+    case "runs":
+      requireNoArgs(args, "runs");
+      return printProtocolList(home, "runs.list");
+    case "run":
+      if (args.length !== 1) throw new CliError("run requires exactly one job ID");
+      return runJob(home, args[0] as string);
+    case "cancel":
+      if (args.length !== 1) throw new CliError("cancel requires exactly one run ID");
+      return cancelRun(home, args[0] as string);
     case "prompt":
       if (args.length === 0 || !args.join(" ").trim()) throw new CliError("prompt requires text");
       return runPrompt(home, args.join(" "));
@@ -96,6 +108,7 @@ async function printStatus(home: string): Promise<number> {
         `Revision: ${status.revision}`,
         `Sessions: ${sessionCount} (${active} running)`,
         `Pending approvals: ${Object.keys(status.approvals).length}`,
+        `Runs: ${Object.keys(status.runs).length} (${Object.values(status.runs).filter((run) => run.status === "running").length} running)`,
       ].join("\n") + "\n",
     );
     return 0;
@@ -186,6 +199,39 @@ async function runPrompt(home: string, text: string): Promise<number> {
   }
 }
 
+async function printProtocolList(home: string, command: "jobs.list" | "runs.list"): Promise<number> {
+  const client = await connectFromEndpoint(home, command.split(".")[0] ?? "list");
+  try {
+    const values = await client.command<unknown[]>(command, {});
+    process.stdout.write(`${JSON.stringify(values, null, 2)}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
+async function runJob(home: string, jobId: string): Promise<number> {
+  const client = await connectFromEndpoint(home, "run");
+  try {
+    const run = await client.command<{ id: string; status: string; reason?: string; error?: string }>("job.run", { jobId });
+    process.stdout.write(`${run.id} ${run.status}${run.reason ? `: ${run.reason}` : run.error ? `: ${run.error}` : ""}\n`);
+    return run.status === "succeeded" ? 0 : 1;
+  } finally {
+    await client.close();
+  }
+}
+
+async function cancelRun(home: string, runId: string): Promise<number> {
+  const client = await connectFromEndpoint(home, "cancel");
+  try {
+    const run = await client.command<{ id: string; status: string }>("run.cancel", { runId });
+    process.stdout.write(`${run.id} ${run.status}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
 async function connectFromEndpoint(home: string, purpose: string): Promise<ProtocolClient> {
   const endpoint = await endpointFor(home);
   const client = new ProtocolClient({ socketPath: endpoint.socket, clientId: `${purpose}-${process.pid}` });
@@ -236,7 +282,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

@@ -87,3 +87,18 @@
 - 验证方式与结果：针对性严格 typecheck 与 10 项 memory/search/core/daemon 测试通过；完整阶段检查在提交前执行。
 - 当前状态：memory/search v1 纵切已完成；尚无常驻实例，本阶段不涉及 Electron/PC viewport。
 - 遗留问题：索引 cache 不是备份；durable event/session mapping、cron/BOOT、subagent、MCP 与 Electron 仍待实现。
+
+## 2026-08-10 00:01 CST — Phase 2 Cron、BOOT 与 durable run
+
+- 阶段目标：完成可验证的主动触发主链路，并让 cron/BOOT/run 与审批状态通过同一 Daemon/UDS/TUI 暴露。
+- 完成内容：
+  - 实现严格标准五字段 cron 与 IANA timezone adapter，并固定 Croner 在 DST 跳时/重复时刻的 UTC 行为。
+  - 实现用户可编辑 job schema、canonical directory cwd、budget/delivery/concurrency/misfire 校验。
+  - 实现 monthly append-only run ledger、schedule slot claim 去重、queued 恢复、running→unknown、破损尾行 recovery 与中间损坏 fail closed。
+  - 实现 `forbid/replace/allow`、全局并发、timeout/budget/cancel、run_once/skip misfire 与 user/cron/recovery trigger。
+  - Daemon 在 UDS ready 后启动 scheduler；BOOT 使用独立 run/session、每实例去重且不阻塞 ready。CLI/TUI 增加 jobs/runs/run/cancel。
+  - 实现 automation run 的 agent/command executor、run 级授权上下文和跨重启 durable job grant；非法 approval scope 不消费请求，显式 deny 始终优先。
+- 修改文件：`src/automation/`、`src/storage/jsonl.ts`、Kernel/Application/Daemon/CLI/TUI、policy/Pi runtime contract、相关 unit/integration tests、README 与 memory-bank。
+- 验证方式与结果：增量 `npm run typecheck` 通过；Pi/policy 契约 13 项通过；scheduler/daemon/run-ledger/cron/TUI 组合 13 项通过；完整 `npm run check` 通过（严格类型检查、49 项测试、production build）。构建产物 live smoke 验证 Daemon ready、status/jobs/runs/doctor 与 graceful SIGINT，socket/endpoint/lock 和验收进程均已清理。
+- 当前状态：Phase 2 主动 run 纵切已完成；验收临时 home 已删除，当前无常驻实例。TUI 视觉基准仍为固定 `160×45`，Electron 尚未开始。
+- 遗留问题：schedule 原子 mutation/runtime reload 与 delivery/notification 尚待 bundled tools 阶段补齐；subagent、MCP、plugin trust 与 Electron 进入后续阶段。

@@ -20,6 +20,12 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
         true,
       );
     }
+    case "session.closed": {
+      const sessions = { ...state.sessions };
+      delete sessions[event.sessionId];
+      const next = changed(state, { ...state, sessions });
+      return broadcast(next, event, "session.closed", { sessionId: event.sessionId, revision: next.revision }, true);
+    }
     case "runtime.received": {
       const snapshot = event.snapshot ? structuredClone(event.snapshot) : undefined;
       const next = snapshot
@@ -52,6 +58,11 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
         { request, revision: next.revision },
         true,
       );
+    }
+    case "automation.run": {
+      const run = structuredClone(event.run);
+      const next = changed(state, { ...state, runs: { ...state.runs, [run.id]: run } });
+      return broadcast(next, event, "automation.run", { run, revision: next.revision }, true);
     }
     case "approval.resolved": {
       const approvals = { ...state.approvals };

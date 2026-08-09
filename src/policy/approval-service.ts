@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 
 import type { ToolAuthorizationRequest, ToolAuthorizationResult, ToolGate } from "../domain/runtime.js";
 import { appendJsonLine, atomicWriteJson } from "../storage/atomic.js";
@@ -12,6 +13,8 @@ export interface ApprovalRequest {
   sessionId: string;
   agentPath: string[];
   toolCallId: string;
+  runId?: string;
+  jobId?: string;
   capability: Capability;
   canonicalTarget?: string;
   display: {
@@ -31,6 +34,16 @@ export interface ApprovalResolution {
   actor: string;
 }
 
+export interface JobGrant {
+  version: 1;
+  id: string;
+  jobId: string;
+  capability: Capability;
+  canonicalTarget?: string;
+  actor: string;
+  createdAt: string;
+}
+
 interface PendingApproval {
   request: ApprovalRequest;
   resolve: (resolution: ApprovalResolution) => void;
@@ -40,6 +53,7 @@ interface PendingApproval {
 export interface ApprovalServiceOptions {
   pendingPath: string;
   auditPath: string;
+  grantsPath?: string;
   timeoutMs: number;
   clock?: () => Date;
   idFactory?: () => string;
@@ -50,6 +64,7 @@ export interface ApprovalServiceOptions {
 export class ApprovalService {
   readonly #pendingPath: string;
   readonly #auditPath: string;
+  readonly #grantsPath: string;
   readonly #timeoutMs: number;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -57,11 +72,13 @@ export class ApprovalService {
   readonly #onResolved: ApprovalServiceOptions["onResolved"] | undefined;
   readonly #pending = new Map<string, PendingApproval>();
   readonly #resolved = new Set<string>();
+  readonly #jobGrants = new Map<string, JobGrant>();
   #mutation = Promise.resolve();
 
   constructor(options: ApprovalServiceOptions) {
     this.#pendingPath = options.pendingPath;
     this.#auditPath = options.auditPath;
+    this.#grantsPath = options.grantsPath ?? join(dirname(options.pendingPath), "job-grants.json");
     this.#timeoutMs = options.timeoutMs;
     this.#clock = options.clock ?? (() => new Date());
     this.#idFactory = options.idFactory ?? randomUUID;
@@ -70,12 +87,20 @@ export class ApprovalService {
   }
 
   async initialize(): Promise<void> {
+    const grants = await readJobGrants(this.#grantsPath);
+    this.#jobGrants.clear();
+    for (const grant of grants) {
+      const key = jobGrantKey(grant.jobId, grant);
+      if (this.#jobGrants.has(key)) throw new Error(`Duplicate durable job grant: ${grant.jobId}/${grant.capability}`);
+      this.#jobGrants.set(key, grant);
+    }
     const recovered = await readPending(this.#pendingPath);
     for (const request of recovered) {
       await this.#audit(request, { interrupted: true });
       notifyObserver(() => this.#onResolved?.(request, { interrupted: true }));
     }
     await atomicWriteJson(this.#pendingPath, { version: 1, approvals: [] }, 0o600);
+    await this.#persistJobGrants();
   }
 
   async request(input: Omit<ApprovalRequest, "id" | "requestedAt" | "expiresAt">): Promise<ApprovalResolution> {
@@ -109,16 +134,41 @@ export class ApprovalService {
   async resolve(
     id: string,
     resolution: ApprovalResolution,
-  ): Promise<{ status: "resolved" | "already_resolved" | "not_found" }> {
+  ): Promise<{ status: "resolved" | "already_resolved" | "not_found" | "invalid_scope" }> {
     return this.#serialize(async () => {
       const pending = this.#pending.get(id);
       if (!pending) return { status: this.#resolved.has(id) ? "already_resolved" : "not_found" };
+      if (!pending.request.allowedScopes.includes(resolution.scope)) return { status: "invalid_scope" };
       clearTimeout(pending.timer);
       this.#pending.delete(id);
       this.#resolved.add(id);
       try {
         await this.#persist();
         await this.#audit(pending.request, resolution);
+        if (resolution.approved && resolution.scope === "job") {
+          if (!pending.request.jobId) throw new Error("Job-scoped approval is missing jobId");
+          const grant: JobGrant = {
+            version: 1,
+            id: this.#idFactory(),
+            jobId: pending.request.jobId,
+            capability: pending.request.capability,
+            ...(pending.request.canonicalTarget === undefined
+              ? {}
+              : { canonicalTarget: pending.request.canonicalTarget }),
+            actor: resolution.actor,
+            createdAt: this.#clock().toISOString(),
+          };
+          const key = jobGrantKey(grant.jobId, grant);
+          const previous = this.#jobGrants.get(key);
+          this.#jobGrants.set(key, grant);
+          try {
+            await this.#persistJobGrants();
+          } catch (error) {
+            if (previous) this.#jobGrants.set(key, previous);
+            else this.#jobGrants.delete(key);
+            throw error;
+          }
+        }
         notifyObserver(() => this.#onResolved?.(pending.request, resolution));
         pending.resolve(resolution);
       } catch (error) {
@@ -137,6 +187,14 @@ export class ApprovalService {
 
   list(): ApprovalRequest[] {
     return [...this.#pending.values()].map((pending) => structuredClone(pending.request));
+  }
+
+  listJobGrants(): JobGrant[] {
+    return [...this.#jobGrants.values()].map((grant) => structuredClone(grant));
+  }
+
+  hasJobGrant(jobId: string, evaluation: Pick<PolicyEvaluation, "capability" | "canonicalTarget">): boolean {
+    return this.#jobGrants.has(jobGrantKey(jobId, evaluation));
   }
 
   async cancelSession(sessionId: string): Promise<void> {
@@ -162,6 +220,10 @@ export class ApprovalService {
     await atomicWriteJson(this.#pendingPath, { version: 1, approvals: this.list() }, 0o600);
   }
 
+  async #persistJobGrants(): Promise<void> {
+    await atomicWriteJson(this.#grantsPath, { version: 1, grants: this.listJobGrants() }, 0o600);
+  }
+
   async #audit(request: ApprovalRequest, resolution: ApprovalResolution | { interrupted: true }): Promise<void> {
     const command = request.display.command ?? "";
     await appendJsonLine(
@@ -171,6 +233,8 @@ export class ApprovalService {
         id: this.#idFactory(),
         approvalId: request.id,
         sessionId: request.sessionId,
+        runId: request.runId ?? null,
+        jobId: request.jobId ?? null,
         capability: request.capability,
         canonicalTarget: request.canonicalTarget ?? null,
         commandHash: command ? createHash("sha256").update(command).digest("hex") : null,
@@ -203,17 +267,23 @@ export class PolicyToolGate implements ToolGate {
 
   async authorize(request: ToolAuthorizationRequest): Promise<ToolAuthorizationResult> {
     const evaluation = await this.#policy.evaluate(request);
-    const grantKey = policyGrantKey(request.sessionId, evaluation);
-    if (this.#sessionGrants.has(grantKey)) return { decision: "allow" };
-    if (evaluation.decision === "allow") return { decision: "allow" };
     if (evaluation.decision === "deny") {
       return { decision: "deny", reason: "Denied by pSpore policy", terminate: false };
     }
+    if (evaluation.decision === "allow") return { decision: "allow" };
+
+    const grantKey = policyGrantKey(request.sessionId, evaluation);
+    if (this.#sessionGrants.has(grantKey)) return { decision: "allow" };
+    if (request.jobId && this.#approvals.hasJobGrant(request.jobId, evaluation)) return { decision: "allow" };
+
+    const allowedScopes = normalizeAllowedScopes(request.allowedApprovalScopes, request.jobId);
 
     const resolution = await this.#approvals.request({
       sessionId: request.sessionId,
-      agentPath: ["main"],
+      agentPath: [...(request.agentPath ?? ["main"])],
       toolCallId: request.toolCallId,
+      ...(request.runId === undefined ? {} : { runId: request.runId }),
+      ...(request.jobId === undefined ? {} : { jobId: request.jobId }),
       capability: evaluation.capability,
       ...(evaluation.canonicalTarget ? { canonicalTarget: evaluation.canonicalTarget } : {}),
       display: {
@@ -222,7 +292,7 @@ export class PolicyToolGate implements ToolGate {
         ...(evaluation.cwd ? { cwd: evaluation.cwd } : {}),
       },
       riskReasons: evaluation.riskReasons,
-      allowedScopes: ["once", "session"],
+      allowedScopes,
     });
     if (!resolution.approved) {
       return { decision: "deny", reason: `Approval denied by ${resolution.actor}`, terminate: false };
@@ -236,6 +306,25 @@ function policyGrantKey(sessionId: string, evaluation: PolicyEvaluation): string
   return `${sessionId}\0${evaluation.capability}\0${evaluation.canonicalTarget ?? ""}`;
 }
 
+function jobGrantKey(
+  jobId: string,
+  evaluation: Pick<PolicyEvaluation, "capability" | "canonicalTarget">,
+): string {
+  return `${jobId}\0${evaluation.capability}\0${evaluation.canonicalTarget ?? ""}`;
+}
+
+function normalizeAllowedScopes(
+  requested: readonly ApprovalScope[] | undefined,
+  jobId: string | undefined,
+): ApprovalScope[] {
+  const scopes = requested ?? ["once", "session"];
+  const allowed = new Set<ApprovalScope>(["once"]);
+  for (const scope of scopes) {
+    if (scope === "once" || scope === "session" || (scope === "job" && jobId !== undefined)) allowed.add(scope);
+  }
+  return [...allowed];
+}
+
 async function readPending(path: string): Promise<ApprovalRequest[]> {
   try {
     const value: unknown = JSON.parse(await readFile(path, "utf8"));
@@ -245,6 +334,42 @@ async function readPending(path: string): Promise<ApprovalRequest[]> {
     if (isNodeError(error) && error.code === "ENOENT") return [];
     throw error;
   }
+}
+
+async function readJobGrants(path: string): Promise<JobGrant[]> {
+  try {
+    const value: unknown = JSON.parse(await readFile(path, "utf8"));
+    if (!isRecord(value) || value["version"] !== 1 || !Array.isArray(value["grants"])) {
+      throw new Error(`Invalid durable job grant store: ${path}`);
+    }
+    return value["grants"].map((grant, index) => parseJobGrant(grant, `${path}.grants[${index}]`));
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+function parseJobGrant(value: unknown, path: string): JobGrant {
+  if (!isRecord(value)) throw new Error(`${path} must be an object`);
+  const allowed = new Set(["version", "id", "jobId", "capability", "canonicalTarget", "actor", "createdAt"]);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw new Error(`${path} contains unknown keys: ${unknown.join(", ")}`);
+  if (value["version"] !== 1) throw new Error(`${path}.version must be 1`);
+  const capability = value["capability"];
+  if (!isCapability(capability)) throw new Error(`${path}.capability is invalid`);
+  const canonicalTarget = value["canonicalTarget"];
+  if (canonicalTarget !== undefined && typeof canonicalTarget !== "string") {
+    throw new Error(`${path}.canonicalTarget must be a string`);
+  }
+  const grant: JobGrant = {
+    version: 1,
+    id: requiredString(value["id"], `${path}.id`),
+    jobId: requiredString(value["jobId"], `${path}.jobId`),
+    capability,
+    actor: requiredString(value["actor"], `${path}.actor`),
+    createdAt: requiredString(value["createdAt"], `${path}.createdAt`),
+  };
+  return canonicalTarget === undefined ? grant : { ...grant, canonicalTarget };
 }
 
 function isApprovalRequest(value: unknown): value is ApprovalRequest {
@@ -257,6 +382,34 @@ function isApprovalRequest(value: unknown): value is ApprovalRequest {
     typeof value["requestedAt"] === "string" &&
     typeof value["expiresAt"] === "string"
   );
+}
+
+const CAPABILITIES = new Set<Capability>([
+  "fs.read",
+  "fs.write",
+  "fs.delete",
+  "process.exec",
+  "process.signal",
+  "process.pty",
+  "network.connect",
+  "network.publish",
+  "privilege.escalate",
+  "schedule.read",
+  "schedule.write",
+  "agent.spawn",
+  "agent.message",
+  "memory.read",
+  "memory.write",
+  "external.side_effect",
+]);
+
+function isCapability(value: unknown): value is Capability {
+  return typeof value === "string" && CAPABILITIES.has(value as Capability);
+}
+
+function requiredString(value: unknown, path: string): string {
+  if (typeof value !== "string" || value.length === 0) throw new Error(`${path} must be a non-empty string`);
+  return value;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

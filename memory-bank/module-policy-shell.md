@@ -36,7 +36,8 @@ Linux user/shell/process APIs；PTY 通过系统 util-linux `script` 与受控 N
 - secret input 必须是用户到 PTY 的独立通道，模型不可见且不可持久化。
 - plugin/extension/MCP server 加载属于代码信任，不能只靠 tool approval。
 - approval 必须先写 `pending.json` 再发布；first response wins，timeout/持久化失败/重启恢复均 fail closed。
-- 当前 session scope grant 已实现；job scope 只有协议字段，需随 scheduler/run grant 一起实现。
+- session scope grant 仅在当前 Daemon/session 生效；job scope 以 job ID + canonical capability/target 精确持久化并跨重启恢复。
+- resolution scope 必须属于 request 的 `allowedScopes`；非法 scope 不消费 pending approval。显式 deny 在任何 grant 之前判定。
 
 ## 常见修改点
 

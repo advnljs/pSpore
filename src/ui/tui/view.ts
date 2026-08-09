@@ -75,7 +75,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
     ? ` EVENT GAP ${state.gap.streamId}: expected ${state.gap.expected}, received ${state.gap.received}`
     : ` ${state.notice}`;
   const divider = `├${"─".repeat(innerWidth)}┤`;
-  const help = " /steer TEXT  /follow TEXT  /abort  /compact  /approve ID  /deny ID  /quit    Ctrl+C abort/exit";
+  const help = " /steer  /follow  /abort  /approve  /deny  /jobs  /runs  /run JOB  /cancel RUN  /quit  Ctrl+C abort/exit";
   const prompt = ` prompt> ${input}`;
   return [
     top,
@@ -111,6 +111,11 @@ function renderSidebar(state: TuiStoreSnapshot, width: number): string[] {
       `  steer  ${main.queue.steering.length}`,
       `  follow ${main.queue.followUp.length}`,
     );
+  }
+  const runs = Object.values(state.kernel.runs);
+  if (runs.length > 0) {
+    const active = runs.filter((run) => run.status === "queued" || run.status === "running").length;
+    lines.push("", "RUNS", `  total  ${runs.length}`, `  active ${active}`, `  last   ${runs.at(-1)?.status ?? "-"}`);
   }
   return lines.map((line) => truncateToWidth(line, width));
 }

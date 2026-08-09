@@ -89,6 +89,18 @@ export class TuiStore {
         sessions: { ...kernel.sessions, [nextSession.sessionId]: structuredClone(nextSession) },
       };
     }
+    if (event.type === "session.closed" && typeof payload["sessionId"] === "string") {
+      const sessions = { ...kernel.sessions };
+      delete sessions[payload["sessionId"]];
+      const nextStreaming = { ...streamingText };
+      delete nextStreaming[payload["sessionId"]];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        sessions,
+      };
+      streamingText = nextStreaming;
+    }
     if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
       streamingText = {
         ...streamingText,
@@ -110,6 +122,14 @@ export class TuiStore {
         ...kernel,
         revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
         approvals,
+      };
+    }
+    if (event.type === "automation.run" && isRecord(payload["run"]) && typeof payload["run"]["id"] === "string") {
+      const run = payload["run"] as unknown as KernelState["runs"][string];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        runs: { ...kernel.runs, [run.id]: structuredClone(run) },
       };
     }
     this.#state = { ...this.#state, kernel, cursors, streamingText };

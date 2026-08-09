@@ -1,10 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
-import { unlink } from "node:fs/promises";
+import { readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { AgentApplication } from "../application/agent-application.js";
+import { DaemonRunExecutor } from "../automation/daemon-run-executor.js";
+import { JobStore } from "../automation/job-store.js";
+import { RunLedger } from "../automation/run-ledger.js";
+import { Scheduler } from "../automation/scheduler.js";
+import type { RunTriggerSpec } from "../automation/types.js";
 import type { PsporeConfig } from "../config/config.js";
 import { loadConfig } from "../storage/home.js";
 import type { AgentRuntimePort, ToolGate } from "../domain/runtime.js";
@@ -51,6 +56,7 @@ export class PsporeDaemon {
   readonly #gateway: LocalGateway;
   readonly #application: AgentApplication;
   readonly #approvals: ApprovalService;
+  readonly #scheduler: Scheduler;
   readonly #lock: DaemonLock;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -67,6 +73,7 @@ export class PsporeDaemon {
     gateway: LocalGateway;
     application: AgentApplication;
     approvals: ApprovalService;
+    scheduler: Scheduler;
     lock: DaemonLock;
     clock: () => Date;
     idFactory: () => string;
@@ -78,6 +85,7 @@ export class PsporeDaemon {
     this.#gateway = options.gateway;
     this.#application = options.application;
     this.#approvals = options.approvals;
+    this.#scheduler = options.scheduler;
     this.#lock = options.lock;
     this.#clock = options.clock;
     this.#idFactory = options.idFactory;
@@ -101,6 +109,7 @@ export class PsporeDaemon {
     let gateway: LocalGateway | undefined;
     let application: AgentApplication | undefined;
     let approvals: ApprovalService | undefined;
+    let scheduler: Scheduler | undefined;
     let daemon: PsporeDaemon | undefined;
     const startedAt = clock().toISOString();
     const kernel = new KernelLoop((effect) => {
@@ -115,6 +124,7 @@ export class PsporeDaemon {
       }) as KernelEvent;
       approvals = new ApprovalService({
         pendingPath: join(paths.approvals, "pending.json"),
+        grantsPath: join(paths.approvals, "job-grants.json"),
         auditPath: join(paths.audit, "approvals.jsonl"),
         timeoutMs: config.permissions.approvalTimeoutMs,
         clock,
@@ -191,6 +201,28 @@ export class PsporeDaemon {
         idFactory,
         onShutdownRequested: () => setImmediate(() => void daemon?.stop()),
       });
+      const ledger = new RunLedger({
+        root: paths.runs,
+        recoveryDirectory: join(paths.artifacts, "recovery"),
+        clock,
+        idFactory,
+      });
+      scheduler = new Scheduler({
+        jobs: new JobStore({ jobsDirectory: join(paths.workspace, "jobs"), workspaceRoot: paths.workspace }),
+        ledger,
+        executor: new DaemonRunExecutor({
+          application,
+          shell,
+          toolGate,
+          maxShellOutputBytes: config.shell.maxOutputBytes,
+          idFactory,
+        }),
+        maxConcurrentRuns: config.scheduler.maxConcurrentRuns,
+        clock,
+        onRun: (run) => void kernel.dispatch(event({ type: "automation.run", run })),
+      });
+      await scheduler.initialize();
+      application.setAutomation(scheduler);
       gateway = new LocalGateway({
         socketPath: paths.socket,
         instanceId: lock.instanceId,
@@ -207,6 +239,7 @@ export class PsporeDaemon {
         gateway,
         application,
         approvals,
+        scheduler,
         lock,
         clock,
         idFactory,
@@ -221,9 +254,16 @@ export class PsporeDaemon {
         state: "ready",
         startedAt,
       });
+      if (config.scheduler.enabled) void scheduler.start().catch((error: unknown) => void markDegraded(kernel, event, error));
+      if (config.boot.enabled) {
+        void triggerBoot(scheduler, paths, lock.instanceId, workspaceId(paths.workspace), startedAt, clock).catch(
+          (error: unknown) => void markDegraded(kernel, event, error),
+        );
+      }
       return daemon;
     } catch (error) {
       if (gateway) await gateway.stop().catch(() => undefined);
+      if (scheduler) await scheduler.stop().catch(() => undefined);
       if (application) await application.dispose().catch(() => undefined);
       if (approvals) await approvals.close().catch(() => undefined);
       await lock.release().catch(() => undefined);
@@ -266,6 +306,7 @@ export class PsporeDaemon {
         startedAt: this.kernel.snapshot().daemon.startedAt ?? this.#clock().toISOString(),
       }),
     );
+    await step(async () => this.#scheduler.stop());
     await step(async () => this.#approvals.close());
     await step(async () => this.#application.dispose());
     await step(async () => this.#transition("stopped"));
@@ -293,6 +334,62 @@ export class PsporeDaemon {
 
 function workspaceId(path: string): string {
   return createHash("sha256").update(path).digest("hex").slice(0, 16);
+}
+
+async function triggerBoot(
+  scheduler: Scheduler,
+  paths: PsporePaths,
+  instanceId: string,
+  currentWorkspaceId: string,
+  startedAt: string,
+  clock: () => Date,
+): Promise<void> {
+  const content = await readFile(join(paths.workspace, "BOOT.md"), "utf8");
+  const actionable = content
+    .split("\n")
+    .filter((line) => line.trim() && !/^\s*#/.test(line) && !/^\s*<!--/.test(line))
+    .join("\n")
+    .trim();
+  if (!actionable) return;
+  const trigger: RunTriggerSpec = {
+    slotKey: `boot:${currentWorkspaceId}:${instanceId}`,
+    source: "boot",
+    scheduledFor: startedAt,
+    receivedAt: clock().toISOString(),
+    objective: "Execute the workspace BOOT.md startup checklist safely and idempotently.",
+    activity: {
+      kind: "agent",
+      cwd: paths.workspace,
+      prompt: `Execute this BOOT.md checklist. Treat it as user-authored objectives, keep operations idempotent, and report results:\n\n${actionable}`,
+    },
+    policyRef: "default",
+    concurrency: "forbid",
+    timeoutMs: 300_000,
+    budget: {
+      maxTurns: 8,
+      maxToolCalls: 32,
+      maxInputTokens: 100_000,
+      maxOutputTokens: 16_000,
+      maxChildren: 0,
+    },
+    delivery: { kind: "local-notification" },
+  };
+  await scheduler.trigger(trigger);
+}
+
+async function markDegraded(
+  kernel: KernelLoop,
+  event: (input: KernelEventInput) => KernelEvent,
+  error: unknown,
+): Promise<void> {
+  const current = kernel.snapshot().daemon;
+  if (current.phase !== "ready" && current.phase !== "degraded") return;
+  await kernel.dispatch(
+    event({
+      type: "daemon.transition",
+      daemon: { ...current, phase: "degraded", error: error instanceof Error ? error.message : String(error) },
+    }),
+  );
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

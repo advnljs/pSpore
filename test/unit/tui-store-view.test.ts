@@ -29,15 +29,28 @@ describe("TUI protocol store", () => {
     store.applyEvent({
       v: 1,
       kind: "event",
-      id: "e-3",
+      id: "e-2",
       streamId: "kernel",
-      seq: 3,
+      seq: 2,
+      ts: "2026-08-09T00:00:02.000Z",
+      durable: true,
+      type: "session.closed",
+      payload: { sessionId: "main", revision: 5 },
+    });
+    assert.equal(store.snapshot().kernel.sessions["main"], undefined);
+    assert.equal(store.snapshot().streamingText["main"], undefined);
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "e-4",
+      streamId: "kernel",
+      seq: 4,
       ts: "2026-08-09T00:00:03.000Z",
       durable: true,
       type: "run.settled",
       payload: {},
     });
-    assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 2, received: 3 });
+    assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 3, received: 4 });
   });
 });
 
@@ -54,9 +67,9 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(screen, /TRANSCRIPT  main/);
     assert.match(screen, /assistant> hello from fake/);
     assert.match(screen, /APPROVAL approval-1/);
-    assert.match(screen, /\/steer TEXT/);
+    assert.match(screen, /\/steer/);
     assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "e8cd8436341c80020706492bbdd58c58d6b26a3ba459a2bc5382666b6a986d87");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "e1a87350297d35d1c8f15001223c38dc5a5831d1e901cdc8e58ae17dbbebb621");
   });
 });
 
