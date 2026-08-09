@@ -7,9 +7,10 @@
 | P0 | 验证 Pi adapter contract | Done | 无 | 已覆盖 create/resume/new/fork/rebind/steer/followUp/abort/compact/tool gate/cache usage |
 | P0 | 验证 Linux login shell、PTY 与 sudo secret channel | Done | 未执行真实 sudo（避免无必要提权） | 已验证 login shell、pipe/PTY、timeout、output cap、artifact 与 secret 跨 chunk 脱敏 |
 | P1 | 实现 Kernel、storage、policy、UDS 和 TUI 纵向切片 | Done | 无 | 已有真实 Daemon/CLI、单 session fake runtime 集成与 160×45 TUI snapshot |
-| P1 | 实现 pinned memory、exact search 与 artifact truncation | In Progress | 无 | exact search、Shell artifact、基础 pinned 注入已接线；补 token/path/hash 约束与 memory tools |
+| P1 | 实现 pinned memory、exact/BM25 search 与 artifact truncation | Done | 无 | 已覆盖 token/path/hash、memory append/curate、source ref、exclude 与增量 rebuild |
 | P2 | 选择 cron parser 依赖 | Done | 无；用户已确认 | 已锁定无额外 runtime dependency 的 `croner@10.0.1`，Phase 2 验证 timezone/DST |
-| P2 | 实现 BM25、中英 tokenizer、cron 与 BOOT | Pending | memory 基础约束 | 按详细设计测试边界推进 |
+| P2 | 实现 BM25 与中英 tokenizer | Done | 无 | 默认 lexical provider 已接入 Daemon search tool |
+| P2 | 实现 cron、BOOT、run ledger 与恢复 | Pending | 无 | 先落事实源/job parser，再接 scheduler 与非阻塞 BOOT |
 | P3 | 选择 MCP SDK 与版本 | Done | 无；用户已确认 | 已锁定官方 `@modelcontextprotocol/sdk@1.30.0`，只通过 adapter port 使用 |
 | P3 | 实现 subagent 双工、MCP 与 plugin trust 流程 | Pending | Phase 2 | 先用 fake MCP 和 fake model 做集成测试 |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |

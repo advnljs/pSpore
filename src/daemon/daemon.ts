@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { readFile, unlink } from "node:fs/promises";
+import { unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -7,10 +7,14 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { AgentApplication } from "../application/agent-application.js";
 import type { PsporeConfig } from "../config/config.js";
 import { loadConfig } from "../storage/home.js";
-import type { AgentRuntimePort, PinnedContextFile, ToolGate } from "../domain/runtime.js";
+import type { AgentRuntimePort, ToolGate } from "../domain/runtime.js";
 import { LocalGateway } from "../gateway/local-gateway.js";
 import { KernelLoop } from "../kernel/loop.js";
 import type { KernelEvent } from "../kernel/state.js";
+import { PinnedContextLoader } from "../memory/context-loader.js";
+import { MemoryService } from "../memory/memory-service.js";
+import { createMemoryTools } from "../memory/memory-tools.js";
+import { SearchService } from "../memory/search-service.js";
 import { PiRuntimeAdapter } from "../pi/pi-runtime-adapter.js";
 import { ApprovalService, PolicyToolGate } from "../policy/approval-service.js";
 import { PolicyEngine } from "../policy/policy.js";
@@ -132,21 +136,39 @@ export class PsporeDaemon {
         ...(config.shell.executable === undefined ? {} : { configuredShell: config.shell.executable }),
       });
       await shell.initialize();
-      const tools = createCoreTools({
+      const retrieval = new SearchService({
+        workspaceRoot: paths.workspace,
+        sessionsRoot: paths.sessions,
+        cachePath: join(paths.cache, "index.json"),
+      });
+      const memory = new MemoryService({ workspaceRoot: paths.workspace, clock, idFactory });
+      const coreTools = createCoreTools({
         workspaceRoot: paths.workspace,
         shell,
         defaultShellTimeoutMs: config.shell.defaultTimeoutMs,
         maxShellOutputBytes: config.shell.maxOutputBytes,
+        retrieval,
+        defaultSearchMaxResults: config.memory.maxResults,
+        defaultSearchMaxReturnedTokens: config.memory.maxReturnedTokens,
       });
+      const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
+        ...coreTools,
+        ...createMemoryTools(sessionId, memory),
+      ];
+      const tools = toolsFor("main");
       const runtime = options.runtimeFactory
         ? await options.runtimeFactory({ paths, config, toolGate, tools })
         : await PiRuntimeAdapter.create({
             agentDir: paths.agentDir,
             sessionRoot: paths.sessions,
             toolGate,
-            createTools: () => tools,
+            createTools: toolsFor,
           });
-      const contextFiles = await readPinnedFiles(paths.workspace, config.context.pinnedFiles);
+      const context = await new PinnedContextLoader({
+        workspaceRoot: paths.workspace,
+        pinnedFiles: config.context.pinnedFiles,
+        maxPinnedTokens: config.context.maxPinnedTokens,
+      }).load();
       application = new AgentApplication({
         runtime,
         kernel,
@@ -162,7 +184,7 @@ export class PsporeDaemon {
                 thinking: config.model.thinking,
               }),
           systemPrompt: "You are pSpore, a careful local agent. Prefer read/edit/search over shell and explain side effects.",
-          contextFiles,
+          contextFiles: context.files,
           enabledTools: tools.map((tool) => tool.name),
         },
         clock,
@@ -267,19 +289,6 @@ export class PsporeDaemon {
       daemon: { ...previous, phase },
     });
   }
-}
-
-async function readPinnedFiles(workspace: string, names: readonly string[]): Promise<PinnedContextFile[]> {
-  const files: PinnedContextFile[] = [];
-  for (const name of names) {
-    const path = join(workspace, name);
-    try {
-      files.push({ path, content: await readFile(path, "utf8") });
-    } catch (error) {
-      if (!isNodeError(error) || error.code !== "ENOENT") throw error;
-    }
-  }
-  return files;
 }
 
 function workspaceId(path: string): string {

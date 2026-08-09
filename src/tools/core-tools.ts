@@ -6,6 +6,7 @@ import { isAbsolute, resolve } from "node:path";
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import type { SearchHit, SearchScope, SearchService } from "../memory/search-service.js";
 import { ShellService } from "../shell/shell-service.js";
 import { atomicWriteFile } from "../storage/atomic.js";
 
@@ -16,6 +17,9 @@ export interface CoreToolOptions {
   maxShellOutputBytes: number;
   maxReadBytes?: number;
   maxSearchOutputBytes?: number;
+  retrieval?: Pick<SearchService, "search">;
+  defaultSearchMaxResults?: number;
+  defaultSearchMaxReturnedTokens?: number;
 }
 
 interface EditDetails {
@@ -32,11 +36,17 @@ interface ShellDetails {
   capturedBytes: number;
 }
 
+interface SearchDetails {
+  hits?: readonly SearchHit[];
+  fallback?: { matchCount: number; capturedBytes: number; truncated: boolean };
+}
+
 const readParameters = Type.Object(
   {
     path: Type.String({ minLength: 1 }),
     offset: Type.Optional(Type.Integer({ minimum: 1 })),
     limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 2_000 })),
+    expectedSha256: Type.Optional(Type.String({ minLength: 64, maxLength: 64 })),
   },
   { additionalProperties: false },
 );
@@ -56,6 +66,18 @@ const searchParameters = Type.Object(
     path: Type.Optional(Type.String({ minLength: 1 })),
     glob: Type.Optional(Type.String({ minLength: 1, maxLength: 256 })),
     maxResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 500 })),
+    mode: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("exact"), Type.Literal("bm25")])),
+    scopes: Type.Optional(
+      Type.Array(
+        Type.Union([
+          Type.Literal("memory"),
+          Type.Literal("sessions"),
+          Type.Literal("workspace"),
+          Type.Literal("project"),
+        ]),
+        { minItems: 1, maxItems: 4 },
+      ),
+    ),
   },
   { additionalProperties: false },
 );
@@ -96,6 +118,9 @@ export function createCoreTools(options: CoreToolOptions): readonly ToolDefiniti
       const selected = lines.slice(offset - 1, offset - 1 + limit);
       const numbered = selected.map((line, index) => `${offset + index}: ${line}`).join("\n");
       const sha256 = hash(content);
+      if (params.expectedSha256 !== undefined && params.expectedSha256 !== sha256) {
+        throw new Error(`Read conflict for ${path}: expected ${params.expectedSha256}, current ${sha256}`);
+      }
       return {
         content: [
           {
@@ -137,7 +162,7 @@ export function createCoreTools(options: CoreToolOptions): readonly ToolDefiniti
     },
   });
 
-  const search = defineTool({
+  const search = defineTool<typeof searchParameters, SearchDetails>({
     name: "search",
     label: "Search",
     description: "Search for exact text with ripgrep and return file, line, and matching content.",
@@ -145,6 +170,24 @@ export function createCoreTools(options: CoreToolOptions): readonly ToolDefiniti
     parameters: searchParameters,
     executionMode: "parallel",
     execute: async (_toolCallId, params, signal) => {
+      if (options.retrieval) {
+        const hits = await options.retrieval.search(
+          {
+            query: params.query,
+            ...(params.scopes === undefined ? {} : { scopes: params.scopes as SearchScope[] }),
+            ...(params.mode === undefined ? {} : { mode: params.mode }),
+            ...(params.path === undefined ? {} : { pathPrefix: params.path }),
+            ...(params.glob === undefined ? {} : { glob: params.glob }),
+            maxResults: params.maxResults ?? options.defaultSearchMaxResults ?? 8,
+            maxReturnedTokens: options.defaultSearchMaxReturnedTokens ?? 3_000,
+          },
+          signal,
+        );
+        return {
+          content: [{ type: "text", text: hits.length > 0 ? JSON.stringify(hits, null, 2) : "No matches." }],
+          details: { hits },
+        };
+      }
       const path = absolutePath(params.path ?? options.workspaceRoot, options.workspaceRoot);
       const result = await runRipgrep(
         {
@@ -163,7 +206,13 @@ export function createCoreTools(options: CoreToolOptions): readonly ToolDefiniti
             text: result.output || (result.matchCount === 0 ? "No exact matches." : "Matches contained no text output."),
           },
         ],
-        details: result,
+        details: {
+          fallback: {
+            matchCount: result.matchCount,
+            capturedBytes: result.capturedBytes,
+            truncated: result.truncated,
+          },
+        },
       };
     },
   });

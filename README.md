@@ -4,7 +4,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 
 ## 当前状态
 
-项目已进入实现阶段：Phase 0 运行时契约与 Phase 1 的可运行核心纵切已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、UDS Daemon、CLI 和可重连 TUI；memory/BM25、cron/BOOT、subagent、MCP 与 Electron 仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
+项目已进入实现阶段：Phase 0 运行时契约、Phase 1 可运行核心纵切与 memory/search 纵切已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、pinned memory、exact/BM25、UDS Daemon、CLI 和可重连 TUI；cron/BOOT、subagent、MCP 与 Electron 仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
 
 - 原始想法：[initial_design.txt](initial_design.txt)
 - 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
@@ -45,4 +45,4 @@ Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 
 
 ## 下一步
 
-继续完成详细设计的 Phase 2：受限 pinned context、memory append/curate、exact + BM25 索引、cron/BOOT 与故障恢复。
+继续完成详细设计的 Phase 2：cron/BOOT、run ledger、misfire/去重与故障恢复。

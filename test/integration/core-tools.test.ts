@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
+import { SearchService } from "../../src/memory/search-service.js";
 import { ShellService } from "../../src/shell/shell-service.js";
 import { createCoreTools } from "../../src/tools/core-tools.js";
 
@@ -22,11 +23,17 @@ describe("core tools", () => {
     await writeFile(file, "alpha\nbeta\n", { mode: 0o600 });
     const shell = new ShellService({ artifactRoot: join(root, "artifacts"), configuredShell: "/bin/bash" });
     await shell.initialize();
+    const sessions = join(root, "sessions");
+    const cache = join(root, "cache");
+    await mkdir(sessions);
+    await mkdir(cache);
+    const retrieval = new SearchService({ workspaceRoot: root, sessionsRoot: sessions, cachePath: join(cache, "index.json") });
     const tools = createCoreTools({
       workspaceRoot: root,
       shell,
       defaultShellTimeoutMs: 2_000,
       maxShellOutputBytes: 16_384,
+      retrieval,
     });
     const byName = (name: string): ToolDefinition => {
       const tool = tools.find((candidate) => candidate.name === name);
@@ -37,12 +44,16 @@ describe("core tools", () => {
     const read = await execute(byName("read"), { path: file });
     const originalHash = createHash("sha256").update("alpha\nbeta\n").digest("hex");
     assert.match(text(read), new RegExp(originalHash));
+    await assert.rejects(execute(byName("read"), { path: file, expectedSha256: "0".repeat(64) }), /Read conflict/);
     await assert.rejects(execute(byName("edit"), { path: file, expectedSha256: "missing", content: "wrong" }), /conflict/);
     await execute(byName("edit"), { path: file, expectedSha256: originalHash, content: "alpha\ngamma\n" });
     assert.equal(await readFile(file, "utf8"), "alpha\ngamma\n");
 
     const search = await execute(byName("search"), { query: "gamma", path: root });
-    assert.match(text(search), /notes\.txt:2:gamma/);
+    const updatedHash = createHash("sha256").update("alpha\ngamma\n").digest("hex");
+    assert.match(text(search), /"ref": "source:/);
+    assert.match(text(search), /gamma/);
+    assert.match(text(search), new RegExp(updatedHash));
     const command = await execute(byName("shell"), { command: "printf tool-ok", cwd: root });
     assert.match(text(command), /tool-ok/);
     const details = command.details as { artifactPath: string };

@@ -17,6 +17,7 @@
 | `src/storage/` | home/config 初始化、atomic write、JSONL、PID+start lock |
 | `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
 | `src/tools/core-tools.ts` | read/edit/search/shell 固定基础工具 |
+| `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/prompt/version 入口 |
@@ -67,3 +68,4 @@
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
 - sessions/runs/audit：`~/.pspore/state/`
+- lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。

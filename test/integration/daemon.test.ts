@@ -31,9 +31,13 @@ describe("daemon vertical slice", () => {
     config.model = { provider: "fake", model: "fake", thinking: "off" };
     await atomicWriteJson(join(home, "config.json"), config);
     const runtime = new FakeRuntime();
+    let toolNames: string[] = [];
     const daemon = await PsporeDaemon.start({
       home,
-      runtimeFactory: async () => runtime,
+      runtimeFactory: async (context) => {
+        toolNames = context.tools.map((tool) => tool.name);
+        return runtime;
+      },
       idFactory: sequence("daemon"),
     });
     const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "test-tui", idFactory: sequence("client") });
@@ -46,6 +50,7 @@ describe("daemon vertical slice", () => {
     const hello = await client.connect();
     assert.equal(hello.snapshot.daemon.phase, "ready");
     assert.equal(Object.keys(hello.snapshot.sessions).length, 0);
+    assert.deepEqual(toolNames, ["read", "edit", "search", "shell", "memory_append", "memory_curate"]);
     const events: string[] = [];
     client.subscribe((event) => events.push(event.type));
     const accepted = await client.command<Accepted>("session.prompt", { text: "hello", mode: "prompt" }, {
