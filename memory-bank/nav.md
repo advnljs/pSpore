@@ -20,6 +20,7 @@
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
 | `src/automation/` | cron adapter、job parser、run ledger、scheduler 与 Daemon executor |
 | `src/agents/` | subagent tree、独立 session、双工 mailbox、budget/permission ceiling 与 bundled tools |
+| `src/mcp/` | MCP 严格配置对应的 lazy transport、schema 激活、结果 artifact、audit、health 与 bundled tools |
 | `src/notifications/` | durable notification store、run delivery 与 notify tool |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
@@ -65,6 +66,7 @@
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。
 - Subagent：`npm run dev -- agents`；`agent spawn <objective>`、`agent send <id> <message>`、`agent join <id...>`、`agent cancel <id>`。
+- MCP：`npm run dev -- mcp list`；`mcp discover <server-id>`、`mcp tools`、`mcp ping <server-id>`。配置位于 `config.json#mcpServers`，secret 仅通过 `envRefs/headerRefs` 引用。
 - Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。
 
 ## 配置与运行数据

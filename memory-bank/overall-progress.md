@@ -130,3 +130,18 @@
 - 运行验证：最新 `dist/` 在真实 PTY `160×45` 下启动 TUI，连接 Daemon、执行 `/agents`、`/quit` 后正常恢复 terminal；Daemon SIGINT exit 0，验收 home 已删除。
 - 当前状态：Subagent 纵切完成并已用 TUI/UDS 验证；当前无常驻验收实例。
 - 遗留问题：继续 Phase 3 MCP lazy adapter、plugin trust/staging 与 skills/resource reload；随后进入 Electron 43。
+
+## 2026-08-10 01:21 CST — Phase 3 MCP lazy adapter
+
+- 阶段目标：把第三方 MCP tool 通过严格信任、按需生命周期和统一 policy 接入现有 Pi/Daemon/UDS/TUI 主链路。
+- 完成内容：
+  - 使用官方 `@modelcontextprotocol/sdk@1.30.0` 实现 stdio 与 Streamable HTTP client adapter；server 初始不启动，只在 discover/call/ping 时连接，空闲关闭并可重连。
+  - 严格解析 server ID、transport、allow/deny、timeout、trust 与 `envRefs/headerRefs`；拒绝 inline secret、不安全远端 HTTP、重复 ID 和 allow/deny 冲突。
+  - 对 tool 数量、分页、名称、schema 与调用参数设硬边界；归一化 tool 名避免碰撞，发现后的动态 schema 只进入新 session，当前 session 使用固定 `mcp_call`。
+  - 所有模型发起的 MCP discovery/call 进入 `external.side_effect` policy gate；shared-read child ceiling 拒绝。`sandboxed` 配置在 v1 无 sandbox executor 时 fail closed。
+  - 支持 timeout/AbortSignal、transport health、指数退避、secret 脱敏和 graceful stop；大结果写入私有 MCP artifact，audit 仅保存参数 SHA-256、结果与耗时。
+  - Kernel/TUI 增加 MCP health，UDS/CLI 增加 `mcp list/tools/discover/ping`，TUI 增加 `/mcp` 与 `/mcp-discover`。
+- 修改文件：`src/mcp/`、Config/Application/Daemon/Kernel/policy/CLI/TUI、fake MCP fixture、unit/integration tests、README 与 memory-bank。
+- 验证方式与结果：`npm run check` 通过（严格类型检查、59 项测试、production build）；真实 SDK stdio contract 覆盖 discovery、allow/deny、schema、call、artifact `0600`、abort、audit、idle reconnect、backoff 与 secret redaction。构建产物 live smoke 完成 Daemon ready、doctor/status、`mcp list → discover → tools → ping`，随后 SIGINT exit 0 并删除临时 home。
+- 当前状态：MCP 纵切完成；当前无常驻验收实例。TUI 以 `160×45` 实际渲染并固定 golden SHA-256，新增 MCP 状态和命令均可见。
+- 遗留问题：继续 plugin trust/staging 与 skills/resource reload；随后进入 Electron 43。

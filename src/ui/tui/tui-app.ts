@@ -148,6 +148,28 @@ export class PsporeTuiApp {
         );
         return;
       }
+      if (input === "/mcp") {
+        const servers = await this.#command("mcp.servers", {}) as Array<{
+          serverId: string;
+          status: string;
+          toolCount: number;
+        }>;
+        this.#store.setNotice(
+          servers.length > 0
+            ? servers.map((server) => `${server.serverId}:${server.status}(${server.toolCount})`).join("  ")
+            : "No MCP servers configured",
+        );
+        return;
+      }
+      if (input.startsWith("/mcp-discover ")) {
+        const serverId = input.slice(14).trim();
+        if (!serverId) throw new Error("Usage: /mcp-discover SERVER_ID");
+        const tools = await this.#command("mcp.discover", { serverId }) as Array<{ normalizedName: string }>;
+        this.#store.setNotice(
+          tools.length > 0 ? tools.map((tool) => tool.normalizedName).join("  ") : `No allowed tools on ${serverId}`,
+        );
+        return;
+      }
       if (input.startsWith("/select ")) {
         const selected = this.#store.selectSession(input.slice(8).trim());
         this.#store.setNotice(`Selected session ${selected}`);

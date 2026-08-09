@@ -69,6 +69,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       return printProtocolList(home, "agents.list");
     case "agent":
       return runAgentCommand(home, args);
+    case "mcp":
+      return runMcpCommand(home, args);
     case "schedule":
       if (args.length !== 2 || args[0] !== "put") throw new CliError("schedule usage: schedule put JOB.json");
       return putJobFile(home, args[1] as string);
@@ -120,6 +122,7 @@ async function printStatus(home: string): Promise<number> {
         `Sessions: ${sessionCount} (${active} running)`,
         `Pending approvals: ${Object.keys(status.approvals).length}`,
         `Runs: ${Object.keys(status.runs).length} (${Object.values(status.runs).filter((run) => run.status === "running").length} running)`,
+        `MCP servers: ${Object.keys(status.mcpServers).length} (${Object.values(status.mcpServers).filter((server) => server.status === "ready").length} ready)`,
       ].join("\n") + "\n",
     );
     return 0;
@@ -139,6 +142,11 @@ async function doctor(home: string): Promise<number> {
       name: "Model",
       ok: config.model !== null,
       detail: config.model ? `${config.model.provider}/${config.model.model}` : "not configured",
+    });
+    checks.push({
+      name: "MCP config",
+      ok: true,
+      detail: `${config.mcpServers.length} configured (${config.mcpServers.filter((server) => server.enabled).length} enabled)`,
     });
     const shell = new ShellService({
       artifactRoot: psporePaths(home, config.runtime.workspace).artifacts,
@@ -305,6 +313,31 @@ async function runAgentCommand(home: string, args: readonly string[]): Promise<n
   }
 }
 
+async function runMcpCommand(home: string, args: readonly string[]): Promise<number> {
+  const action = args[0] ?? "list";
+  const client = await connectFromEndpoint(home, "mcp");
+  try {
+    let result: unknown;
+    if (action === "list") {
+      if (args.length > 1) throw new CliError("mcp list does not accept arguments");
+      result = await client.command("mcp.servers", {});
+    } else if (action === "tools") {
+      if (args.length > 1) throw new CliError("mcp tools does not accept arguments");
+      result = await client.command("mcp.tools", {});
+    } else if (action === "discover" || action === "ping") {
+      const serverId = args[1];
+      if (!serverId || args.length !== 2) throw new CliError(`mcp ${action} requires exactly one SERVER_ID`);
+      result = await client.command(action === "discover" ? "mcp.discover" : "mcp.ping", { serverId });
+    } else {
+      throw new CliError("mcp usage: mcp list | tools | discover SERVER_ID | ping SERVER_ID");
+    }
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
 async function cancelRun(home: string, runId: string): Promise<number> {
   const client = await connectFromEndpoint(home, "cancel");
   try {
@@ -366,7 +399,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

@@ -4,7 +4,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 
 ## 当前状态
 
-项目已进入实现阶段：Phase 0 运行时契约、Phase 1 可运行核心纵切、Phase 2 memory/automation 以及 Phase 3 subagent 已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、pinned memory、exact/BM25、cron/BOOT、durable run ledger、可限制双工 subagent tree、UDS Daemon、CLI 和可重连 TUI；MCP、plugin trust/skills reload 与 Electron 仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
+项目已进入实现阶段：Phase 0 运行时契约、Phase 1 可运行核心纵切、Phase 2 memory/automation，以及 Phase 3 subagent 与 MCP lazy adapter 已落地。当前已有 Kernel、私有文件存储、权限/审批、基础工具、pinned memory、exact/BM25、cron/BOOT、durable run ledger、可限制双工 subagent tree、按需 MCP、UDS Daemon、CLI 和可重连 TUI；plugin trust/skills reload 与 Electron 仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
 
 - 原始想法：[initial_design.txt](initial_design.txt)
 - 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
@@ -47,13 +47,17 @@ node dist/cli/main.js agent spawn "inspect the workspace API"
 node dist/cli/main.js agent send <agent-id> "focus on error handling"
 node dist/cli/main.js agent join <agent-id>
 node dist/cli/main.js agent cancel <agent-id>
+node dist/cli/main.js mcp list
+node dist/cli/main.js mcp discover <server-id>
+node dist/cli/main.js mcp tools
+node dist/cli/main.js mcp ping <server-id>
 node dist/cli/main.js schedule put examples/jobs/heartbeat.json
 node dist/cli/main.js run <job-id>
 node dist/cli/main.js cancel <run-id>
 ```
 
-Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。TUI 普通输入创建新 prompt，忙时必须显式使用 `/steer` 或 `/follow`；还可以用 `/agent-spawn`、`/select`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。完整快捷命令在 TUI 底部始终可见。
+Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。TUI 普通输入创建新 prompt，忙时必须显式使用 `/steer` 或 `/follow`；还可以用 `/agent-spawn`、`/select`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。完整快捷命令在 TUI 底部始终可见。
 
 ## 下一步
 
-继续完成详细设计的 Phase 3：MCP lazy adapter、plugin trust/staging 与 skills/resource reload；随后完成 Electron 43 客户端。
+继续完成详细设计的 Phase 3：plugin trust/staging 与 skills/resource reload；随后完成 Electron 43 客户端。

@@ -64,19 +64,22 @@ describe("TUI 160x45 snapshot", () => {
     assert.equal(lines.length, 45);
     assert.ok(lines.every((line) => visibleWidth(line) === 160));
     const screen = lines.join("\n");
+    if (process.env["PSPORE_PRINT_TUI_SNAPSHOT"] === "1") process.stderr.write(`\n${screen}\n`);
     assert.match(screen, /pSpore v1 core/);
     assert.match(screen, /TRANSCRIPT  agent:child-1/);
     assert.match(screen, /assistant> child result in progress/);
     assert.match(screen, /child-1 running/);
+    assert.match(screen, /fixture ready \(3\)/);
     assert.match(screen, /APPROVAL approval-1/);
     assert.match(screen, /\/steer/);
     assert.match(screen, /\/notifications/);
     assert.match(screen, /\/agent-spawn/);
     assert.match(screen, /\/agent-join/);
     assert.match(screen, /\/select/);
+    assert.match(screen, /\/mcp-discover/);
     assert.match(screen, /\/quit/);
     assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "a2229781fb058a7df6e7359c8c2fb43d263153615f1fe9573ab14fd57c062f89");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "26a641b8c6b4c4c3ce7491f87ac1d697505e82218e3e3c899a346431a000e240");
   });
 });
 
@@ -132,6 +135,18 @@ function hello(): ServerHelloFrame {
         status: "running" as const,
         createdAt: "2026-08-09T00:00:00.000Z",
         startedAt: "2026-08-09T00:00:01.000Z",
+      },
+    },
+    mcpServers: {
+      fixture: {
+        version: 1 as const,
+        serverId: "fixture",
+        status: "ready" as const,
+        transport: "stdio" as const,
+        toolCount: 3,
+        failureCount: 0,
+        updatedAt: "2026-08-09T00:00:02.000Z",
+        connectedAt: "2026-08-09T00:00:02.000Z",
       },
     },
     approvals: {

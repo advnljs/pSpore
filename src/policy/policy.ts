@@ -179,7 +179,25 @@ export class PolicyEngine {
           summary: `${request.toolName} for ${stringInput(input, "agentId") ?? request.sessionId}`,
           riskReasons: [],
         };
+      case "mcp_discover":
+        return {
+          capability: "external.side_effect",
+          canonicalTarget: stringInput(input, "serverId") ?? "mcp",
+          summary: `start and discover MCP server ${stringInput(input, "serverId") ?? "unknown"}`,
+          riskReasons: ["starts explicitly trusted MCP server code with local user privileges"],
+        };
+      case "mcp_call":
       default:
+        if (request.toolName === "mcp_call" || request.toolName.startsWith("mcp__")) {
+          return {
+            capability: "external.side_effect",
+            canonicalTarget: request.toolName === "mcp_call"
+              ? `${stringInput(input, "serverId") ?? "unknown"}/${stringInput(input, "toolName") ?? "unknown"}`
+              : request.toolName,
+            summary: `invoke MCP tool ${request.toolName}`,
+            riskReasons: ["MCP server code and remote tool effects are outside the pSpore process boundary"],
+          };
+        }
         return {
           capability: "external.side_effect",
           canonicalTarget: request.toolName,

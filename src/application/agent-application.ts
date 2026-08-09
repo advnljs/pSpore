@@ -11,6 +11,7 @@ import type {
   SessionId,
 } from "../domain/runtime.js";
 import type { KernelLoop } from "../kernel/loop.js";
+import type { McpHealthRecord, McpToolDescriptor } from "../mcp/types.js";
 import type { NotificationService } from "../notifications/notification-service.js";
 import type { ApprovalService } from "../policy/approval-service.js";
 import { CommandError } from "../protocol/errors.js";
@@ -57,6 +58,13 @@ export interface AgentControl {
   listMessages(): AgentMessage[];
 }
 
+export interface McpControl {
+  listServers(): McpHealthRecord[];
+  listTools(): McpToolDescriptor[];
+  discover(serverId: string, signal?: AbortSignal): Promise<McpToolDescriptor[]>;
+  ping(serverId: string, signal?: AbortSignal): Promise<McpHealthRecord>;
+}
+
 export class AgentRunBudgetError extends Error {
   constructor(message: string) {
     super(message);
@@ -79,6 +87,7 @@ export class AgentApplication implements AgentSessionHost {
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
   #automation: AutomationControl | undefined;
   #agents: AgentControl | undefined;
+  #mcp: McpControl | undefined;
 
   constructor(options: AgentApplicationOptions) {
     this.#runtime = options.runtime;
@@ -198,6 +207,20 @@ export class AgentApplication implements AgentSessionHost {
           optionalString(payload["reason"], "payload.reason"),
         );
       }
+      case "mcp.servers":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireMcp().listServers();
+      case "mcp.tools":
+        exactPayload(command.payload, [], command.type);
+        return this.#requireMcp().listTools();
+      case "mcp.discover": {
+        const payload = exactPayload(command.payload, ["serverId"], command.type);
+        return this.#requireMcp().discover(nonEmptyString(payload["serverId"], "payload.serverId"));
+      }
+      case "mcp.ping": {
+        const payload = exactPayload(command.payload, ["serverId"], command.type);
+        return this.#requireMcp().ping(nonEmptyString(payload["serverId"], "payload.serverId"));
+      }
       case "job.put": {
         const payload = exactPayload(command.payload, ["job", "expectedSha256"], command.type);
         return this.#requireAutomation().putJob(
@@ -233,6 +256,11 @@ export class AgentApplication implements AgentSessionHost {
   setAgents(agents: AgentControl): void {
     if (this.#agents) throw new Error("Agent control is already configured");
     this.#agents = agents;
+  }
+
+  setMcp(mcp: McpControl): void {
+    if (this.#mcp) throw new Error("MCP control is already configured");
+    this.#mcp = mcp;
   }
 
   executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot> {
@@ -440,6 +468,11 @@ export class AgentApplication implements AgentSessionHost {
   #requireAgents(): AgentControl {
     if (!this.#agents) throw new CommandError("agents_unavailable", "Agent manager is not initialized");
     return this.#agents;
+  }
+
+  #requireMcp(): McpControl {
+    if (!this.#mcp) throw new CommandError("mcp_unavailable", "MCP manager is not initialized");
+    return this.#mcp;
   }
 
   #serializeSession<T>(sessionId: SessionId, operation: () => Promise<T>): Promise<T> {

@@ -76,7 +76,7 @@ export function renderTuiSnapshot(state: TuiStoreSnapshot, width = 160, height =
     : ` ${state.notice}`;
   const divider = `├${"─".repeat(innerWidth)}┤`;
   const sessionHelp = " session: /steer /follow /abort /compact /approve /deny /select ID /quit";
-  const taskHelp = " tasks: /agents /agent-spawn TEXT /agent ID MSG /agent-join ID... /agent-cancel ID /jobs /runs /notifications /run JOB /cancel RUN";
+  const taskHelp = " tasks: /agents /agent-spawn TEXT /agent ID MSG /agent-join ID... /agent-cancel ID /jobs /runs /notifications /run JOB /cancel RUN /mcp /mcp-discover ID";
   const prompt = ` prompt> ${input}`;
   return [
     top,
@@ -132,6 +132,11 @@ function renderSidebar(state: TuiStoreSnapshot, width: number): string[] {
   }
   const latestNotification = state.kernel.notifications.at(-1);
   if (latestNotification) lines.push("", "NOTIFY", `  ${latestNotification.level}`, `  ${latestNotification.title}`);
+  const mcpServers = Object.values(state.kernel.mcpServers);
+  if (mcpServers.length > 0) {
+    lines.push("", "MCP");
+    for (const server of mcpServers) lines.push(`  ${server.serverId} ${server.status} (${server.toolCount})`);
+  }
   return lines.map((line) => truncateToWidth(line, width));
 }
 

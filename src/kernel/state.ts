@@ -2,6 +2,7 @@ import type { AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
 import type { AgentMessage, AgentRecord } from "../agents/types.js";
 import type { RunRecord } from "../automation/types.js";
 import type { NotificationRecord } from "../notifications/notification-service.js";
+import type { McpHealthRecord } from "../mcp/types.js";
 import type { ApprovalRequest, ApprovalResolution } from "../policy/approval-service.js";
 
 export type DaemonPhase = "starting" | "ready" | "degraded" | "draining" | "failed" | "stopped";
@@ -22,6 +23,7 @@ export interface KernelState {
   notifications: readonly NotificationRecord[];
   agents: Readonly<Record<string, AgentRecord>>;
   agentMessages: readonly AgentMessage[];
+  mcpServers: Readonly<Record<string, McpHealthRecord>>;
 }
 
 interface EventMetadata {
@@ -41,6 +43,7 @@ export type KernelEvent =
   | (EventMetadata & { type: "notification.created"; notification: NotificationRecord })
   | (EventMetadata & { type: "agent.updated"; agent: AgentRecord })
   | (EventMetadata & { type: "agent.message"; message: AgentMessage })
+  | (EventMetadata & { type: "mcp.health"; health: McpHealthRecord })
   | (EventMetadata & {
       type: "approval.resolved";
       request: ApprovalRequest;
@@ -74,5 +77,6 @@ export function initialKernelState(): KernelState {
     notifications: [],
     agents: {},
     agentMessages: [],
+    mcpServers: {},
   };
 }

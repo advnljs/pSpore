@@ -40,6 +40,71 @@ describe("config and home initialization", () => {
     );
   });
 
+  test("strictly parses MCP transports without accepting inline secrets", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    const parsed = parseConfig({
+      ...base,
+      mcpServers: [
+        {
+          id: "local_docs",
+          enabled: true,
+          trust: "trusted-local",
+          transport: {
+            type: "stdio",
+            command: "node",
+            args: ["server.mjs"],
+            cwd: "mcp",
+            envRefs: { API_TOKEN: "DOCS_API_TOKEN" },
+          },
+          allowedTools: ["search"],
+          deniedTools: ["publish"],
+        },
+      ],
+    }, home);
+    assert.equal(parsed.mcpServers[0]?.transport.type, "stdio");
+    assert.equal(parsed.mcpServers[0]?.idleTimeoutMs, 60_000);
+    assert.equal(
+      parsed.mcpServers[0]?.transport.type === "stdio" ? parsed.mcpServers[0].transport.cwd : undefined,
+      "/tmp/example-home/mcp",
+    );
+
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        mcpServers: [{
+          id: "remote",
+          enabled: true,
+          trust: "trusted-local",
+          transport: { type: "streamable-http", url: "https://example.com/mcp", headers: { Authorization: "secret" } },
+        }],
+      }, home),
+      /unknown keys: headers/,
+    );
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        mcpServers: [{
+          id: "remote",
+          enabled: true,
+          trust: "trusted-local",
+          transport: { type: "streamable-http", url: "http:\/\/example.com/mcp" },
+        }],
+      }, home),
+      /must use https/,
+    );
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        mcpServers: [
+          { id: "same", enabled: false, trust: "trusted-local", transport: { type: "stdio", command: "one" } },
+          { id: "same", enabled: false, trust: "trusted-local", transport: { type: "stdio", command: "two" } },
+        ],
+      }, home),
+      /duplicate ids/,
+    );
+  });
+
   test("fails rather than repairing a malformed existing config", async () => {
     const home = await mkdtemp(join(tmpdir(), "pspore-bad-home-"));
     roots.push(home);

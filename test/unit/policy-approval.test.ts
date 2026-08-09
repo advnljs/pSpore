@@ -56,6 +56,25 @@ describe("policy", () => {
     });
     assert.equal(scheduleWrite.decision, "ask");
     assert.equal(scheduleWrite.capability, "schedule.write");
+    const mcpDiscover = await risky.evaluate({
+      sessionId: "s",
+      toolCallId: "mcp-discover",
+      toolName: "mcp_discover",
+      input: { serverId: "local" },
+    });
+    assert.equal(mcpDiscover.decision, "ask");
+    assert.equal(mcpDiscover.capability, "external.side_effect");
+    assert.equal(
+      (
+        await risky.evaluate({
+          sessionId: "s",
+          toolCallId: "mcp-call",
+          toolName: "mcp__local__read",
+          input: {},
+        })
+      ).decision,
+      "ask",
+    );
 
     const permissive = await PolicyEngine.create({
       mode: "allow_all",
@@ -98,6 +117,14 @@ describe("policy", () => {
       terminate: false,
     });
     assert.equal(approvals.list().length, 0);
+    const mcpResult = await new PolicyToolGate(policy, approvals).authorize({
+      sessionId: "agent:read-only",
+      toolCallId: "mcp-attempt",
+      toolName: "mcp_call",
+      input: { serverId: "local", toolName: "read" },
+      deniedCapabilities: ["external.side_effect"],
+    });
+    assert.equal(mcpResult.decision, "deny");
     await approvals.close();
   });
 });

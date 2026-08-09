@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { access, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, test } from "node:test";
 
 import { defaultConfig } from "../../src/config/config.js";
@@ -64,6 +65,8 @@ describe("daemon vertical slice", () => {
       "agent_send",
       "agent_join",
       "agent_cancel",
+      "mcp_discover",
+      "mcp_call",
     ]);
     const events: string[] = [];
     client.subscribe((event) => events.push(event.type));
@@ -224,6 +227,54 @@ describe("daemon vertical slice", () => {
     await waitFor(() => runtime.required("main").messages.some((message) => message.text.includes('"status":"succeeded"')));
     runtime.finishAll();
     await waitFor(() => [first.sessionId, second.sessionId].every((id) => daemon.kernel.snapshot().sessions[id] === undefined));
+  });
+
+  test("lazily discovers configured MCP schemas through UDS and publishes health", async () => {
+    const home = await configuredHome();
+    const config = defaultConfig(home);
+    config.model = { provider: "fake", model: "fake", thinking: "off" };
+    const fixture = fileURLToPath(new URL("../fixtures/fake-mcp-server.ts", import.meta.url));
+    config.mcpServers = [{
+      id: "fixture",
+      enabled: true,
+      trust: "trusted-local",
+      transport: {
+        type: "stdio",
+        command: process.execPath,
+        args: ["--import", "tsx", fixture],
+        cwd: process.cwd(),
+        envRefs: {},
+      },
+      allowedTools: ["echo"],
+      deniedTools: ["mutate"],
+      idleTimeoutMs: 60_000,
+      requestTimeoutMs: 2_000,
+    }];
+    await atomicWriteJson(join(home, "config.json"), config);
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => new FakeRuntime(),
+      idFactory: sequence("mcp-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "mcp-client" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+
+    const before = await client.command<Array<{ serverId: string; status: string }>>("mcp.servers", {});
+    assert.deepEqual(before.map((server) => [server.serverId, server.status]), [["fixture", "idle"]]);
+    const tools = await client.command<Array<{ name: string; normalizedName: string }>>("mcp.discover", {
+      serverId: "fixture",
+    });
+    assert.deepEqual(tools.map((tool) => [tool.name, tool.normalizedName]), [["echo", "mcp__fixture__echo"]]);
+    const activated = await client.command<Array<{ normalizedName: string }>>("mcp.tools", {});
+    assert.deepEqual(activated.map((tool) => tool.normalizedName), ["mcp__fixture__echo"]);
+    await waitFor(() => daemon.kernel.snapshot().mcpServers["fixture"]?.status === "ready");
+    assert.equal(daemon.kernel.snapshot().mcpServers["fixture"]?.toolCount, 1);
+    assert.equal(daemon.kernel.snapshot().daemon.phase, "ready");
   });
 });
 

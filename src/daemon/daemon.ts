@@ -23,6 +23,8 @@ import { PinnedContextLoader } from "../memory/context-loader.js";
 import { MemoryService } from "../memory/memory-service.js";
 import { createMemoryTools } from "../memory/memory-tools.js";
 import { SearchService } from "../memory/search-service.js";
+import { McpManager } from "../mcp/mcp-manager.js";
+import { createMcpTools } from "../mcp/mcp-tools.js";
 import { NotificationService } from "../notifications/notification-service.js";
 import { createNotificationTools } from "../notifications/notification-tools.js";
 import { PiRuntimeAdapter } from "../pi/pi-runtime-adapter.js";
@@ -63,6 +65,7 @@ export class PsporeDaemon {
   readonly #approvals: ApprovalService;
   readonly #scheduler: Scheduler;
   readonly #agents: AgentManager;
+  readonly #mcp: McpManager;
   readonly #lock: DaemonLock;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -81,6 +84,7 @@ export class PsporeDaemon {
     approvals: ApprovalService;
     scheduler: Scheduler;
     agents: AgentManager;
+    mcp: McpManager;
     lock: DaemonLock;
     clock: () => Date;
     idFactory: () => string;
@@ -94,6 +98,7 @@ export class PsporeDaemon {
     this.#approvals = options.approvals;
     this.#scheduler = options.scheduler;
     this.#agents = options.agents;
+    this.#mcp = options.mcp;
     this.#lock = options.lock;
     this.#clock = options.clock;
     this.#idFactory = options.idFactory;
@@ -119,6 +124,7 @@ export class PsporeDaemon {
     let approvals: ApprovalService | undefined;
     let scheduler: Scheduler | undefined;
     let agents: AgentManager | undefined;
+    let mcp: McpManager | undefined;
     let daemon: PsporeDaemon | undefined;
     const startedAt = clock().toISOString();
     const kernel = new KernelLoop((effect) => {
@@ -160,6 +166,15 @@ export class PsporeDaemon {
         cwd: paths.workspace,
       });
       const toolGate = new PolicyToolGate(policy, approvals);
+      mcp = await McpManager.create({
+        configs: config.mcpServers,
+        artifactRoot: paths.artifacts,
+        auditPath: join(paths.audit, "mcp.jsonl"),
+        clock,
+        idFactory,
+        onHealth: (health) => void kernel.dispatch(event({ type: "mcp.health", health })),
+        onError: (error) => void markDegraded(kernel, event, error),
+      });
       const shell = new ShellService({
         artifactRoot: paths.artifacts,
         ...(config.shell.executable === undefined ? {} : { configuredShell: config.shell.executable }),
@@ -188,12 +203,17 @@ export class PsporeDaemon {
         if (!agents) throw new Error("Agent manager is not initialized");
         return agents;
       };
+      const mcpControl = () => {
+        if (!mcp) throw new Error("MCP manager is not initialized");
+        return mcp;
+      };
       const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
         ...coreTools,
         ...createMemoryTools(sessionId, memory),
         ...createNotificationTools(sessionId, notifications),
         ...createAutomationTools(automationControl),
         ...createAgentTools(sessionId, agentControl),
+        ...createMcpTools(mcpControl),
       ];
       const tools = toolsFor("main");
       const runtime = options.runtimeFactory
@@ -226,7 +246,6 @@ export class PsporeDaemon {
               }),
           systemPrompt: "You are pSpore, a careful local agent. Prefer read/edit/search over shell and explain side effects.",
           contextFiles: context.files,
-          enabledTools: tools.map((tool) => tool.name),
         },
         clock,
         idFactory,
@@ -243,6 +262,7 @@ export class PsporeDaemon {
         onError: (error) => void markDegraded(kernel, event, error),
       });
       application.setAgents(agents);
+      application.setMcp(mcp);
       const ledger = new RunLedger({
         root: paths.runs,
         recoveryDirectory: join(paths.artifacts, "recovery"),
@@ -285,6 +305,7 @@ export class PsporeDaemon {
         approvals,
         scheduler,
         agents,
+        mcp,
         lock,
         clock,
         idFactory,
@@ -311,6 +332,7 @@ export class PsporeDaemon {
       if (scheduler) await scheduler.stop().catch(() => undefined);
       if (agents) await agents.stop().catch(() => undefined);
       if (application) await application.dispose().catch(() => undefined);
+      if (mcp) await mcp.stop().catch(() => undefined);
       if (approvals) await approvals.close().catch(() => undefined);
       await lock.release().catch(() => undefined);
       throw error;
@@ -356,6 +378,7 @@ export class PsporeDaemon {
     await step(async () => this.#agents.stop());
     await step(async () => this.#approvals.close());
     await step(async () => this.#application.dispose());
+    await step(async () => this.#mcp.stop());
     await step(async () => this.#transition("stopped"));
     await step(async () => this.kernel.idle());
     await step(async () => this.#gateway.stop());

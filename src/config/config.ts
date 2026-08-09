@@ -2,6 +2,11 @@ import { homedir } from "node:os";
 import { isAbsolute, join, normalize, resolve } from "node:path";
 
 import type { ModelRef, ThinkingLevel } from "../domain/runtime.js";
+import type {
+  McpHttpHeaderRef,
+  McpServerConfig,
+  McpTransportConfig,
+} from "../mcp/types.js";
 
 export type PermissionMode = "deny" | "ask_all" | "ask_risky" | "allow_all";
 
@@ -46,7 +51,7 @@ export interface PsporeConfig {
     enabled: boolean;
   };
   plugins: unknown[];
-  mcpServers: unknown[];
+  mcpServers: McpServerConfig[];
 }
 
 export function defaultConfig(home: string): PsporeConfig {
@@ -120,7 +125,11 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
     string(file, `config.context.pinnedFiles[${index}]`),
   );
   const plugins = array(root["plugins"], "config.plugins");
-  const mcpServers = array(root["mcpServers"], "config.mcpServers");
+  const mcpServers = array(root["mcpServers"], "config.mcpServers").map((server, index) =>
+    parseMcpServer(server, index, home),
+  );
+  const duplicateMcpIds = duplicates(mcpServers.map((server) => server.id));
+  if (duplicateMcpIds.length > 0) throw new Error(`config.mcpServers contains duplicate ids: ${duplicateMcpIds.join(", ")}`);
   const shellExecutable = shell["executable"];
 
   return {
@@ -194,9 +203,116 @@ function parsePermissionRule(value: unknown, index: number): PermissionRule {
   };
 }
 
+function parseMcpServer(value: unknown, index: number, home: string): McpServerConfig {
+  const path = `config.mcpServers[${index}]`;
+  const server = object(value, path);
+  exactShape(
+    server,
+    ["id", "enabled", "trust", "transport"],
+    ["allowedTools", "deniedTools", "idleTimeoutMs", "requestTimeoutMs"],
+    path,
+  );
+  const id = string(server["id"], `${path}.id`);
+  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(id)) {
+    throw new Error(`${path}.id must match ^[a-z][a-z0-9_-]{0,63}$`);
+  }
+  const allowedTools = optionalStringArray(server["allowedTools"], `${path}.allowedTools`);
+  const deniedTools = optionalStringArray(server["deniedTools"], `${path}.deniedTools`);
+  const overlap = allowedTools.filter((name) => deniedTools.includes(name));
+  if (overlap.length > 0) throw new Error(`${path} allows and denies the same tools: ${overlap.join(", ")}`);
+  return {
+    id,
+    enabled: boolean(server["enabled"], `${path}.enabled`),
+    trust: enumeration(server["trust"], ["trusted-local", "sandboxed"], `${path}.trust`),
+    transport: parseMcpTransport(server["transport"], `${path}.transport`, home),
+    allowedTools,
+    deniedTools,
+    idleTimeoutMs: optionalPositiveInteger(server["idleTimeoutMs"], `${path}.idleTimeoutMs`) ?? 60_000,
+    requestTimeoutMs: optionalPositiveInteger(server["requestTimeoutMs"], `${path}.requestTimeoutMs`) ?? 60_000,
+  };
+}
+
+function parseMcpTransport(value: unknown, path: string, home: string): McpTransportConfig {
+  const transport = object(value, path);
+  const type = transport["type"];
+  if (type === "stdio") {
+    exactShape(transport, ["type", "command"], ["args", "cwd", "envRefs"], path);
+    const cwd = transport["cwd"];
+    return {
+      type,
+      command: string(transport["command"], `${path}.command`),
+      args: optionalStringArray(transport["args"], `${path}.args`, true),
+      ...(cwd === undefined ? {} : { cwd: resolveConfigPath(string(cwd, `${path}.cwd`), home) }),
+      envRefs: parseReferenceMap(transport["envRefs"], `${path}.envRefs`),
+    };
+  }
+  if (type === "streamable-http") {
+    exactShape(transport, ["type", "url"], ["headerRefs"], path);
+    const url = parseMcpUrl(string(transport["url"], `${path}.url`), `${path}.url`);
+    return {
+      type,
+      url,
+      headerRefs: parseHeaderRefs(transport["headerRefs"], `${path}.headerRefs`),
+    };
+  }
+  throw new Error(`${path}.type must be one of: stdio, streamable-http`);
+}
+
+function parseMcpUrl(value: string, path: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`${path} must be an absolute URL`);
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error(`${path} cannot contain credentials, query parameters, or fragments`);
+  }
+  const loopback = url.hostname === "127.0.0.1" || url.hostname === "[::1]" || url.hostname === "localhost";
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error(`${path} must use https, or http on loopback`);
+  }
+  return url.toString();
+}
+
+function parseReferenceMap(value: unknown, path: string): Record<string, string> {
+  if (value === undefined) return {};
+  const refs = object(value, path);
+  const result: Record<string, string> = {};
+  for (const [target, source] of Object.entries(refs)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(target)) throw new Error(`${path} has an invalid target environment name: ${target}`);
+    const name = string(source, `${path}.${target}`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error(`${path}.${target} must name an environment variable`);
+    result[target] = name;
+  }
+  return result;
+}
+
+function parseHeaderRefs(value: unknown, path: string): Record<string, McpHttpHeaderRef> {
+  if (value === undefined) return {};
+  const refs = object(value, path);
+  const result: Record<string, McpHttpHeaderRef> = {};
+  for (const [header, raw] of Object.entries(refs)) {
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(header)) throw new Error(`${path} has an invalid header name: ${header}`);
+    const refPath = `${path}.${header}`;
+    const ref = object(raw, refPath);
+    exactShape(ref, ["env"], ["prefix"], refPath);
+    const env = string(ref["env"], `${refPath}.env`);
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(env)) throw new Error(`${refPath}.env must name an environment variable`);
+    const prefix = ref["prefix"];
+    result[header] = { env, ...(prefix === undefined ? {} : { prefix: string(prefix, `${refPath}.prefix`) }) };
+  }
+  return result;
+}
+
 function resolveConfiguredPath(input: string, home: string): string {
   const expanded = input === "~" ? home : input.startsWith("~/") ? join(home, input.slice(2)) : input;
   return normalize(isAbsolute(expanded) ? expanded : resolve(expanded));
+}
+
+function resolveConfigPath(input: string, home: string): string {
+  const expanded = input === "~" ? home : input.startsWith("~/") ? join(home, input.slice(2)) : input;
+  return normalize(isAbsolute(expanded) ? expanded : resolve(home, expanded));
 }
 
 function object(value: unknown, path: string): Record<string, unknown> {
@@ -226,6 +342,18 @@ function positiveInteger(value: unknown, path: string): number {
   return Number(value);
 }
 
+function optionalPositiveInteger(value: unknown, path: string): number | undefined {
+  return value === undefined ? undefined : positiveInteger(value, path);
+}
+
+function optionalStringArray(value: unknown, path: string, allowEmpty = false): string[] {
+  if (value === undefined) return [];
+  const values = array(value, path).map((item, index) => string(item, `${path}[${index}]`));
+  if (!allowEmpty && values.length !== new Set(values).size) throw new Error(`${path} must not contain duplicates`);
+  if (values.length > 256) throw new Error(`${path} cannot contain more than 256 values`);
+  return values;
+}
+
 function enumeration<const T extends string>(value: unknown, allowed: readonly T[], path: string): T {
   if (typeof value !== "string" || !allowed.includes(value as T)) {
     throw new Error(`${path} must be one of: ${allowed.join(", ")}`);
@@ -242,4 +370,28 @@ function exactKeys(value: Record<string, unknown>, allowed: readonly string[], p
       throw new Error(`${path}.${required} is required`);
     }
   }
+}
+
+function exactShape(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  path: string,
+): void {
+  const allowed = new Set([...required, ...optional]);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw new Error(`${path} contains unknown keys: ${unknown.join(", ")}`);
+  for (const key of required) {
+    if (!(key in value)) throw new Error(`${path}.${key} is required`);
+  }
+}
+
+function duplicates(values: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const duplicate = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) duplicate.add(value);
+    seen.add(value);
+  }
+  return [...duplicate];
 }
