@@ -61,6 +61,12 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "runs":
       requireNoArgs(args, "runs");
       return printProtocolList(home, "runs.list");
+    case "notifications":
+      requireNoArgs(args, "notifications");
+      return printProtocolList(home, "notifications.list");
+    case "schedule":
+      if (args.length !== 2 || args[0] !== "put") throw new CliError("schedule usage: schedule put JOB.json");
+      return putJobFile(home, args[1] as string);
     case "run":
       if (args.length !== 1) throw new CliError("run requires exactly one job ID");
       return runJob(home, args[0] as string);
@@ -199,7 +205,10 @@ async function runPrompt(home: string, text: string): Promise<number> {
   }
 }
 
-async function printProtocolList(home: string, command: "jobs.list" | "runs.list"): Promise<number> {
+async function printProtocolList(
+  home: string,
+  command: "jobs.list" | "runs.list" | "notifications.list",
+): Promise<number> {
   const client = await connectFromEndpoint(home, command.split(".")[0] ?? "list");
   try {
     const values = await client.command<unknown[]>(command, {});
@@ -216,6 +225,31 @@ async function runJob(home: string, jobId: string): Promise<number> {
     const run = await client.command<{ id: string; status: string; reason?: string; error?: string }>("job.run", { jobId });
     process.stdout.write(`${run.id} ${run.status}${run.reason ? `: ${run.reason}` : run.error ? `: ${run.error}` : ""}\n`);
     return run.status === "succeeded" ? 0 : 1;
+  } finally {
+    await client.close();
+  }
+}
+
+async function putJobFile(home: string, path: string): Promise<number> {
+  let value: unknown;
+  try {
+    value = JSON.parse(await readFile(path, "utf8"));
+  } catch (error) {
+    throw new CliError(`Cannot read job JSON ${path}: ${toError(error).message}`);
+  }
+  if (!isRecord(value) || typeof value["id"] !== "string" || !value["id"].trim()) {
+    throw new CliError("Job JSON must contain a non-empty id");
+  }
+  const client = await connectFromEndpoint(home, "schedule");
+  try {
+    const jobs = await client.command<Array<{ id: string; sourceSha256?: string }>>("jobs.list", {});
+    const current = jobs.find((job) => job.id === value["id"]);
+    const updated = await client.command<{ id: string; sourceSha256?: string }>("job.put", {
+      job: value,
+      expectedSha256: current?.sourceSha256 ?? null,
+    });
+    process.stdout.write(`${updated.id} ${current ? "updated" : "created"} ${updated.sourceSha256 ?? ""}\n`);
+    return 0;
   } finally {
     await client.close();
   }
@@ -282,7 +316,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

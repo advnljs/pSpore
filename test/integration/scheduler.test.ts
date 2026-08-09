@@ -114,7 +114,12 @@ async function fixture(jobs: JobDefinition[], executor: RunExecutor, maxConcurre
   await mkdir(runs);
   const ledger = new RunLedger({ root: runs, recoveryDirectory: join(root, "recovery") });
   const scheduler = new Scheduler({
-    jobs: { loadAll: async () => jobs },
+    jobs: {
+      loadAll: async () => jobs,
+      put: async () => {
+        throw new Error("put is not configured in this scheduler fixture");
+      },
+    },
     ledger,
     executor,
     maxConcurrentRuns,

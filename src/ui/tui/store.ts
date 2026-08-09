@@ -132,6 +132,19 @@ export class TuiStore {
         runs: { ...kernel.runs, [run.id]: structuredClone(run) },
       };
     }
+    if (
+      event.type === "notification.created" &&
+      isRecord(payload["notification"]) &&
+      typeof payload["notification"]["id"] === "string"
+    ) {
+      const notification = payload["notification"] as unknown as KernelState["notifications"][number];
+      kernel = {
+        ...kernel,
+        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
+        notifications: [...kernel.notifications, structuredClone(notification)].slice(-200),
+      };
+      this.#state = { ...this.#state, notice: `${notification.title}: ${notification.body}` };
+    }
     this.#state = { ...this.#state, kernel, cursors, streamingText };
   }
 }

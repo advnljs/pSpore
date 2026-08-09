@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "id": "heartbeat",
+  "enabled": false,
+  "schedule": {
+    "cron": "0 9 * * *",
+    "timezone": "Asia/Shanghai"
+  },
+  "cwd": ".",
+  "policyRef": "default",
+  "concurrency": "forbid",
+  "misfire": "skip",
+  "timeoutMs": 30000,
+  "budget": {
+    "maxTurns": 1,
+    "maxToolCalls": 1,
+    "maxInputTokens": 1000,
+    "maxOutputTokens": 1000,
+    "maxChildren": 0
+  },
+  "delivery": {
+    "kind": "local-notification"
+  },
+  "kind": "command",
+  "payload": {
+    "command": "printf 'pSpore scheduler is alive\\n'"
+  }
+}

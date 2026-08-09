@@ -14,13 +14,14 @@ export interface RunExecutor {
 }
 
 export interface SchedulerOptions {
-  jobs: Pick<JobStore, "loadAll">;
+  jobs: Pick<JobStore, "loadAll" | "put">;
   ledger: RunLedger;
   executor: RunExecutor;
   maxConcurrentRuns: number;
   replaceGraceMs?: number;
   clock?: () => Date;
   onRun?: (run: RunRecord) => void;
+  deliverRun?: (run: RunRecord) => Promise<void>;
   onError?: (error: Error) => void;
 }
 
@@ -46,7 +47,10 @@ export class Scheduler {
   async initialize(): Promise<void> {
     if (this.#initialized) return;
     const recovery = await this.#options.ledger.initialize();
-    for (const run of recovery.recoveredUnknown) this.#publish(run);
+    for (const run of recovery.recoveredUnknown) {
+      this.#publish(run);
+      await this.#deliver(run);
+    }
     const jobs = await this.#options.jobs.loadAll();
     for (const job of jobs) {
       if (this.#jobs.has(job.id)) throw new Error(`Duplicate job id: ${job.id}`);
@@ -63,21 +67,7 @@ export class Scheduler {
       void this.#launch(queued).catch((error: unknown) => this.#error(error));
     }
     for (const job of this.#jobs.values()) {
-      if (!job.enabled) continue;
-      const cron = new Cron(
-        job.schedule.cron,
-        {
-          timezone: job.schedule.timezone,
-          mode: "5-part",
-          unref: true,
-          catch: (error) => this.#error(error),
-        },
-        async (self) => {
-          const scheduledFor = self.currentRun() ?? this.#clock();
-          await this.triggerJob(job.id, scheduledFor, "cron");
-        },
-      );
-      this.#crons.set(job.id, cron);
+      this.#scheduleJob(job);
     }
     void this.applyMisfires(this.#clock()).catch((error: unknown) => this.#error(error));
   }
@@ -105,13 +95,13 @@ export class Scheduler {
         const claim = await this.#options.ledger.claim(toTrigger(job, previous, now, "recovery"));
         if (claim.claimed) {
           this.#publish(claim.record);
-          this.#publish(
-            await this.#options.ledger.transition(claim.record.id, {
-              status: "skipped",
-              finishedAt: now.toISOString(),
-              reason: "misfire policy is skip",
-            }),
-          );
+          const skipped = await this.#options.ledger.transition(claim.record.id, {
+            status: "skipped",
+            finishedAt: now.toISOString(),
+            reason: "misfire policy is skip",
+          });
+          this.#publish(skipped);
+          await this.#deliver(skipped);
         }
       }
     }
@@ -147,6 +137,7 @@ export class Scheduler {
       reason,
     });
     this.#publish(cancelled);
+    await this.#deliver(cancelled);
     return cancelled;
   }
 
@@ -156,6 +147,17 @@ export class Scheduler {
 
   listJobs(): JobDefinition[] {
     return [...this.#jobs.values()].map((job) => structuredClone(job));
+  }
+
+  async putJob(value: unknown, expectedSha256: string | null): Promise<JobDefinition> {
+    if (!this.#initialized) throw new Error("Scheduler is not initialized");
+    if (this.#stopping) throw new Error("Scheduler is stopping");
+    const job = await this.#options.jobs.put(value, expectedSha256);
+    this.#jobs.set(job.id, job);
+    this.#crons.get(job.id)?.stop();
+    this.#crons.delete(job.id);
+    if (this.#started) this.#scheduleJob(job);
+    return structuredClone(job);
   }
 
   async stop(): Promise<void> {
@@ -234,6 +236,7 @@ export class Scheduler {
       ...(errorMessage === undefined ? {} : { error: errorMessage }),
     });
     this.#publish(finished);
+    await this.#deliver(finished);
     return finished;
   }
 
@@ -244,6 +247,7 @@ export class Scheduler {
       reason,
     });
     this.#publish(skipped);
+    await this.#deliver(skipped);
     return skipped;
   }
 
@@ -255,11 +259,37 @@ export class Scheduler {
     }
   }
 
+  #scheduleJob(job: JobDefinition): void {
+    if (!job.enabled) return;
+    const cron = new Cron(
+      job.schedule.cron,
+      {
+        timezone: job.schedule.timezone,
+        mode: "5-part",
+        unref: true,
+        catch: (error) => this.#error(error),
+      },
+      async (self) => {
+        const scheduledFor = self.currentRun() ?? this.#clock();
+        await this.triggerJob(job.id, scheduledFor, "cron");
+      },
+    );
+    this.#crons.set(job.id, cron);
+  }
+
   #error(error: unknown): void {
     try {
       this.#options.onError?.(toError(error));
     } catch {
       // Cron callback errors are already isolated from scheduling.
+    }
+  }
+
+  async #deliver(run: RunRecord): Promise<void> {
+    try {
+      await this.#options.deliverRun?.(structuredClone(run));
+    } catch (error) {
+      this.#error(error);
     }
   }
 

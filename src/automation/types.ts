@@ -26,6 +26,7 @@ export interface JobDefinition {
   budget: RunBudget;
   delivery: DeliveryTarget;
   activity: RunActivity;
+  sourceSha256?: string;
 }
 
 export type RunSource = "user" | "boot" | "cron" | "recovery";

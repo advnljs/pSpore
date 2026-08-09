@@ -152,6 +152,17 @@ export class PolicyEngine {
           summary: "send a local notification",
           riskReasons: [],
         };
+      case "schedule": {
+        const action = stringInput(input, "action") ?? "unknown";
+        const job = input["job"];
+        const jobId = isRecord(job) ? stringInput(job, "id") : undefined;
+        return {
+          capability: action === "list" ? "schedule.read" : "schedule.write",
+          canonicalTarget: jobId ? `job:${jobId}` : "jobs",
+          summary: action === "list" ? "list scheduled jobs" : `update scheduled job ${jobId ?? "unknown"}`,
+          riskReasons: action === "list" ? [] : ["scheduled activity persists beyond the current session"],
+        };
+      }
       default:
         return {
           capability: "external.side_effect",
@@ -218,4 +229,8 @@ function targetMatches(pattern: string, target: string | undefined): boolean {
 function stringInput(input: Readonly<Record<string, unknown>>, key: string): string | undefined {
   const value = input[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

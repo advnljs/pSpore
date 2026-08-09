@@ -9,6 +9,7 @@ import type {
   SessionId,
 } from "../domain/runtime.js";
 import type { KernelLoop } from "../kernel/loop.js";
+import type { NotificationService } from "../notifications/notification-service.js";
 import type { ApprovalService } from "../policy/approval-service.js";
 import { CommandError } from "../protocol/errors.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
@@ -17,6 +18,7 @@ export interface AgentApplicationOptions {
   runtime: AgentRuntimePort;
   kernel: KernelLoop;
   approvals: ApprovalService;
+  notifications: Pick<NotificationService, "list">;
   sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
   modelConfigured: boolean;
   onShutdownRequested?: () => void;
@@ -27,6 +29,7 @@ export interface AgentApplicationOptions {
 export interface AutomationControl {
   listJobs(): JobDefinition[];
   listRuns(): RunRecord[];
+  putJob(value: unknown, expectedSha256: string | null): Promise<JobDefinition>;
   triggerJob(jobId: string, scheduledFor: Date, source: "user"): Promise<RunRecord>;
   cancel(runId: string, reason?: string): Promise<RunRecord>;
 }
@@ -42,6 +45,7 @@ export class AgentApplication {
   readonly #runtime: AgentRuntimePort;
   readonly #kernel: KernelLoop;
   readonly #approvals: ApprovalService;
+  readonly #notifications: Pick<NotificationService, "list">;
   readonly #sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
   readonly #modelConfigured: boolean;
   readonly #onShutdownRequested: (() => void) | undefined;
@@ -56,6 +60,7 @@ export class AgentApplication {
     this.#runtime = options.runtime;
     this.#kernel = options.kernel;
     this.#approvals = options.approvals;
+    this.#notifications = options.notifications;
     this.#sessionTemplate = options.sessionTemplate;
     this.#modelConfigured = options.modelConfigured;
     this.#onShutdownRequested = options.onShutdownRequested;
@@ -120,6 +125,16 @@ export class AgentApplication {
       case "runs.list":
         exactPayload(command.payload, [], command.type);
         return this.#requireAutomation().listRuns();
+      case "notifications.list":
+        exactPayload(command.payload, [], command.type);
+        return this.#notifications.list();
+      case "job.put": {
+        const payload = exactPayload(command.payload, ["job", "expectedSha256"], command.type);
+        return this.#requireAutomation().putJob(
+          payload["job"],
+          nullableSha256(payload["expectedSha256"], "payload.expectedSha256"),
+        );
+      }
       case "job.run": {
         const payload = exactPayload(command.payload, ["jobId"], command.type);
         return this.#requireAutomation().triggerJob(nonEmptyString(payload["jobId"], "payload.jobId"), this.#clock(), "user");
@@ -335,6 +350,14 @@ function optionalEnum<const T extends string>(value: unknown, allowed: readonly 
 function booleanValue(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") throw new CommandError("invalid_command", `${path} must be boolean`);
   return value;
+}
+
+function nullableSha256(value: unknown, path: string): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/i.test(value)) {
+    throw new CommandError("invalid_command", `${path} must be null or a 64-character SHA-256`);
+  }
+  return value.toLowerCase();
 }
 
 function budgetViolation(

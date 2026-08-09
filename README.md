@@ -41,11 +41,13 @@ node dist/cli/main.js doctor
 node dist/cli/main.js tui
 node dist/cli/main.js jobs
 node dist/cli/main.js runs
+node dist/cli/main.js notifications
+node dist/cli/main.js schedule put examples/jobs/heartbeat.json
 node dist/cli/main.js run <job-id>
 node dist/cli/main.js cancel <run-id>
 ```
 
-Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，使用 CLI/TUI 列出、手动触发或取消 run。TUI 普通输入创建新 prompt，忙时必须显式使用 `/steer` 或 `/follow`；`/abort`、`/approve`、`/deny`、`/compact`、`/jobs`、`/runs`、`/run`、`/cancel` 和 `/quit` 可直接使用。
+Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。TUI 普通输入创建新 prompt，忙时必须显式使用 `/steer` 或 `/follow`；`/abort`、`/approve`、`/deny`、`/compact`、`/jobs`、`/runs`、`/notifications`、`/run`、`/cancel` 和 `/quit` 可直接使用。
 
 ## 下一步
 

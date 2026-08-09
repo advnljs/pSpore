@@ -64,6 +64,14 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       const next = changed(state, { ...state, runs: { ...state.runs, [run.id]: run } });
       return broadcast(next, event, "automation.run", { run, revision: next.revision }, true);
     }
+    case "notification.created": {
+      const notification = structuredClone(event.notification);
+      const next = changed(state, {
+        ...state,
+        notifications: [...state.notifications, notification].slice(-200),
+      });
+      return broadcast(next, event, "notification.created", { notification, revision: next.revision }, true);
+    }
     case "approval.resolved": {
       const approvals = { ...state.approvals };
       delete approvals[event.request.id];

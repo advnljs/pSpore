@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 
 import { CronSchedule, validateFiveFieldCron } from "../../src/automation/cron-adapter.js";
-import { parseJob } from "../../src/automation/job-store.js";
+import { JobStore, parseJob } from "../../src/automation/job-store.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(async (root) => rm(root, { recursive: true, force: true }))));
@@ -48,6 +48,28 @@ describe("job schema", () => {
       parseJob({ ...definition(), cwd: "not-a-directory" }, "daily", root),
       /must resolve to a directory/,
     );
+  });
+
+  test("atomically creates and updates a job only against the expected source hash", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-job-store-"));
+    roots.push(root);
+    const jobsDirectory = join(root, "jobs");
+    await mkdir(jobsDirectory);
+    const store = new JobStore({ jobsDirectory, workspaceRoot: root });
+    const created = await store.put(definition(), null);
+    assert.match(created.sourceSha256 ?? "", /^[a-f0-9]{64}$/);
+    assert.equal((await stat(join(jobsDirectory, "daily.json"))).mode & 0o777, 0o600);
+    await assert.rejects(store.put(definition(), null), /update conflict/);
+
+    const updatedSource = {
+      ...definition(),
+      payload: { command: "printf updated" },
+    };
+    const updated = await store.put(updatedSource, created.sourceSha256 ?? "missing");
+    assert.notEqual(updated.sourceSha256, created.sourceSha256);
+    assert.match(await readFile(join(jobsDirectory, "daily.json"), "utf8"), /printf updated/);
+    assert.equal((await store.loadAll())[0]?.sourceSha256, updated.sourceSha256);
+    await assert.rejects(store.put(definition(), created.sourceSha256 ?? "missing"), /update conflict/);
   });
 });
 

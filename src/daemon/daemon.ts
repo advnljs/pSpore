@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
 import { AgentApplication } from "../application/agent-application.js";
+import { createAutomationTools } from "../automation/automation-tools.js";
 import { DaemonRunExecutor } from "../automation/daemon-run-executor.js";
 import { JobStore } from "../automation/job-store.js";
 import { RunLedger } from "../automation/run-ledger.js";
@@ -20,6 +21,8 @@ import { PinnedContextLoader } from "../memory/context-loader.js";
 import { MemoryService } from "../memory/memory-service.js";
 import { createMemoryTools } from "../memory/memory-tools.js";
 import { SearchService } from "../memory/search-service.js";
+import { NotificationService } from "../notifications/notification-service.js";
+import { createNotificationTools } from "../notifications/notification-tools.js";
 import { PiRuntimeAdapter } from "../pi/pi-runtime-adapter.js";
 import { ApprovalService, PolicyToolGate } from "../policy/approval-service.js";
 import { PolicyEngine } from "../policy/policy.js";
@@ -122,6 +125,16 @@ export class PsporeDaemon {
         id: idFactory(),
         ts: clock().toISOString(),
       }) as KernelEvent;
+      const notifications = new NotificationService({
+        path: join(paths.events, "notifications.jsonl"),
+        recoveryDirectory: join(paths.artifacts, "recovery"),
+        clock,
+        idFactory,
+        onNotification: async (notification) => {
+          await kernel.dispatch(event({ type: "notification.created", notification }));
+        },
+      });
+      await notifications.initialize();
       approvals = new ApprovalService({
         pendingPath: join(paths.approvals, "pending.json"),
         grantsPath: join(paths.approvals, "job-grants.json"),
@@ -161,9 +174,15 @@ export class PsporeDaemon {
         defaultSearchMaxResults: config.memory.maxResults,
         defaultSearchMaxReturnedTokens: config.memory.maxReturnedTokens,
       });
+      const automationControl = () => {
+        if (!scheduler) throw new Error("Scheduler is not initialized");
+        return scheduler;
+      };
       const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
         ...coreTools,
         ...createMemoryTools(sessionId, memory),
+        ...createNotificationTools(sessionId, notifications),
+        ...createAutomationTools(automationControl),
       ];
       const tools = toolsFor("main");
       const runtime = options.runtimeFactory
@@ -183,6 +202,7 @@ export class PsporeDaemon {
         runtime,
         kernel,
         approvals,
+        notifications,
         modelConfigured: config.model !== null,
         sessionTemplate: {
           workspaceId: workspaceId(paths.workspace),
@@ -220,6 +240,8 @@ export class PsporeDaemon {
         maxConcurrentRuns: config.scheduler.maxConcurrentRuns,
         clock,
         onRun: (run) => void kernel.dispatch(event({ type: "automation.run", run })),
+        deliverRun: (run) => notifications.deliverRun(run),
+        onError: (error) => void markDegraded(kernel, event, error),
       });
       await scheduler.initialize();
       application.setAutomation(scheduler);

@@ -37,6 +37,25 @@ describe("policy", () => {
     });
     assert.equal(sudo.decision, "ask");
     assert.ok(sudo.riskReasons.some((reason) => reason.includes("privilege")));
+    assert.equal(
+      (
+        await risky.evaluate({
+          sessionId: "s",
+          toolCallId: "schedule-read",
+          toolName: "schedule",
+          input: { action: "list" },
+        })
+      ).decision,
+      "allow",
+    );
+    const scheduleWrite = await risky.evaluate({
+      sessionId: "s",
+      toolCallId: "schedule-write",
+      toolName: "schedule",
+      input: { action: "put", job: { id: "daily" } },
+    });
+    assert.equal(scheduleWrite.decision, "ask");
+    assert.equal(scheduleWrite.capability, "schedule.write");
 
     const permissive = await PolicyEngine.create({
       mode: "allow_all",

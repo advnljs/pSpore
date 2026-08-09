@@ -24,7 +24,7 @@
 - `atomicWriteFile` / `atomicWriteJson` / `appendJsonLine`
 - `acquireDaemonLock` / `writeEndpoint`
 - `PsporeDaemon.start` / `stop` / `whenStopped`
-- CLI：`init | daemon | status | doctor | tui | jobs | runs | run | cancel | prompt | version`
+- CLI：`init | daemon | status | doctor | tui | jobs | runs | notifications | schedule put | run | cancel | prompt | version`
 
 ## 内部依赖
 
@@ -42,6 +42,7 @@ Node.js 24 filesystem/process/net API 与 Linux `/proc/<pid>/stat`。
 - stale lock 不能只依赖 PID，必须同时核对 process start identity；release 只删除本 instance lock。
 - stop 即使某一步失败也继续尝试关闭 approval/session/gateway 并释放 endpoint/lock，最后回报首个错误。
 - monthly run JSONL 只把完整 newline 视为 commit；破损尾行备份后截断，中间损坏拒绝启动。
+- job JSON 使用 source hash compare-and-swap + atomic replace；notification 使用 `state/events/notifications.jsonl` durable append。
 
 ## 常见修改点
 

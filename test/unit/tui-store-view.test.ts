@@ -68,8 +68,10 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(screen, /assistant> hello from fake/);
     assert.match(screen, /APPROVAL approval-1/);
     assert.match(screen, /\/steer/);
+    assert.match(screen, /\/notifications/);
+    assert.match(screen, /\/quit/);
     assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "e1a87350297d35d1c8f15001223c38dc5a5831d1e901cdc8e58ae17dbbebb621");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "4bf0e9ffc5dd5055235b92ab7f4343335dc16d44d469a301f46eb7a9fdc6cf99");
   });
 });
 

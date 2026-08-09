@@ -11,7 +11,7 @@
 | P2 | 选择 cron parser 依赖 | Done | 无；用户已确认 | 已锁定无额外 runtime dependency 的 `croner@10.0.1`，Phase 2 验证 timezone/DST |
 | P2 | 实现 BM25 与中英 tokenizer | Done | 无 | 默认 lexical provider 已接入 Daemon search tool |
 | P2 | 实现 cron、BOOT、run ledger 与恢复 | Done | 无 | 已覆盖 slot 去重、DST、misfire、并发、timeout、unknown/queued 恢复和非阻塞 BOOT |
-| P2 | 实现 schedule 原子 mutation 与 run delivery/notification | Pending | 无 | 在 Phase 3 bundled tools 接入时补 schedule/notify，复用统一 policy 与 protocol store |
+| P2 | 实现 schedule 原子 mutation 与 run delivery/notification | Done | 无 | 已实现 expected-hash atomic put、runtime reload、notify tool、run delivery 与 durable protocol state |
 | P3 | 选择 MCP SDK 与版本 | Done | 无；用户已确认 | 已锁定官方 `@modelcontextprotocol/sdk@1.30.0`，只通过 adapter port 使用 |
 | P3 | 实现 subagent 双工、MCP 与 plugin trust 流程 | Pending | Phase 2 | 先用 fake MCP 和 fake model 做集成测试 |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
@@ -25,4 +25,3 @@
 - 外部副作用在崩溃边界不能普遍保证 exactly-once。
 - 当前 UDS replay 与 command cache 仅在进程内；重启靠 snapshot，durable event log/session mapping 尚未完成。
 - 当前模型未配置时 Daemon 可正常 ready，但 prompt 会返回 `model_not_configured`；真实付费 provider 未用于自动化测试。
-- 当前 job 文件在 Daemon 启动时加载；原子 schedule tool/CLI 与运行期 reload 尚未实现。

@@ -37,7 +37,7 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - Electron 后置阶段视觉基准为 `1920 × 1080`；核心 v1 先用固定 TUI snapshot 验收。
 - 当前 replay window 位于内存；Daemon 重启后的 durable event replay 尚待 event log 实现，重连仍可用最新 snapshot 恢复。
 - TUI clientId 在进程内稳定，seq gap 会断开并指数退避重连；相同 command ID 由 Daemon 缓存首次响应。
-- job/run 状态已经进入 Kernel snapshot；CLI/TUI 可列出 job/run、触发 job 和取消 run。
+- job/run/notification 状态已经进入 Kernel snapshot；CLI/TUI 可列出 job/run/notification、触发 job、取消 run，CLI/agent 可原子更新 job。
 
 ## 常见修改点
 

@@ -51,7 +51,16 @@ describe("daemon vertical slice", () => {
     const hello = await client.connect();
     assert.equal(hello.snapshot.daemon.phase, "ready");
     assert.equal(Object.keys(hello.snapshot.sessions).length, 0);
-    assert.deepEqual(toolNames, ["read", "edit", "search", "shell", "memory_append", "memory_curate"]);
+    assert.deepEqual(toolNames, [
+      "read",
+      "edit",
+      "search",
+      "shell",
+      "memory_append",
+      "memory_curate",
+      "notify",
+      "schedule",
+    ]);
     const events: string[] = [];
     client.subscribe((event) => events.push(event.type));
     const accepted = await client.command<Accepted>("session.prompt", { text: "hello", mode: "prompt" }, {
@@ -80,8 +89,6 @@ describe("daemon vertical slice", () => {
 
   test("runs a persisted command job through UDS and exposes its durable run state", async () => {
     const home = await configuredHome();
-    const workspace = join(home, "workspace");
-    await atomicWriteJson(join(workspace, "jobs", "command-job.json"), jobFile("command-job"));
     const daemon = await PsporeDaemon.start({
       home,
       runtimeFactory: async () => new FakeRuntime(),
@@ -94,6 +101,15 @@ describe("daemon vertical slice", () => {
       await rm(home, { recursive: true, force: true });
     });
     await client.connect();
+    const created = await client.command<JobDefinition>("job.put", {
+      job: jobFile("command-job"),
+      expectedSha256: null,
+    });
+    assert.match(created.sourceSha256 ?? "", /^[a-f0-9]{64}$/);
+    await assert.rejects(
+      client.command("job.put", { job: jobFile("command-job"), expectedSha256: null }),
+      /update conflict/,
+    );
     const jobs = await client.command<JobDefinition[]>("jobs.list", {});
     assert.deepEqual(jobs.map((job) => job.id), ["command-job"]);
     const run = await client.command<RunRecord>("job.run", { jobId: "command-job" });
@@ -138,6 +154,8 @@ describe("daemon vertical slice", () => {
     runtime.finishAll();
     await waitFor(() => Object.values(daemon.kernel.snapshot().runs).some((run) => run.source === "boot" && run.status === "succeeded"));
     assert.equal(Object.keys(daemon.kernel.snapshot().sessions).some((sessionId) => sessionId.startsWith("run:")), false);
+    await waitFor(() => daemon.kernel.snapshot().notifications.length > 0);
+    assert.match(daemon.kernel.snapshot().notifications.at(-1)?.title ?? "", /Run boot: succeeded/);
   });
 });
 

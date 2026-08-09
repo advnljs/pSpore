@@ -102,3 +102,16 @@
 - 验证方式与结果：增量 `npm run typecheck` 通过；Pi/policy 契约 13 项通过；scheduler/daemon/run-ledger/cron/TUI 组合 13 项通过；完整 `npm run check` 通过（严格类型检查、49 项测试、production build）。构建产物 live smoke 验证 Daemon ready、status/jobs/runs/doctor 与 graceful SIGINT，socket/endpoint/lock 和验收进程均已清理。
 - 当前状态：Phase 2 主动 run 纵切已完成；验收临时 home 已删除，当前无常驻实例。TUI 视觉基准仍为固定 `160×45`，Electron 尚未开始。
 - 遗留问题：schedule 原子 mutation/runtime reload 与 delivery/notification 尚待 bundled tools 阶段补齐；subagent、MCP、plugin trust 与 Electron 进入后续阶段。
+
+## 2026-08-10 00:21 CST — Schedule mutation 与 durable notification
+
+- 阶段目标：补齐 Phase 2 用户可操作缺口，让 job 无需重启即可安全更新，并让 agent/run 结果可持久投递到共享客户端 store。
+- 完成内容：
+  - `JobStore.put` 使用当前 source SHA-256 compare-and-swap、严格 schema/canonical cwd、regular-file 校验与 `0600` atomic replace；Scheduler 成功写入后停止旧 timer 并热重载新 cron。
+  - 新增 UDS `job.put`、CLI `schedule put FILE` 与 bundled `schedule` list/put tool；schedule write 进入统一 `schedule.write` 风险审批。
+  - 新增 durable `NotificationService`、bundled `notify` tool、terminal run delivery 与 Kernel/protocol/TUI notification state；`delivery=none` 不投递。
+  - CLI/TUI 新增 notifications 列表；提供禁用状态的 `examples/jobs/heartbeat.json`，不会安装时自行触发。
+- 修改文件：JobStore/Scheduler/Application/Daemon/CLI/Kernel/TUI/policy、`src/notifications/`、automation tool、示例、相关 unit/integration tests、README 与 memory-bank。
+- 验证方式与结果：增量严格 typecheck 与 21 项 schedule/notification/policy/daemon/scheduler/TUI 测试通过；完整 `npm run check` 通过（51 项测试 + production build）。最新构建 live smoke 完成 `schedule put → jobs → run heartbeat → notifications → status`，run succeeded 且通知持久可读；graceful SIGINT 后 endpoint/socket/lock 与临时 home 已清理。
+- 当前状态：schedule/notify 纵切可运行；验收实例已停止，当前无常驻实例，TUI 仍按 `160×45` 验收。
+- 遗留问题：进入 Phase 3 subagent、MCP 与 plugin trust。

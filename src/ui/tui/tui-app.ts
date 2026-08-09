@@ -130,6 +130,15 @@ export class PsporeTuiApp {
         this.#store.setNotice(runs.length > 0 ? runs.slice(-3).map((run) => `${run.id}:${run.status}`).join("  ") : "No runs");
         return;
       }
+      if (input === "/notifications") {
+        const notifications = await this.#command("notifications.list", {}) as Array<{ title: string; level: string }>;
+        this.#store.setNotice(
+          notifications.length > 0
+            ? notifications.slice(-3).map((notification) => `${notification.level}:${notification.title}`).join("  ")
+            : "No notifications",
+        );
+        return;
+      }
       if (input.startsWith("/run ")) {
         const run = await this.#command("job.run", { jobId: input.slice(5).trim() }) as { id: string; status: string };
         this.#store.setNotice(`Run ${run.id}: ${run.status}`);

@@ -1,12 +1,15 @@
-import { readdir, readFile, realpath, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { lstat, readdir, readFile, realpath, stat } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
+import { atomicWriteFile } from "../storage/atomic.js";
 import { validateFiveFieldCron } from "./cron-adapter.js";
 import type { DeliveryTarget, JobDefinition, RunActivity, RunBudget } from "./types.js";
 
 export class JobStore {
   readonly #jobsDirectory: string;
   readonly #workspaceRoot: string;
+  #tail = Promise.resolve();
 
   constructor(options: { jobsDirectory: string; workspaceRoot: string }) {
     this.#jobsDirectory = options.jobsDirectory;
@@ -19,10 +22,46 @@ export class JobStore {
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const expectedId = basename(entry.name, ".json");
-      const value: unknown = JSON.parse(await readFile(join(this.#jobsDirectory, entry.name), "utf8"));
-      jobs.push(await parseJob(value, expectedId, this.#workspaceRoot));
+      const content = await readFile(join(this.#jobsDirectory, entry.name));
+      const value: unknown = JSON.parse(content.toString("utf8"));
+      jobs.push({ ...(await parseJob(value, expectedId, this.#workspaceRoot)), sourceSha256: sha256(content) });
     }
     return jobs;
+  }
+
+  put(value: unknown, expectedSha256: string | null): Promise<JobDefinition> {
+    return this.#serialize(async () => {
+      const root = object(value, "job");
+      const id = identifier(root["id"], "job.id");
+      const parsed = await parseJob(value, id, this.#workspaceRoot);
+      const path = join(this.#jobsDirectory, `${id}.json`);
+      let current: Buffer | undefined;
+      try {
+        const metadata = await lstat(path);
+        if (!metadata.isFile() || metadata.isSymbolicLink()) throw new Error(`Job source must be a regular file: ${path}`);
+        current = await readFile(path);
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+      }
+      const currentSha256 = current ? sha256(current) : null;
+      if (expectedSha256 !== currentSha256) {
+        throw new Error(
+          `Job update conflict for ${id}: expected ${expectedSha256 ?? "missing"}, current ${currentSha256 ?? "missing"}`,
+        );
+      }
+      const content = Buffer.from(`${JSON.stringify(value, null, 2)}\n`, "utf8");
+      await atomicWriteFile(path, content, 0o600);
+      return { ...parsed, sourceSha256: sha256(content) };
+    });
+  }
+
+  #serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#tail.then(operation, operation);
+    this.#tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 }
 
@@ -157,4 +196,12 @@ function nonNegativeInteger(value: unknown, path: string, maximum: number): numb
 function positiveNumber(value: unknown, path: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) throw new Error(`${path} must be positive`);
   return value;
+}
+
+function sha256(content: Uint8Array): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
