@@ -6,12 +6,13 @@
 
 ## 入口文件
 
-设计目标：`src/kernel/loop.ts`、`src/kernel/reducer.ts`、`src/pi/pi-runtime-adapter.ts`。当前尚未实现。
+当前入口：`src/pi/pi-runtime-adapter.ts`；Kernel loop/reducer 将在 Phase 1 实现。
 
 ## 关键文件
 
 - 详细契约：`docs/detailed-design.md` 第 6、7 节。
 - 架构摘要：`memory-bank/architecture.md`。
+- 版本与兼容决策：`docs/adr/0001-runtime-and-pi-baseline.md`。
 
 ## 对外接口
 

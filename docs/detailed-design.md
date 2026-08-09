@@ -1,7 +1,7 @@
 # pSpore 详细设计
 
-> 状态：Design Complete / Implementation Pending<br>
-> 版本：0.1<br>
+> 状态：Implementation Active / Phase 1<br>
+> 版本：0.2<br>
 > 日期：2026-08-09（Asia/Shanghai）<br>
 > 适用范围：Linux、本地单用户、Pi `v0.84.1` 基线
 
@@ -9,14 +9,14 @@
 
 本文把 [initial_design.txt](../initial_design.txt) 的 11 条核心想法收敛为可实施、可测试、可演进的详细设计。它定义系统边界、运行时模型、模块接口、数据格式、安全语义、失败恢复、测试基准与分阶段交付标准。
 
-当前目录尚无实现代码，因此本文中的类型和命令是**设计契约**，不是已经存在的 API。实现阶段若需偏离，必须以 ADR 或更新本文的方式记录原因。
+实现已经开始。本文中的类型和命令仍是总体设计契约；只有在 `src/`、测试或实际 package scripts 中落地的部分才视为已实现。实现偏离必须以 ADR 或更新本文的方式记录原因。
 
 ### 1.1 已确认的产品假设
 
 - 产品名为 `pSpore`。
 - 它是个人本地 Agent，不是云端多租户平台。
 - 首版仅支持 Linux，使用启动它的用户 UID/GID 和主机权限。
-- TUI 与 Web UI 都只是客户端；Daemon 是会话和状态的唯一写入者。
+- TUI 与 Electron UI 都只是客户端；Daemon 是会话和状态的唯一写入者。
 - 主动性来自明确触发器，而不是无限自唤醒：首版触发器为用户消息、启动任务、cron 和内部恢复事件。
 - 默认不实现向量数据库；检索以固定记忆文件、精确搜索和 BM25 为主。
 - 模型供应商、具体模型和凭据由用户配置，设计不绑定某一家模型 API。
@@ -28,7 +28,7 @@
 |---|---|---|
 | 只有一个 main loop | 只有一个**顶层状态归并循环**；Pi 内部仍管理 LLM/tool turn loop，Shell、MCP、索引和 subagent 是异步活动 | 真正只有一个物理循环会阻塞实时输入、审批和并发任务 |
 | 基于 Pi | 主会话使用 `@earendil-works/pi-coding-agent` SDK；不 fork Pi 的 loop，不复制 compaction/session 逻辑 | Pi 已提供 `AgentSession`、JSONL 会话、事件流、`steer/followUp`、skills 和 extensions |
-| TUI/Web 同一底层 | 共享 Daemon、应用命令、领域事件、快照和协议；不强求共享 UI 组件 | 终端渲染与 DOM 渲染模型不同，强行共享组件会增加耦合 |
+| TUI/Electron 同一底层 | 共享 Daemon、应用命令、领域事件、快照和协议；不强求共享 UI 组件 | 终端渲染与 DOM 渲染模型不同，强行共享组件会增加耦合 |
 | 与登录用户完全相同 | 权限可相同，环境只能做到可说明的近似：前台继承环境或通过用户默认 login shell 加载 | systemd user service 与交互式终端环境、alias/function、TTY 状态天然不同 |
 | 高危操作再询问 | 使用统一 capability policy；Shell 风险识别只是启发式，默认 `ask_risky`，安全敏感场景可切 `ask_all` | 任意 Shell 文本可以混淆，单靠正则无法构成安全边界 |
 | 完全放权 | `allow_all` 明确定义为当前用户级任意代码执行授权；不等于沙箱，也不绕过 OS 权限 | 防止用户把“无弹窗”误解成“仍有系统保护” |
@@ -46,7 +46,7 @@
 2. 维持一个小型、确定性的 kernel loop，复杂能力通过端口与插件隔离。
 3. 支持固定文件记忆、会话检索、`rg` 精确搜索和中英混合 BM25。
 4. 支持 Pi skills、Pi extensions、pSpore plugins 和 MCP tools。
-5. TUI 与 Web 同时连接同一会话，实时接收 delta、发送 steering/follow-up、回答审批。
+5. TUI 与 Electron 同时连接同一会话，实时接收 delta、发送 steering/follow-up、回答审批。
 6. 在同一登录用户权限下执行 Shell，支持审批模式、PTY、长进程和可控 `sudo` 交互。
 7. 支持持久 cron、启动任务、并发策略、预算和结果投递。
 8. 支持可观测、可取消、有预算上限的 subagent 树及实时双工消息。
@@ -56,12 +56,12 @@
 ### 3.2 非目标
 
 - 首版不支持 Windows/macOS 原生运行。
-- 不提供公网开放的 Web UI、多用户账户、组织权限或租户隔离。
+- 不提供公网 Web UI、多用户账户、组织权限或租户隔离。
 - 不把 in-process policy 描述成安全沙箱；容器/VM/micro-VM 是后续可插拔执行器。
 - 不内置向量模型、向量数据库或自动 embedding。
 - 不保证任意 cron 外部副作用 exactly-once。
 - 不在首版实现插件市场、自动安装未知第三方代码或自动加载刚生成的插件。
-- 不要求 Web UI 在手机端完成验收；首版 PC Web 基准为 `1920 × 1080`。
+- Electron 客户端后置到核心/TUI v1 稳定之后；其 PC 基准 viewport 为 `1920 × 1080`。
 
 ## 4. Pi 基线与依赖边界
 
@@ -70,9 +70,10 @@
 截至 2026-08-09：
 
 - 官方仓库为 [`earendil-works/pi`](https://github.com/earendil-works/pi)。
-- 最新发布版为 [`v0.84.1`](https://github.com/earendil-works/pi/releases/tag/v0.84.1)，对应 commit `936aff00918de1187f085f123c2812d8f2d67745`。
+- 锁定发布版为 [`v0.84.1`](https://github.com/earendil-works/pi/releases/tag/v0.84.1)，Phase 0 实测 tag 对应 commit `53fa77ccd8a279eb87e92294ef3687b03ff80112`。
 - npm 主包名已从旧的 `@mariozechner/*` 迁移到 `@earendil-works/*`。
 - `@earendil-works/pi-coding-agent@0.84.1` 要求 Node.js `>=22.19.0`。
+- pSpore 项目自身按用户要求固定 Node.js 24；Phase 0 验证环境为 `v24.19.0`。
 
 初次实现锁定精确版本 `0.84.1`，不使用浮动 `latest`。完成兼容性测试后再决定是否采用补丁范围。升级 Pi 必须运行 contract tests，不能依赖内部源文件或未导出的类型。
 
@@ -99,7 +100,7 @@
 ```mermaid
 flowchart LR
     TUI[TUI Client] -->|JSON envelopes / UDS| G[Local Gateway]
-    WEB[Web Client] -->|JSON envelopes / WebSocket| G
+    DESKTOP[Electron Client] -->|UDS via main process / isolated IPC| G
     G --> APP[Application Commands]
     APP --> K[Kernel Event Loop]
     K --> REG[Session Actor Registry]
@@ -120,9 +121,9 @@ flowchart LR
 
 - `pspore daemon`：唯一状态写入者，持有 Pi sessions、scheduler、MCP connections、进程表和事件序号。
 - `pspore tui`：通过权限为 `0600` 的 Unix domain socket 连接 Daemon。
-- `pspore web`：请求 Daemon 启动/报告 loopback Web endpoint，并用短期一次性 nonce 打开浏览器。
-- Web static assets 由 Daemon 的 loopback HTTP server 提供；WebSocket 与 HTTP 共用认证会话。
-- 同一用户可以同时打开多个 TUI/Web 客户端；所有客户端得到同一个权威快照和有序事件流。
+- `pspore desktop`：核心/TUI v1 稳定后提供；Electron main process 连接 UDS，renderer 只能通过窄化的 context-isolated preload bridge 访问协议。
+- Electron 不在 renderer 暴露 Node.js、文件系统或任意 IPC；Daemon 仍是唯一状态写入者。
+- 同一用户可以同时打开多个 TUI/Electron 客户端；所有客户端得到同一个权威快照和有序事件流。
 - 单个 `PSPORE_HOME` 只允许一个 Daemon。锁文件包含 PID、start time 和随机 instance id；不能仅按 PID 判断陈旧锁。
 
 ### 5.2 模块化单体，而非过早微服务
@@ -138,7 +139,7 @@ src/
   application/            # 客户端命令处理与用例
   pi/                     # 唯一 Pi SDK 适配边界
   protocol/               # transport-neutral schema/envelope/reducer
-  gateway/                # UDS、HTTP、WebSocket、认证、背压
+  gateway/                # UDS、认证、背压
   policy/                 # capability、risk、approval、audit
   shell/                  # login shell、PTY、进程生命周期
   memory/                 # 固定上下文、rg、BM25、索引器
@@ -147,12 +148,12 @@ src/
   plugins/                # host API、loader、trust、MCP adapter
   storage/                # atomic JSON、JSONL、locks、recovery
   ui/tui/                 # Pi TUI renderer + protocol client
-web/                      # Web renderer；只依赖 protocol types
+desktop/                  # Electron main/preload/renderer；核心稳定后实现
 test/
   contract/ integration/ fixtures/ visual/
 ```
 
-依赖方向固定为：UI/adapter → application → kernel ports/domain。`kernel/` 不导入 Node child process、WebSocket、DOM、TUI、MCP SDK 或具体模型 provider。
+依赖方向固定为：UI/adapter → application → kernel ports/domain。`kernel/` 不导入 Node child process、Electron、DOM、TUI、MCP SDK 或具体模型 provider。
 
 ## 6. Kernel 与生命周期
 
@@ -221,7 +222,7 @@ stateDiagram-v2
 2. 获取单实例锁，生成 `daemonInstanceId`。
 3. 恢复 durable state，标记上次运行中断的未知活动。
 4. 加载已信任的 host plugins 和 Pi resource metadata；重型连接保持 lazy。
-5. 绑定 UDS，再绑定 loopback HTTP/WebSocket，写入 runtime endpoint 文件。
+5. 绑定 UDS，写入 runtime endpoint 文件。
 6. 状态切到 `ready`，健康检查和 UI 立即可用。
 7. 启动 scheduler；若启用且 `BOOT.md` 非空，将 boot run 入队，不阻塞 ready。
 
@@ -479,7 +480,7 @@ interface McpServerConfig {
 
 pSpore 默认与启动用户处于同一 OS trust boundary。它不能阻止该用户本来就能做的事情；policy 的目标是减少模型误操作、提供可见性和用户控制，不是抵御恶意本地同用户进程。
 
-主要威胁：模型误判、仓库/网页/邮件中的 prompt injection、恶意 skill/plugin/MCP、secret 读取与外传、破坏性 Shell、无人值守任务失控、Web endpoint 被本机其他来源调用、并发写覆盖。
+主要威胁：模型误判、仓库/网页/邮件中的 prompt injection、恶意 skill/plugin/MCP、secret 读取与外传、破坏性 Shell、无人值守任务失控、Electron IPC/preload 暴露、并发写覆盖。
 
 ### 11.2 Capability
 
@@ -509,7 +510,7 @@ external.side_effect
 
 有效策略按以下集合求交，子级不能提升父级授权：全局 policy ∩ workspace/session policy ∩ trigger/job grant ∩ parent-agent delegation ∩ plugin/server allowlist。若用户明确配置更具体的 deny，它在 `allow_all` 下仍生效。
 
-`allow_all` 的 UI/CLI 必须显示一次清晰警告，并要求用户确认具体 scope；它不自动信任新 plugin、不自动允许远程 Web、不把 secret 输入写入模型上下文。
+`allow_all` 的 UI/CLI 必须显示一次清晰警告，并要求用户确认具体 scope；它不自动信任新 plugin、不扩大 Electron IPC 权限、不把 secret 输入写入模型上下文。
 
 ### 11.4 风险判定
 
@@ -553,7 +554,7 @@ interface ApprovalRequest {
 
 - 审计记录 command hash、经脱敏的显示文本、canonical target、decision、actor、时间、result status；默认不记录完整 env、stdin、文件内容和 token。
 - secret 来源只允许环境/keyring/权限为 `0600` 的 secret store 引用。
-- Web/TUI 的 secret input 使用独立 frame，直接写 PTY；不进入 event broadcast、Pi session、memory、日志或 tool result。
+- Electron/TUI 的 secret input 使用独立 frame，直接写 PTY；不进入 event broadcast、Pi session、memory、日志或 tool result。
 - 日志 redactor 在 sink 前执行；发现疑似 secret 时宁可省略字段，不打印原值。
 
 ## 12. Shell 与进程运行时
@@ -673,7 +674,7 @@ interface AgentTask {
 - `agent_send(agentId, message, mode)`：`steer | follow_up | next`；映射到 child mailbox/Pi API。
 - `agent_join(agentIds, deadline)`：等待终态，返回短 summary 与 artifact refs；可被 abort。
 - child 的 `agent_send(parent, ...)` 同样走 mailbox，可选择把重要消息作为 parent steering 或仅作为 UI event。
-- 用户可在 TUI/Web 中选中任意 child，实时看 delta、发送消息或取消；所有命令仍由 Daemon 排序。
+- 用户可在 TUI/Electron 中选中任意 child，实时看 delta、发送消息或取消；所有命令仍由 Daemon 排序。
 
 消息 envelope 带 sender、recipient、sequence、correlation、priority 和 token estimate。禁止直接把 child 全部 transcript 注入 parent；child 完成时输出结构化结果：status、summary、evidence refs、changed files、open questions、usage。
 
@@ -690,7 +691,7 @@ interface AgentTask {
 
 ### 15.1 传输无关 envelope
 
-UDS 与 WebSocket 使用相同 JSON object schema。UDS 用 LF 分隔 UTF-8 JSON；WebSocket 每 frame 一个 JSON object。协议不传递 Pi class instance。
+TUI 与 Electron main process 通过同一 UDS JSON object schema 连接 Daemon。UDS 用 LF 分隔 UTF-8 JSON；Electron main process 只把已校验的协议对象通过窄化 IPC 转发给 renderer。协议不传递 Pi class instance。
 
 ```ts
 interface CommandEnvelope<T = unknown> {
@@ -736,7 +737,7 @@ UDS parser 只把 ASCII LF 当 record delimiter，不使用会额外切分 Unico
 
 ```mermaid
 sequenceDiagram
-    participant U as TUI/Web
+    participant U as TUI/Electron
     participant D as Daemon
     participant P as Pi Session
     U->>D: session.prompt(id, mode=steer)
@@ -765,13 +766,13 @@ UI 必须让用户明确选择：
 - Ctrl+C 第一次 abort 当前 run，空闲时再次触发 graceful exit；不得直接遗留 raw mode/PTY。
 - terminal snapshot tests 固定宽高和颜色能力，测试中使用 fake clock/ID。
 
-### 15.5 Web UI
+### 15.5 Electron UI（核心 v1 后实现）
 
-- 首版采用轻量 browser TypeScript renderer；是否引入 UI framework在实现阶段按交互复杂度单独确认，不影响 protocol/domain。
-- 默认只绑定 `127.0.0.1` 或 `::1` 的明确地址，不监听 `0.0.0.0`。
-- `pspore web` 生成一次性、短期 nonce，经 URL fragment 交给页面；页面通过 WebSocket 首帧兑换内存 session，nonce 不写 access log/长期 storage。
-- 校验 `Origin`、Host 和 nonce；设置严格 CSP，禁止第三方 script；remote access 首版只推荐 SSH port forwarding。
-- PC Web 第一验收 viewport 为 `1920 × 1080`，检查布局、overflow、scroll、approval modal、fixed elements 和主操作路径。手机响应式不在首版验收范围。
+- 固定 Electron 43；Phase 0 锁定工具链版本 `43.3.0`。renderer 技术保持轻量，是否引入 UI framework 在客户端阶段单独确认，不影响 protocol/domain。
+- Electron main process 持有 UDS 连接；renderer 启用 `contextIsolation` 与 sandbox，关闭 `nodeIntegration`，仅通过 allowlisted preload API 发送和订阅已知协议类型。
+- 禁止任意 channel 名、任意文件路径 IPC、remote module、外部导航和未受控新窗口；设置严格 CSP，不加载第三方远程 script。
+- Electron 崩溃或退出不拥有 Daemon 状态；重启后按 cursor/snapshot 规则恢复。
+- PC Electron 第一验收 viewport 为 `1920 × 1080`，检查布局、overflow、scroll、approval modal、fixed elements 和主操作路径。手机响应式不在验收范围。
 
 ## 16. 持久化与目录
 
@@ -944,7 +945,7 @@ UI 必须让用户明确选择：
 1. **Unit**：纯 reducer、状态机、policy precedence、risk cases、path canonicalization、BM25/tokenizer、cron next-fire、protocol schema、redaction。
 2. **Property/Fuzz**：event replay determinism、JSON/JSONL decoder、protocol unknown fields、path traversal、duplicate command、approval race、BM25 Unicode。
 3. **Contract**：针对锁定 Pi 版本测试 adapter 行为，不调用真实付费模型，使用 fake provider/tool。
-4. **Integration**：真实 Daemon + UDS/WebSocket + fake clock/provider/shell/MCP；覆盖 abort、reconnect、crash recovery、misfire、subagent duplex。
+4. **Integration**：真实 Daemon + UDS + fake clock/provider/shell/MCP；覆盖 abort、reconnect、crash recovery、misfire、subagent duplex；客户端阶段再加入 Electron IPC bridge。
 5. **Security**：project trust、secret 不落盘、loopback/origin/auth、plugin capability、Shell 混淆样例、symlink escape、slow client backpressure。
 6. **UI/Visual**：TUI 固定 terminal snapshot；Web 先在 `1920 × 1080` 实际运行检查。
 7. **End-to-end smoke**：使用明确 opt-in 的真实 provider，限制预算，验证一轮 read-only 和一轮需审批操作。
@@ -961,9 +962,9 @@ UI 必须让用户明确选择：
 - Daemon ready 对 BOOT/model/MCP 的慢启动无依赖。
 - current running service 的 build/version/worktree hash 可查询，避免 UI 连接旧实例。
 
-### 20.3 Web 验收基准
+### 20.3 UI 验收基准
 
-在 `1920 × 1080` viewport 至少检查：main/subagent 布局、长消息与代码块横向溢出、transcript 滚动、streaming delta、approval modal 遮挡/焦点、固定输入框、断线重连、工具大输出折叠和主要操作可见性。未明确要求前不扩大到设备矩阵。
+核心 v1 先以固定 `160 × 45` terminal snapshot 和真实 TTY 交互验证 TUI。后置 Electron 客户端在 `1920 × 1080` viewport 至少检查：main/subagent 布局、长消息与代码块横向溢出、transcript 滚动、streaming delta、approval modal 遮挡/焦点、固定输入框、断线重连、工具大输出折叠和主要操作可见性。未明确要求前不扩大到设备矩阵。
 
 ## 21. 分阶段实施
 
@@ -984,13 +985,12 @@ UI 必须让用户明确选择：
 
 退出条件：可在 TUI 完成一项 read/edit/shell 任务，审批与崩溃恢复可验证，运行实例加载最新代码。
 
-### Phase 2：Web、BM25 与自动化
+### Phase 2：BM25 与自动化
 
-- WebSocket/Web UI、共享 protocol store。
 - BM25 incremental index、memory write/curate。
 - cron、run ledger、BOOT、notifications。
 
-退出条件：TUI/Web 同时连接同一 session；`1920 × 1080` 视觉检查通过；cron/boot 的去重与 unknown 状态有故障测试。
+退出条件：TUI 通过共享 protocol store 完成重连；cron/boot 的去重与 unknown 状态有故障测试。
 
 ### Phase 3：Subagent、MCP 与插件
 
@@ -1000,7 +1000,15 @@ UI 必须让用户明确选择：
 
 退出条件：至少两个 child 并行、用户中途 steering、parent 收到结构化结果；权限与 budget 不可越权；fake MCP contract 通过。
 
-### Phase 4：强化与可选执行器
+### Phase 4：Electron 43 客户端
+
+- Electron main/preload/renderer 接入同一 UDS protocol store。
+- 完成 context isolation、IPC allowlist、CSP、审批 overlay、agent tree 与断线恢复。
+- 在 `1920 × 1080` 主基准完成视觉与关键交互检查。
+
+退出条件：TUI/Electron 同时连接同一 session，renderer 无 Node 权限，桌面端主流程与安全基线通过。
+
+### Phase 5：强化与可选执行器
 
 - container/VM executor、remote transport（若明确需要）、vector provider、worktree workspace mode。
 - 性能、长期运行、磁盘 retention、升级/迁移与备份演练。
@@ -1013,7 +1021,7 @@ UI 必须让用户明确选择：
 
 1. Daemon 启动、ready、graceful shutdown 和 crash recovery 有测试；BOOT 不阻塞 ready。
 2. Pi `v0.84.1` adapter contract 全部通过，版本被精确锁定。
-3. TUI 与 Web 可同时查看同一主/子会话、接收流、steer/follow-up/abort、断线恢复。
+3. TUI 可查看同一主/子会话、接收流、steer/follow-up/abort、断线恢复；Electron 客户端作为核心 v1 后的独立阶段验收。
 4. `ask_all`、`ask_risky`、`allow_all` 行为、scope、audit 和 first-response-wins 可验证。
 5. Shell 使用解析后的用户 shell，pipe/PTY/timeout/output artifact 可用；sudo secret 不进入模型或持久化。
 6. pinned memory、session JSONL、exact/BM25 搜索、按引用读取和增量重建可用。
@@ -1022,20 +1030,20 @@ UI 必须让用户明确选择：
 9. subagent 有独立 context/mailbox/budget，父子与用户双工、权限继承和级联取消可验证。
 10. MCP lazy connect/discovery、schema activation、policy、abort、health/backoff 可验证。
 11. usage 与 cacheRead/cacheWrite 可观测；大输出不会无界进入 LLM context。
-12. Web 在 `1920 × 1080` 主基准无明显溢出、遮挡、错误滚动或不可达关键操作。
+12. TUI 在固定 terminal snapshot 与真实 TTY 中无明显错误滚动、残留 raw mode 或不可达关键操作。
 13. memory-bank、运行/测试命令、架构与未完成项同步；阶段提交不包含 secret 或无关文件。
 
 ## 23. 延后决策与风险登记
 
 | 项目 | 当前决定 | 触发重评条件 |
 |---|---|---|
-| Web framework | 不在架构层绑定；Phase 2 前选择 | protocol store/组件复杂度被 spike 量化后 |
+| Electron renderer framework | 不在核心架构层绑定；Electron 阶段选择 | protocol store/组件复杂度被 spike 量化后 |
 | Cron library | 不自己写完整 timezone parser | Phase 2 新增依赖审批时 |
 | MCP SDK/version | adapter behind port | Phase 3 基于官方 SDK 当前版本确认 |
 | Plugin process isolation | 首版 in-process trusted | 出现第三方插件或稳定性需求 |
 | Subagent process model | 首版同进程多 AgentSession | CPU isolation、crash isolation 或多语言需要 |
 | Vector search | 不实现 | 词法检索基准证明 recall 不足且用户明确需要 |
-| Remote Web | 不实现公网暴露 | 有明确远程需求并完成 TLS/auth/threat model |
+| Remote Web | 不实现 | 有明确远程需求并完成 TLS/auth/threat model |
 | Mobile UI | 不作为 v1 验收 | 用户明确要求响应式/mobile workflow |
 | Exactly-once | 不承诺外部副作用 | 目标系统支持事务/idempotency API 时逐个 adapter 实现 |
 
@@ -1062,7 +1070,7 @@ UI 必须让用户明确选择：
 | 3. 极简 main loop 与 BOOT | 6、8.2 | v1 #1 |
 | 4. 文件记忆、grep/BM25、vector 可插拔 | 9 | v1 #6 |
 | 5. Skills 与 MCP | 10.2、10.4 | v1 #7/#10 |
-| 6. TUI/Web 同一底层 | 5、15 | v1 #3/#12 |
+| 6. TUI/Electron 同一底层 | 5、15 | v1 #3；Electron Phase 4 |
 | 7. 登录用户 shell、sudo、审批/放权 | 11、12 | v1 #4/#5 |
 | 8. 自定义 cron | 13 | v1 #8 |
 | 9. Token 与 KV cache | 18 | v1 #11 |

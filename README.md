@@ -1,16 +1,16 @@
 # pSpore
 
-pSpore 是一个设计中的、基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本地主动式 Agent。目标是在保留 Pi 极简 agent loop 的前提下，增加持久记忆、权限治理、计划任务、subagent、MCP，以及共享同一后端的 TUI/Web UI。
+pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本地主动式 Agent。目标是在保留 Pi 极简 agent loop 的前提下，增加持久记忆、权限治理、计划任务、subagent、MCP，以及共享同一后端的 TUI/Electron UI。
 
 ## 当前状态
 
-项目当前处于**详细设计完成、尚未开始编码**阶段。不要把本文档中的接口或命令误认为已经实现。
+项目已进入实现阶段：Phase 0 的 Node/TypeScript 工程、Pi adapter contract 和 Linux Shell/PTY 风险 spike 已落地；Kernel、Daemon、TUI 与其余 v1 模块仍在开发中。不要把详细设计中尚未落地的接口或命令误认为已经实现。
 
 - 原始想法：[initial_design.txt](initial_design.txt)
 - 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
 - 项目记忆与导航：[memory-bank/nav.md](memory-bank/nav.md)
 
-设计基线为 Pi `v0.84.1`（2026-08-07 发布），实现时首先完成版本兼容性 spike，再锁定实际依赖版本。
+运行时基线为 Node.js 24，Pi 精确锁定 `v0.84.1`；最终桌面客户端使用 Electron 43，核心功能先通过 TUI 验证。版本决策见 [ADR 0001](docs/adr/0001-runtime-and-pi-baseline.md)。
 
 ## 核心边界
 
@@ -22,4 +22,4 @@ pSpore 是一个设计中的、基于 [Pi](https://github.com/earendil-works/pi)
 
 ## 下一步
 
-按详细设计的 Phase 0 先验证 Pi SDK、事件映射、权限钩子、会话恢复和 KV cache 指标，再进入可运行的纵向切片。
+继续完成详细设计的 Phase 1：Kernel、storage、policy、UDS 和 TUI 的可运行纵向切片。

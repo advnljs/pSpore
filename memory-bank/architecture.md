@@ -2,13 +2,13 @@
 
 ## 系统边界
 
-pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和事件序号的唯一写入者；TUI/Web 是无权威状态客户端。模型循环复用 Pi SDK，OS 权限边界来自启动 Daemon 的用户，不提供默认 sandbox。
+pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和事件序号的唯一写入者；TUI/Electron 是无权威状态客户端。模型循环复用 Pi SDK，OS 权限边界来自启动 Daemon 的用户，不提供默认 sandbox。
 
 ## 主要组件
 
 - `Kernel`：串行归并 domain events，产生 effects；不做 I/O。
 - `PiRuntimeAdapter`：唯一 Pi SDK 边界，管理 `AgentSessionRuntime`、事件映射和 JSONL session。
-- `Gateway/Protocol`：UDS 与 loopback WebSocket 共享命令、事件、快照 schema。
+- `Gateway/Protocol`：TUI 与 Electron main process 共享 UDS 命令、事件和快照 schema；renderer 只经窄化 IPC bridge 访问。
 - `Policy/Shell`：capability、risk、approval、audit、login shell、PTY 和进程生命周期。
 - `Memory/Search`：pinned files、exact search、BM25、session index 和 artifact references。
 - `Automation`：cron、BOOT、trigger、run ledger 和故障恢复。
@@ -18,7 +18,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 
 ## 数据流
 
-客户端 command → Gateway 校验/去重 → Application use case → Kernel event → reducer 更新状态并产生 effect → adapter 异步执行 → completion/failure 回投 Kernel → durable append/snapshot → event broadcast → TUI/Web reducer。
+客户端 command → Gateway 校验/去重 → Application use case → Kernel event → reducer 更新状态并产生 effect → adapter 异步执行 → completion/failure 回投 Kernel → durable append/snapshot → event broadcast → TUI/Electron reducer。
 
 模型 tool call → Pi policy hook → capability/risk → allow/deny 或 durable approval request → 用户响应 → effect 恢复/阻止 tool → Pi event → pSpore domain event。
 
@@ -37,13 +37,14 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 
 ## 重要约束
 
-- Node 基线 `>=22.19.0`；设计锁定 Pi `v0.84.1`。
+- Node 基线固定为 24；Pi 锁定 `v0.84.1`，对应实测 tag commit `53fa77c…`。
 - `allow_all` 等价于当前用户级任意工具授权，sudo 可进一步扩大影响。
 - 同一 session 只允许一个 Pi run；不同 session 在全局预算内并发。
 - child 权限不得超过 parent/root ceiling。
 - secret input 不进入模型、日志、事件、session、artifact 或 memory。
-- Web 默认 loopback，remote 不是 v1。
+- 不提供公网 Web；Electron renderer 不拥有 Node/Daemon 权限。
 
 ## 架构变更历史
 
 - 2026-08-09：从概念草案建立首版详细架构；修正“单物理 loop”“完全相同 shell 环境”“cron exactly-once”“审批可约束插件代码”等不成立假设。
+- 2026-08-09：实现阶段固定 Node 24 与 Pi `v0.84.1`，最终客户端由 Tauri 改为 Electron 43；核心先由 TUI 验收。

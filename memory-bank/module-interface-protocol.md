@@ -2,7 +2,7 @@
 
 ## 模块职责
 
-通过 transport-neutral 命令、事件和快照连接 Daemon、TUI 与 Web；处理认证、重连、幂等、revision、背压和 UI state reduction。
+通过 transport-neutral 命令、事件和快照连接 Daemon、TUI 与后置 Electron 客户端；处理认证、重连、幂等、revision、背压和 UI state reduction。
 
 ## 入口文件
 
@@ -24,15 +24,15 @@ Application use cases、Kernel event bus、policy approval service、protocol sc
 
 ## 外部依赖
 
-TUI 使用 Pi TUI primitives；UDS/HTTP/WebSocket 具体库在实现时最小化选择。Web framework 尚未决定。
+TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electron renderer framework 尚未决定。
 
 ## 注意事项
 
 - Snapshot/complete event 权威；delta/progress 可合并或丢弃。
 - 相同 command id 必须幂等；seq gap 触发 snapshot，不由客户端猜状态。
-- Web 默认 loopback、校验 origin、一次性 nonce、严格 CSP。
+- Electron renderer 必须 context-isolated、sandboxed、关闭 Node integration，只暴露 allowlisted preload API。
 - UI 同底层指共享 domain/protocol/store，不指共享终端与 DOM 组件。
-- Web 首版视觉基准为 `1920 × 1080`。
+- Electron 后置阶段视觉基准为 `1920 × 1080`；核心 v1 先用固定 TUI snapshot 验收。
 
 ## 常见修改点
 

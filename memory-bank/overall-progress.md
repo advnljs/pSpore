@@ -33,3 +33,23 @@
   - `main` 已跟踪 `origin/main`；首次推送后工作树干净。
 - 当前状态：设计文档已发布；当前阶段没有实现代码，因此没有可编译、可启动或可预览的服务。
 - 遗留问题：本次为新仓库首次提交，没有既有 base branch 可供代码评审，未创建 draft PR；后续实现从独立 feature branch + PR 开始。
+
+## 2026-08-09 22:32 CST — Phase 0 运行时与风险契约
+
+- 阶段目标：建立 Node/TypeScript 工程，验证 Pi `v0.84.1` 与 Linux Shell/PTY 的关键上游假设。
+- 完成内容：
+  - 固定 Node.js 24、Pi `v0.84.1`、Electron `43.3.0` 与已确认的最小依赖，生成 npm lockfile；Electron 二进制通过中国大陆镜像安装并验证。
+  - 实现唯一 Pi SDK 边界 `PiRuntimeAdapter`，完成领域事件/快照映射、session create/resume/new/fork、订阅重绑、prompt/steer/followUp/abort/compact、usage/cache 和 fail-closed tool gate。
+  - 使用 Pi 官方 faux provider 完成不调用付费模型的 contract tests。
+  - 实现 Linux login shell pipe/PTY、超时、输出上限、私有 artifact、SHA-256、进程组终止与 secret 流式脱敏。
+  - 记录 ADR 0001，并把最终客户端从 Tauri 更新为 Electron 43；核心仍先以 TUI 验收。
+- 修改文件：`package*.json`、`tsconfig*.json`、`src/domain/`、`src/pi/`、`src/shell/`、`test/`、`docs/adr/0001-runtime-and-pi-baseline.md`、`README.md`、`docs/detailed-design.md`、`memory-bank/*.md`。
+- 验证方式与结果：
+  - `npm run typecheck`：通过。
+  - Pi adapter contract：7 项通过，包含 steer/followUp 次序与 manual compaction 生命周期。
+  - Shell Linux integration：4 项通过，包括 PTY secret 不落 artifact。
+  - `npm run build`：通过。
+  - `electron --version`：`v43.3.0`；Node：`v24.19.0`。
+  - `npm audit --omit=dev --audit-level=high`：0 vulnerabilities。
+- 当前状态：Phase 0 关键假设已验证；尚无可启动 Daemon/TUI，进入 Phase 1 纵向切片。
+- 遗留问题：真实 sudo smoke test 未执行（避免无必要提权）；steer/followUp/compaction 将在 Phase 1 集成路径继续扩充。

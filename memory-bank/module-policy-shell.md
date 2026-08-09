@@ -6,11 +6,12 @@
 
 ## 入口文件
 
-设计目标：`src/policy/`、`src/shell/`。当前尚未实现。
+当前入口：`src/shell/shell-service.ts`；policy/approval 将在 Phase 1 实现。
 
 ## 关键文件
 
 - 详细契约：`docs/detailed-design.md` 第 11、12 节。
+- Linux contract：`test/integration/shell-service.test.ts`。
 
 ## 对外接口
 
