@@ -12,9 +12,8 @@ usage() {
   cat <<EOF
 Usage: $0 <version> [--prerelease]
 
-Produces:
-  - pspore-<version>-linux-x64       standalone CLI binary (no Node required)
-  - pspore-desktop-<version>-linux-x64.AppImage  Electron desktop app
+Produces a standalone Linux x86_64 CLI binary via Node SEA and uploads
+it to a GitHub release. No Node.js runtime required by end users.
 
 Examples:
   $0 0.1.0
@@ -38,9 +37,8 @@ if ! command -v gh &>/dev/null; then
   exit 1
 fi
 
-NODE_VERSION=$(node --version 2>/dev/null || true)
-if [[ -z "$NODE_VERSION" ]]; then
-  echo "Error: node is required (>= 24)"
+if ! command -v node &>/dev/null || [[ "$(node -e 'process.stdout.write(String(+process.versions.node.split(".")[0]>=24))')" != "1" ]]; then
+  echo "Error: node >= 24 is required"
   exit 1
 fi
 
@@ -50,10 +48,12 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 
 TAG="v${VERSION}"
+BINARY_NAME="pspore-${VERSION}-linux-x64"
+
 echo "==> Building release ${TAG}"
 
 # ─── Install & Build ───────────────────────────────────────────────
-echo "--- npm install"
+echo "--- npm ci"
 npm ci 2>/dev/null || npm install
 
 echo "--- npm run build"
@@ -63,22 +63,27 @@ npm run build
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-# ─── CLI Binary via Node SEA ──────────────────────────────────────
-echo "--- Bundling CLI with esbuild"
+# ─── Bundle with esbuild ──────────────────────────────────────────
+echo "--- Bundling CLI with esbuild (CJS for SEA)"
 npx --yes esbuild dist/cli/main.js \
   --bundle \
   --platform=node \
   --target=node24 \
-  --format=esm \
-  --banner:js="import{createRequire}from'module';const require=createRequire(import.meta.url);" \
-  --outfile="$DIST_DIR/pspore-bundle.mjs" \
-  --external:electron
+  --format=cjs \
+  --outfile="$DIST_DIR/pspore-bundle.cjs" \
+  --external:electron \
+  --banner:js="const _orig_fUTP=require('url').fileURLToPath;require('url').fileURLToPath=function(p){if(p==null)return process.execPath;return _orig_fUTP(p)};"
 
+# Patch empty import_meta objects so import_meta.url works in SEA context
+echo "--- Patching import_meta for SEA compatibility"
+sed -i 's/var import_meta\([0-9]*\) = {};/var import_meta\1 = {url:require("url").pathToFileURL(process.execPath).href,resolve:function(s){return new(require("url").URL)(s,this.url).href}};/g' \
+  "$DIST_DIR/pspore-bundle.cjs"
+
+# ─── Generate SEA blob ────────────────────────────────────────────
 echo "--- Generating Node SEA blob"
-SEA_CONFIG="$DIST_DIR/sea-config.json"
-cat > "$SEA_CONFIG" <<SEACFG
+cat > "$DIST_DIR/sea-config.json" <<SEACFG
 {
-  "main": "$DIST_DIR/pspore-bundle.mjs",
+  "main": "$DIST_DIR/pspore-bundle.cjs",
   "output": "$DIST_DIR/pspore.blob",
   "disableExperimentalSEAWarning": true,
   "useSnapshot": false,
@@ -86,61 +91,32 @@ cat > "$SEA_CONFIG" <<SEACFG
 }
 SEACFG
 
-node --experimental-sea-config "$SEA_CONFIG"
+node --experimental-sea-config "$DIST_DIR/sea-config.json"
 
+# ─── Inject into node binary ─────────────────────────────────────
 echo "--- Injecting SEA blob into node binary"
-BINARY_NAME="pspore-${VERSION}-linux-x64"
 cp "$(command -v node)" "$DIST_DIR/$BINARY_NAME"
 chmod 755 "$DIST_DIR/$BINARY_NAME"
 
 npx --yes postject "$DIST_DIR/$BINARY_NAME" NODE_SEA_BLOB "$DIST_DIR/pspore.blob" \
   --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
 
-echo "--- CLI binary ready: $BINARY_NAME"
-
-# ─── Electron Desktop via electron-builder ────────────────────────
-ARTIFACT_ELECTRON=""
-if [[ -d "dist/desktop" ]]; then
-  echo "--- Building Electron AppImage with electron-builder"
-
-  BUILDER_CFG="$DIST_DIR/electron-builder.json"
-  cat > "$BUILDER_CFG" <<BUILDCFG
-{
-  "appId": "com.pspore.desktop",
-  "productName": "pSpore",
-  "directories": {
-    "output": "$DIST_DIR/electron-out"
-  },
-  "files": [
-    "dist/**/*",
-    "node_modules/**/*",
-    "package.json"
-  ],
-  "linux": {
-    "target": ["AppImage"],
-    "category": "Utility",
-    "icon": null
-  },
-  "extraMetadata": {
-    "main": "dist/desktop/main.js",
-    "version": "$VERSION"
-  }
+# ─── Verify binary ───────────────────────────────────────────────
+echo "--- Verifying binary"
+VOUT=$("$DIST_DIR/$BINARY_NAME" version 2>&1) || {
+  echo "Error: binary failed to run 'version' command"
+  echo "$VOUT"
+  exit 1
 }
-BUILDCFG
+echo "    $VOUT"
 
-  npx --yes electron-builder --linux AppImage \
-    --project "$REPO_ROOT" \
-    --config "$BUILDER_CFG" \
-    || echo "Warning: electron-builder failed, skipping desktop binary"
+HOUT=$("$DIST_DIR/$BINARY_NAME" --help 2>&1) || {
+  echo "Error: binary failed to run '--help'"
+  exit 1
+}
+echo "    --help: OK ($(echo "$HOUT" | wc -l) lines)"
 
-  APPIMAGE=$(find "$DIST_DIR/electron-out" -name "*.AppImage" 2>/dev/null | head -1)
-  if [[ -n "$APPIMAGE" ]]; then
-    ARTIFACT_ELECTRON="pspore-desktop-${VERSION}-linux-x64.AppImage"
-    mv "$APPIMAGE" "$DIST_DIR/$ARTIFACT_ELECTRON"
-    chmod +x "$DIST_DIR/$ARTIFACT_ELECTRON"
-    echo "--- Electron AppImage ready: $ARTIFACT_ELECTRON"
-  fi
-fi
+echo "--- Binary verified: $BINARY_NAME ($(du -h "$DIST_DIR/$BINARY_NAME" | cut -f1))"
 
 # ─── Tag & Release ────────────────────────────────────────────────
 echo "--- Tagging ${TAG}"
@@ -150,31 +126,20 @@ git push origin "$TAG"
 echo "--- Creating GitHub release"
 RELEASE_NOTES="## pSpore ${TAG}
 
-### CLI Binary
+Standalone Linux x86_64 binary. No Node.js runtime required.
 
-Download \`${BINARY_NAME}\`, make executable, and run:
+### Download & Run
 
 \`\`\`bash
 chmod +x ${BINARY_NAME}
 ./${BINARY_NAME} version
-# Move to PATH:
 sudo mv ${BINARY_NAME} /usr/local/bin/pspore
-\`\`\`
-
-No Node.js runtime required — fully self-contained single binary.
-
-### Desktop (Electron)
-
-Download the AppImage, make executable, and run:
-
-\`\`\`bash
-chmod +x ${ARTIFACT_ELECTRON:-pspore-desktop-*-linux-x64.AppImage}
-./${ARTIFACT_ELECTRON:-pspore-desktop-*-linux-x64.AppImage}
+pspore init && pspore doctor
 \`\`\`
 
 ### Platform
 
-- Linux x86_64
+- Linux x86_64 (single ELF binary)
 "
 
 GH_ARGS=(
@@ -187,26 +152,13 @@ if [[ "$PRERELEASE" == "--prerelease" ]]; then
   GH_ARGS+=(--prerelease)
 fi
 
-UPLOAD_FILES=("$DIST_DIR/$BINARY_NAME")
-if [[ -n "$ARTIFACT_ELECTRON" && -f "$DIST_DIR/$ARTIFACT_ELECTRON" ]]; then
-  UPLOAD_FILES+=("$DIST_DIR/$ARTIFACT_ELECTRON")
-fi
+gh release create "${GH_ARGS[@]}" "$DIST_DIR/$BINARY_NAME"
 
-gh release create "${GH_ARGS[@]}" "${UPLOAD_FILES[@]}"
+# ─── Cleanup intermediates ────────────────────────────────────────
+rm -f "$DIST_DIR/pspore-bundle.cjs" "$DIST_DIR/pspore.blob" "$DIST_DIR/sea-config.json"
 
 echo ""
 echo "==> Release ${TAG} published!"
-echo "    Artifacts:"
-echo "      - ${BINARY_NAME} (standalone CLI)"
-if [[ -n "$ARTIFACT_ELECTRON" ]]; then
-  echo "      - ${ARTIFACT_ELECTRON} (Electron desktop)"
-fi
-echo ""
-echo "    View: gh release view ${TAG}"
-
-# Cleanup build intermediates
-rm -f "$DIST_DIR/pspore-bundle.mjs" "$DIST_DIR/pspore.blob" "$SEA_CONFIG"
-rm -f "$BUILDER_CFG"
-rm -rf "$DIST_DIR/electron-out"
-
-echo "==> Done. Artifacts in: $DIST_DIR"
+echo "    Binary: $DIST_DIR/$BINARY_NAME"
+echo "    View:   gh release view ${TAG}"
+echo "==> Done."
