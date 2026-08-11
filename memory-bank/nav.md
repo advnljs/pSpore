@@ -72,7 +72,7 @@
 - 初始化：`npm run dev -- init`。
 - 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
-- npm 安装：`npm install --global pspore`；运行：`pspore tui` 或 `npx pspore --help`。npm CLI 包不含 Electron。
+- npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动拥有/复用 Daemon；主基准 `160×45`，响应式补测 `96×30`）。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key`。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。

@@ -25,11 +25,11 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 要求 Node.js 24。发布包可直接安装并启动 TUI；`pspore tui` 会初始化缺失的 home，并在没有现有实例时自动拥有/启动 Daemon，退出时只关闭自己拥有的实例。
 
 ```bash
-npm install --global pspore
+npm install --global p-spore
 pspore tui
 ```
 
-也可以用 `npx pspore --help` 临时运行。npm CLI 包不携带 Electron；桌面端请使用 release 中的 AppImage。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
+也可以用 `npx p-spore --help` 临时运行。npm 包名为 `p-spore`，安装后的 CLI 命令仍为 `pspore`。npm CLI 包不携带 Electron；桌面端请使用 release 中的 AppImage。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
 
 ```bash
 npm install
