@@ -5,10 +5,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, session, type IpcMainInvokeEvent, type WebContents } from "electron";
 
 import { resolvePsporeHome } from "../config/config.js";
+import { DaemonSupervisor, type DaemonOwnership } from "../daemon/supervisor.js";
+import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { DaemonBridge } from "./daemon-bridge.js";
-import { DesktopDaemonSupervisor, type DesktopDaemonOwnership } from "./daemon-supervisor.js";
 import {
   DESKTOP_BOOTSTRAP_CHANNEL,
   DESKTOP_DISPATCH_CHANNEL,
@@ -20,7 +21,6 @@ import {
   type DesktopSettingsSaveResult,
 } from "./ipc-contract.js";
 import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
-import { DesktopSettingsService } from "./settings-service.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 
 interface DesktopArguments {
@@ -31,7 +31,7 @@ interface DesktopArguments {
 
 interface SmokeReport {
   connection: { phase: string };
-  daemonOwnership: DesktopDaemonOwnership;
+  daemonOwnership: DaemonOwnership;
   reconnectVerified: boolean;
   images: {
     main: { width: number; height: number };
@@ -63,6 +63,9 @@ interface SmokeReport {
     apiKeyInputType: string;
     returnedSecret: boolean;
     fieldFontSize: number;
+    providerOptions: string[];
+    customBaseUrlEnabled: boolean;
+    customApiEnabled: boolean;
   };
   probe: {
     viewport: { width: number; height: number; devicePixelRatio: number };
@@ -101,8 +104,8 @@ if (arguments_.smokeDirectory) app.disableHardwareAcceleration();
 
 let window: BrowserWindow | undefined;
 let bridge: DaemonBridge | undefined;
-let daemonSupervisor: DesktopDaemonSupervisor | undefined;
-let settingsService: DesktopSettingsService | undefined;
+let daemonSupervisor: DaemonSupervisor | undefined;
+let settingsService: LlmSettingsService | undefined;
 let unsubscribeBridge: (() => void) | undefined;
 let rendererUrl = "";
 let exitCode = 0;
@@ -130,7 +133,7 @@ async function startDesktop(): Promise<void> {
   rendererUrl = pathToFileURL(rendererPath).href;
 
   installSessionSecurity();
-  daemonSupervisor = new DesktopDaemonSupervisor({ home });
+  daemonSupervisor = new DaemonSupervisor({ home });
   await daemonSupervisor.start();
   bridge = new DaemonBridge({
     socketPath: paths.socket,
@@ -143,7 +146,7 @@ async function startDesktop(): Promise<void> {
     },
   });
   bridge.start();
-  settingsService = new DesktopSettingsService(home, paths);
+  settingsService = new LlmSettingsService(home, paths);
 
   window = new BrowserWindow(desktopWindowOptions(preloadPath));
   hardenWindow(window, rendererUrl);
@@ -190,7 +193,7 @@ function hardenWindow(target: BrowserWindow, expectedUrl: string): void {
 function installIpc(
   target: BrowserWindow,
   daemonBridge: DaemonBridge,
-  desktopSettings: DesktopSettingsService,
+  desktopSettings: LlmSettingsService,
 ): void {
   ipcMain.removeHandler(DESKTOP_BOOTSTRAP_CHANNEL);
   ipcMain.removeHandler(DESKTOP_DISPATCH_CHANNEL);
@@ -346,12 +349,18 @@ async function runSmoke(
     const dialog = document.querySelector('.settings-dialog');
     const dialogRect = dialog?.getBoundingClientRect();
     const settings = await window.pspore.getSettings();
+    const provider = document.querySelector('#settings-provider');
+    provider.value = 'custom-openai';
+    provider.dispatchEvent(new Event('change'));
     return {
       dialogContained: Boolean(dialogRect && dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight),
       backgroundInert: Boolean(document.querySelector('#app-shell')?.inert),
       apiKeyInputType: document.querySelector('#settings-api-key')?.type || '',
       returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey'),
-      fieldFontSize: Number.parseFloat(getComputedStyle(document.querySelector('#settings-provider')).fontSize)
+      fieldFontSize: Number.parseFloat(getComputedStyle(provider).fontSize),
+      providerOptions: Array.from(provider.options).map((option) => option.value),
+      customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
+      customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions'
     };
   })()`);
   await target.webContents.executeJavaScript("document.querySelector('#settings-close')?.click()");
@@ -501,6 +510,8 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   if (!report.settings.dialogContained || !report.settings.backgroundInert) failures.push("settings dialog is not contained and modal");
   if (report.settings.apiKeyInputType !== "password" || report.settings.returnedSecret) failures.push("settings API exposed an API key");
   if (report.settings.fieldFontSize < 14) failures.push("settings field font size is below 14px");
+  if (report.settings.providerOptions.join(",") !== "deepseek,openai,custom-openai") failures.push("settings provider choices changed");
+  if (!report.settings.customBaseUrlEnabled || !report.settings.customApiEnabled) failures.push("custom OpenAI controls are not enabled correctly");
   const expectedResponsive: Array<[string, ResponsiveLayoutProbe, number, number]> = [
     ["medium", report.responsive.medium, 1_440, 900],
     ["compact", report.responsive.compact, 1_180, 720],

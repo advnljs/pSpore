@@ -1,6 +1,12 @@
-import type { AgentSnapshot } from "../../domain/runtime.js";
-import { initialKernelState, type KernelState } from "../../kernel/state.js";
+import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
+import {
+  applyProtocolEvent,
+  initialProtocolUiState,
+  replaceProtocolSnapshot,
+  selectProtocolSession,
+  type ProtocolUiState,
+} from "../shared/protocol-state.js";
 
 export interface TuiStoreSnapshot {
   connected: boolean;
@@ -11,15 +17,13 @@ export interface TuiStoreSnapshot {
   gap?: { streamId: string; expected: number; received: number };
   streamingText: Readonly<Record<string, string>>;
   notice: string;
+  panel?: { title: string; lines: readonly string[] };
 }
 
 export class TuiStore {
   #state: TuiStoreSnapshot = {
     connected: false,
-    selectedSessionId: "main",
-    kernel: initialKernelState(),
-    cursors: {},
-    streamingText: {},
+    ...initialProtocolUiState(),
     notice: "Connecting to daemon…",
   };
 
@@ -28,13 +32,12 @@ export class TuiStore {
   }
 
   applyHello(hello: ServerHelloFrame): void {
+    const cursors = { ...this.#state.cursors, [hello.streamId]: hello.latestSeq };
     this.#state = {
       ...this.#state,
+      ...replaceProtocolSnapshot(protocolState(this.#state), hello.snapshot, cursors),
       connected: true,
       instanceId: hello.instanceId,
-      selectedSessionId: hello.snapshot.sessions[this.#state.selectedSessionId] ? this.#state.selectedSessionId : "main",
-      kernel: structuredClone(hello.snapshot),
-      cursors: { ...this.#state.cursors, [hello.streamId]: hello.latestSeq },
       notice: "Connected",
     };
     delete this.#state.gap;
@@ -48,169 +51,40 @@ export class TuiStore {
     this.#state = { ...this.#state, notice };
   }
 
+  setPanel(title: string, lines: readonly string[]): void {
+    this.#state = { ...this.#state, panel: { title, lines: [...lines] }, notice: `${title} opened; use /back or Esc to return` };
+  }
+
+  clearPanel(): void {
+    if (!this.#state.panel) return;
+    const next = { ...this.#state };
+    delete next.panel;
+    this.#state = { ...next, notice: "Conversation view" };
+  }
+
   selectSession(id: string): string {
-    const sessionId = this.#state.kernel.sessions[id]
-      ? id
-      : this.#state.kernel.agents[id]?.sessionId;
-    if (!sessionId || !this.#state.kernel.sessions[sessionId]) throw new Error(`Session is not active: ${id}`);
-    this.#state = { ...this.#state, selectedSessionId: sessionId, notice: `Selected ${id}` };
-    return sessionId;
+    const protocol = selectProtocolSession(protocolState(this.#state), id);
+    this.#state = { ...this.#state, ...protocol, notice: `Selected ${id}` };
+    return protocol.selectedSessionId;
   }
 
   applyEvent(event: EventEnvelope): void {
-    const previous = this.#state.cursors[event.streamId] ?? 0;
-    if (event.seq <= previous) return;
-    if (event.seq !== previous + 1) {
-      this.#state = {
-        ...this.#state,
-        gap: { streamId: event.streamId, expected: previous + 1, received: event.seq },
-        notice: `Event gap detected on ${event.streamId}; reconnecting for a snapshot`,
-      };
-      return;
-    }
-
-    const cursors = { ...this.#state.cursors, [event.streamId]: event.seq };
-    let kernel = this.#state.kernel;
-    let streamingText = this.#state.streamingText;
-    const payload = asRecord(event.payload);
-    if (event.type === "daemon.state") {
-      const daemon = payload["daemon"];
-      const revision = payload["revision"];
-      if (isRecord(daemon) && typeof daemon["phase"] === "string" && typeof revision === "number") {
-        kernel = { ...kernel, daemon: daemon as unknown as KernelState["daemon"], revision };
-      }
-    }
-    const session = payload["session"];
-    if (isAgentSnapshot(session)) {
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        sessions: { ...kernel.sessions, [session.sessionId]: structuredClone(session) },
-      };
-      if (event.type === "message.completed" || event.type === "run.settled") {
-        const next = { ...streamingText };
-        delete next[session.sessionId];
-        streamingText = next;
-      }
-    }
-    if (event.type === "session.snapshot" && isAgentSnapshot(payload["session"])) {
-      const nextSession = payload["session"];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        sessions: { ...kernel.sessions, [nextSession.sessionId]: structuredClone(nextSession) },
-      };
-    }
-    if (event.type === "session.closed" && typeof payload["sessionId"] === "string") {
-      const sessions = { ...kernel.sessions };
-      delete sessions[payload["sessionId"]];
-      const nextStreaming = { ...streamingText };
-      delete nextStreaming[payload["sessionId"]];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        sessions,
-      };
-      if (this.#state.selectedSessionId === payload["sessionId"]) {
-        this.#state = { ...this.#state, selectedSessionId: "main" };
-      }
-      streamingText = nextStreaming;
-    }
-    if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-      streamingText = {
-        ...streamingText,
-        [payload["sessionId"]]: `${streamingText[payload["sessionId"]] ?? ""}${payload["delta"]}`,
-      };
-    }
-    if (event.type === "approval.requested" && isRecord(payload["request"]) && typeof payload["request"]["id"] === "string") {
-      const request = payload["request"] as unknown as KernelState["approvals"][string];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        approvals: { ...kernel.approvals, [request.id]: structuredClone(request) },
-      };
-    }
-    if (event.type === "approval.resolved" && typeof payload["approvalId"] === "string") {
-      const approvals = { ...kernel.approvals };
-      delete approvals[payload["approvalId"]];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        approvals,
-      };
-    }
-    if (event.type === "automation.run" && isRecord(payload["run"]) && typeof payload["run"]["id"] === "string") {
-      const run = payload["run"] as unknown as KernelState["runs"][string];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        runs: { ...kernel.runs, [run.id]: structuredClone(run) },
-      };
-    }
-    if (
-      event.type === "notification.created" &&
-      isRecord(payload["notification"]) &&
-      typeof payload["notification"]["id"] === "string"
-    ) {
-      const notification = payload["notification"] as unknown as KernelState["notifications"][number];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        notifications: [...kernel.notifications, structuredClone(notification)].slice(-200),
-      };
-      this.#state = { ...this.#state, notice: `${notification.title}: ${notification.body}` };
-    }
-    if (event.type === "agent.updated" && isRecord(payload["agent"]) && typeof payload["agent"]["id"] === "string") {
-      const agent = payload["agent"] as unknown as KernelState["agents"][string];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        agents: { ...kernel.agents, [agent.id]: structuredClone(agent) },
-      };
-    }
-    if (event.type === "agent.message" && isRecord(payload["message"]) && typeof payload["message"]["id"] === "string") {
-      const message = payload["message"] as unknown as KernelState["agentMessages"][number];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        agentMessages: [...kernel.agentMessages, structuredClone(message)].slice(-500),
-      };
-    }
-    if (event.type === "mcp.health" && isRecord(payload["health"]) && typeof payload["health"]["serverId"] === "string") {
-      const health = payload["health"] as unknown as KernelState["mcpServers"][string];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        mcpServers: { ...kernel.mcpServers, [health.serverId]: structuredClone(health) },
-      };
-    }
-    if (event.type === "resource.health" && isRecord(payload["health"]) && typeof payload["health"]["key"] === "string") {
-      const health = payload["health"] as unknown as KernelState["resources"][string];
-      kernel = {
-        ...kernel,
-        revision: typeof payload["revision"] === "number" ? payload["revision"] : kernel.revision,
-        resources: { ...kernel.resources, [health.key]: structuredClone(health) },
-      };
-    }
-    this.#state = { ...this.#state, kernel, cursors, streamingText };
+    const result = applyProtocolEvent(protocolState(this.#state), event);
+    this.#state = {
+      ...this.#state,
+      ...result.state,
+      ...(result.notificationNotice ? { notice: result.notificationNotice } : {}),
+      ...(result.state.gap ? { notice: `Event gap detected on ${result.state.gap.streamId}; reconnecting for a snapshot` } : {}),
+    };
   }
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isAgentSnapshot(value: unknown): value is AgentSnapshot {
-  return (
-    isRecord(value) &&
-    typeof value["sessionId"] === "string" &&
-    typeof value["upstreamSessionId"] === "string" &&
-    typeof value["cwd"] === "string" &&
-    (value["status"] === "idle" || value["status"] === "running" || value["status"] === "failed") &&
-    Array.isArray(value["messages"])
-  );
+function protocolState(state: TuiStoreSnapshot): ProtocolUiState {
+  return {
+    kernel: state.kernel,
+    cursors: state.cursors,
+    streamingText: state.streamingText,
+    selectedSessionId: state.selectedSessionId,
+    ...(state.gap ? { gap: state.gap } : {}),
+  };
 }

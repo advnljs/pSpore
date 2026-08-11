@@ -216,3 +216,25 @@
 - AppImage 验证：基于当前工作树重新打包 `release-dist/pspore-desktop-0.1.0-linux-x64.AppImage`（SHA-256 `da4131f8b247e8bf92922749ce35ef48e813d7fe799f183e7ff1c52dfbb6b575`）；从全新临时 home 启动后报告 `daemonOwnership=owned`、`connection=connected`，三档 viewport 与字号/设置断言通过，退出后 `daemon.sock`/`endpoint.json` 均不存在。
 - 当前状态：桌面重设计和安全模型设置已完成，最新 `dist/` 与 AppImage 已构建；自动验收进程均已停止。
 - 遗留问题：TUI/CLI 的模型设置入口与跨界面配置抽象按用户要求放到下一独立阶段；手机端明确不在验收范围。
+
+## 2026-08-11 11:46 CST — 共享客户端内核、完整 TUI 与 npm CLI
+
+- 阶段目标：让 TUI/CLI 与桌面端复用相同的协议状态、会话路由、Daemon 生命周期和模型设置内核；补齐 TUI 功能、响应式终端布局、wizard/命令双配置入口，并形成可直接 npm 安装的 CLI 包。
+- 完成内容：
+  - 抽出 `src/ui/shared/protocol-state.ts` 与 `presentation.ts`，GUI/TUI 共享 authoritative snapshot/event/delta reducer、session/metric presentation 与 main/child conversation intent；修复选中 child 后普通输入误发给 main 的路由问题。
+  - 抽出 `src/daemon/supervisor.ts`，桌面与 TUI 统一 owned/external Daemon 语义；`pspore tui` 从空 home 自动初始化并启动 Daemon，退出只清理自己拥有的实例。
+  - 抽出 `src/settings/llm-settings*.ts`，GUI/TUI/CLI 精确支持 `deepseek`、`openai`、`custom-openai`。Preset 固定 provider 默认 endpoint/API；自定义 OpenAI 支持 Base URL 与 Chat/Responses。
+  - TUI 重写为简洁响应式会话工作台：`160×45` 双栏、`96×30` 单栏，完整 jobs/runs/notifications/agents/MCP/resources 面板、PgUp/PgDn、`/help` 命令面板；普通对话和审批/自动化/集成功能均走同一 Daemon 内核。
+  - TUI 同时实现 `/config wizard` 引导配置与 `/config` 命令配置；wizard 支持取消和最终确认，Key 输入只显示遮罩。CLI 增加等价 `config show/set/provider/model/endpoint/thinking/key/clear-key`，Key 不接受 argv，只从隐藏 TTY 或 stdin 读取。
+  - npm package 改为 public-ready，限制发布内容为 `dist/**/*`，增加 prepack/prepublish 检查与安全 `dist` clean；修复 npm bin 符号链接导致入口判断不执行的问题。纯 npm 安装不拉取 Electron，`desktop` 给出 AppImage 指引。
+  - GUI Provider 改为 DeepSeek/OpenAI/自定义 OpenAI 下拉；只有自定义项开放 Base URL/API 类型。设置表单 input/select 计算字号明确不低于 `14px`。
+- 修改文件：`src/settings/`、`src/ui/shared/`、`src/ui/tui/`、`src/daemon/supervisor.ts`、desktop main/IPC/renderer、CLI、package/scripts、相关 unit/smoke tests、README 与 memory-bank。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、86 项测试和干净 production build 全部成功。
+  - 真 TTY 验证 `160×45` TUI 自动启动/清理 Daemon，`/help` 同时展示 wizard/commands；真实 wizard 可逐步到 review 并取消，`/config key` 只显示遮罩，credential mode `0600`，日志和 `models.json` 无明文。
+  - 最终 npm tarball 为 261 entries、269325 bytes、SHA-1 `4053214b5c0a50183f3461e3892bcd96812b6fd3`，顶层只有 README/`dist`/`package.json`；全新 prefix 安装后 bin mode `775`，`pspore --version/config show/tui` 均可运行，生产依赖中无 Electron。
+  - 使用该 npm 安装包和隔离 home 配置 `deepseek/deepseek-v4-flash`，真实 API 精确返回 `PSPRORE_NPM_DEEPSEEK_OK`；Key 文件 `0600`，模型配置只含 `!cat --` 外部引用，密钥未输出或提交。
+  - `PSPORE_KEEP_SMOKE=1 npm run test:electron` 通过：`1920×1080` 主视口及 `1440×900`、`1180×720` PC 响应式、双主题、三 Provider、设置、owned/external Daemon、安全边界与字号全部通过；人工检查保留截图无明显遮挡/溢出。
+  - 最新 AppImage 从全新 home 实际启动为 `daemonOwnership=owned`、`connection=connected`，Provider 选项精确、设置字号 `14px`，退出后 socket/endpoint 清理；SHA-256 `ea03243750f37861c55ec2a00c1ff216b64dffbfc587b08b575d70655ae03ef4`。
+- 当前状态：共享客户端内核、GUI/TUI/CLI 三 Provider、TUI 双配置入口、npm 安装包与最新 AppImage 已完成并验证；所有临时 Daemon/Electron 进程已停止。npm registry 发布仍待浏览器认证后执行。
+- 遗留问题：真实 sudo 仍未执行；sandbox/vector/remote/mobile 继续为非目标。npm 发布结果将在认证后另行记录。

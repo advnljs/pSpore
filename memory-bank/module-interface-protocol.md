@@ -6,7 +6,7 @@
 
 ## 入口文件
 
-当前入口：`src/protocol/schema.ts`、`src/protocol/client.ts`、`src/gateway/local-gateway.ts`、`src/ui/tui/`、`src/desktop/daemon-bridge.ts`、`src/desktop/renderer/store.ts`。
+当前入口：`src/protocol/schema.ts`、`src/protocol/client.ts`、`src/gateway/local-gateway.ts`、`src/ui/shared/`、`src/ui/tui/`、`src/desktop/daemon-bridge.ts`、`src/desktop/renderer/store.ts`。
 
 ## 关键文件
 
@@ -14,6 +14,7 @@
 - UDS integration：`test/integration/local-gateway.test.ts`。
 - TUI store/固定画面：`test/unit/tui-store-view.test.ts`。
 - Electron bridge/store：`test/integration/desktop-daemon-bridge.test.ts`、`test/unit/desktop-store.test.ts`。
+- 共享客户端状态与表现：`src/ui/shared/protocol-state.ts`、`src/ui/shared/presentation.ts`。
 
 ## 对外接口
 
@@ -35,14 +36,16 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - Snapshot/complete event 权威；delta/progress 可合并或丢弃。
 - 相同 command id 必须幂等；seq gap 触发 snapshot，不由客户端猜状态。
 - Electron renderer 已启用 context isolation/sandbox 并关闭 Node integration；只暴露 allowlisted preload API，main 对 command 与 server frame 再校验。
-- UI 同底层指共享 domain/protocol/store，不指共享终端与 DOM 组件。
-- Electron 视觉基准为 `1920 × 1080`，TUI 为固定 `160×45`；两套基准均已实际验证。
+- UI 同底层指共享 domain/protocol、权威 snapshot/event reducer、presentation model、会话输入路由、设置与 Daemon 生命周期；终端与 DOM 组件保持平台原生。
+- Electron 视觉基准为 `1920 × 1080`，补测 `1440×900`、`1180×720`；TUI 主基准为 `160×45`，补测 `96×30` 单栏。均只覆盖桌面/终端，不实现手机布局。
 - 当前 replay window 位于内存；Daemon 重启后的 durable event replay 尚待 event log 实现，重连仍可用最新 snapshot 恢复。
 - TUI clientId 在进程内稳定，seq gap 会断开并指数退避重连；相同 command ID 由 Daemon 缓存首次响应。
 - job/run/notification 状态已经进入 Kernel snapshot；CLI/TUI 可列出 job/run/notification、触发 job、取消 run，CLI/agent 可原子更新 job。
 - Electron bridge 保存 cursor、检测 gap、指数退避重连，并在不改变 seq 语义的前提下合并连续同 session delta；renderer 只保留可丢弃 store。
 - renderer 不能指定任意 IPC channel 或路径；resource UI 只提交单层 staging name，main 才解析为配置 workspace 下的 staging 路径，Daemon 再执行 canonical containment。
+- TUI >=104 cells 使用会话+内容双栏，较窄终端使用单内容区；`/help` 打开完整命令面板，`/config wizard` 与 `/config` 子命令使用同一 settings service。
+- 普通输入、steer、follow-up 根据共享 `conversationIntent` 路由到当前选中的 main/child，避免 child 输入误发给 main。
 
 ## 常见修改点
 
-schema version、event mapping、replay window、backpressure、nonce/auth、TUI keymap、Electron action allowlist/store、visual tests。
+schema version、event mapping、共享 reducer/presentation、replay window、backpressure、nonce/auth、TUI keymap/wizard、Electron action allowlist/store、visual tests。

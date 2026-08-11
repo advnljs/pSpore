@@ -4,12 +4,33 @@ import { ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
 
 import { ProtocolClient } from "../../protocol/client.js";
 import type { ApprovalScope } from "../../policy/approval-service.js";
+import {
+  decodeLlmSettingsUpdate,
+  defaultModelFor,
+  MODEL_APIS,
+  PROVIDER_OPTIONS,
+  THINKING_LEVELS,
+  type LlmSettings,
+  type LlmSettingsUpdate,
+  type ModelApi,
+  type ProviderOption,
+  type ThinkingLevel,
+} from "../../settings/llm-settings.js";
 import { TuiStore } from "./store.js";
+import { TUI_HELP_LINES } from "./commands.js";
 import { PsporeTuiView } from "./view.js";
+import { conversationIntent, selectedAgent } from "../shared/presentation.js";
+
+export interface TuiSettingsPort {
+  get(): Promise<LlmSettings>;
+  save(update: LlmSettingsUpdate): Promise<LlmSettings>;
+}
 
 export interface TuiAppOptions {
   socketPath: string;
   clientId?: string;
+  settings?: TuiSettingsPort;
+  onSettingsSaved?: () => Promise<{ applied: boolean; restartRequired: boolean; message: string }>;
 }
 
 export class PsporeTuiApp {
@@ -24,6 +45,7 @@ export class PsporeTuiApp {
   #retryMs = 250;
   #lastInterruptAt = 0;
   #resolveExit: (() => void) | undefined;
+  #view: PsporeTuiView | undefined;
 
   constructor(options: TuiAppOptions) {
     this.#options = options;
@@ -37,7 +59,9 @@ export class PsporeTuiApp {
       requestRender: () => this.#tui.requestRender(),
       onSubmit: (input) => void this.#submit(input),
       onInterrupt: () => void this.#interrupt(),
+      onBack: () => this.#store.clearPanel(),
     });
+    this.#view = view;
     this.#tui.setLayoutRoot(view);
     this.#tui.setFocus(view);
     this.#tui.start();
@@ -51,6 +75,7 @@ export class PsporeTuiApp {
       if (this.#retryTimer) clearTimeout(this.#retryTimer);
       await this.#client?.close().catch(() => undefined);
       this.#tui.stop();
+      this.#view = undefined;
       await this.#terminal.drainInput(250, 25);
     }
   }
@@ -110,42 +135,57 @@ export class PsporeTuiApp {
         this.#exit();
         return;
       }
+      if (input === "/help") {
+        this.#store.setPanel("Command palette", TUI_HELP_LINES);
+        return;
+      }
+      if (input === "/back") {
+        this.#store.clearPanel();
+        return;
+      }
+      if (input === "/config" || input.startsWith("/config ")) {
+        await this.#config(input);
+        return;
+      }
       if (input === "/abort") {
-        await this.#command("session.abort", { reason: "TUI user requested abort" }, "main");
-        this.#store.setNotice("Abort requested");
+        const child = this.#selectedAgent();
+        if (child) await this.#command("agent.cancel", { agentId: child.id, reason: "cancelled from TUI" });
+        else await this.#command("session.abort", { reason: "TUI user requested abort" }, "main");
+        this.#store.setNotice(child ? `Agent ${child.id} cancelled` : "Abort requested");
         return;
       }
       if (input === "/compact") {
+        if (this.#selectedAgent()) throw new Error("Compaction is available only for the main session");
         await this.#command("session.compact", {}, "main");
         this.#store.setNotice("Compaction requested");
         return;
       }
       if (input === "/jobs") {
-        const jobs = await this.#command("jobs.list", {}) as Array<{ id: string; enabled: boolean }>;
-        this.#store.setNotice(jobs.length > 0 ? jobs.map((job) => `${job.id}:${job.enabled ? "on" : "off"}`).join("  ") : "No jobs");
+        const jobs = await this.#command("jobs.list", {}) as Array<{ id: string; enabled: boolean; schedule?: { cron?: string; timezone?: string } }>;
+        this.#store.setPanel("Automation jobs", jobs.map((job) => (
+          `• ${job.id} · ${job.enabled ? "enabled" : "disabled"}${job.schedule?.cron ? ` · ${job.schedule.cron} ${job.schedule.timezone ?? ""}` : ""}`
+        )));
         return;
       }
       if (input === "/runs") {
-        const runs = await this.#command("runs.list", {}) as Array<{ id: string; status: string }>;
-        this.#store.setNotice(runs.length > 0 ? runs.slice(-3).map((run) => `${run.id}:${run.status}`).join("  ") : "No runs");
+        const runs = await this.#command("runs.list", {}) as Array<{ id: string; jobId?: string; status: string; reason?: string; error?: string }>;
+        this.#store.setPanel("Automation runs", runs.slice().reverse().map((run) => (
+          `• ${run.id} · ${run.jobId ?? "manual"} · ${run.status}${run.reason ? ` · ${run.reason}` : run.error ? ` · ${run.error}` : ""}`
+        )));
         return;
       }
       if (input === "/notifications") {
-        const notifications = await this.#command("notifications.list", {}) as Array<{ title: string; level: string }>;
-        this.#store.setNotice(
-          notifications.length > 0
-            ? notifications.slice(-3).map((notification) => `${notification.level}:${notification.title}`).join("  ")
-            : "No notifications",
-        );
+        const notifications = await this.#command("notifications.list", {}) as Array<{ title: string; level: string; body?: string }>;
+        this.#store.setPanel("Notifications", notifications.slice().reverse().map((notification) => (
+          `• ${notification.level.toUpperCase()} · ${notification.title}${notification.body ? ` — ${notification.body}` : ""}`
+        )));
         return;
       }
       if (input === "/agents") {
-        const agents = await this.#command("agents.list", {}) as Array<{ id: string; status: string; depth: number }>;
-        this.#store.setNotice(
-          agents.length > 0
-            ? agents.slice(-4).map((agent) => `${"·".repeat(agent.depth)}${agent.id}:${agent.status}`).join("  ")
-            : "No child agents",
-        );
+        const agents = await this.#command("agents.list", {}) as Array<{ id: string; status: string; depth: number; objective?: string }>;
+        this.#store.setPanel("Agent tree", agents.map((agent) => (
+          `${"  ".repeat(agent.depth)}${agent.depth > 0 ? "↳" : "•"} ${agent.id} · ${agent.status}${agent.objective ? ` · ${agent.objective}` : ""}`
+        )));
         return;
       }
       if (input === "/mcp") {
@@ -154,20 +194,32 @@ export class PsporeTuiApp {
           status: string;
           toolCount: number;
         }>;
-        this.#store.setNotice(
-          servers.length > 0
-            ? servers.map((server) => `${server.serverId}:${server.status}(${server.toolCount})`).join("  ")
-            : "No MCP servers configured",
-        );
+        this.#store.setPanel("MCP servers", servers.map((server) => (
+          `• ${server.serverId} · ${server.status} · ${server.toolCount} tools`
+        )));
+        return;
+      }
+      if (input === "/mcp-tools") {
+        const tools = await this.#command("mcp.tools", {}) as Array<{ normalizedName: string; description?: string }>;
+        this.#store.setPanel("MCP tools", tools.map((tool) => `• ${tool.normalizedName}${tool.description ? ` — ${tool.description}` : ""}`));
         return;
       }
       if (input.startsWith("/mcp-discover ")) {
         const serverId = input.slice(14).trim();
         if (!serverId) throw new Error("Usage: /mcp-discover SERVER_ID");
         const tools = await this.#command("mcp.discover", { serverId }) as Array<{ normalizedName: string }>;
-        this.#store.setNotice(
-          tools.length > 0 ? tools.map((tool) => tool.normalizedName).join("  ") : `No allowed tools on ${serverId}`,
-        );
+        this.#store.setPanel(`MCP tools · ${serverId}`, tools.map((tool) => `• ${tool.normalizedName}`));
+        return;
+      }
+      if (input.startsWith("/mcp-ping ")) {
+        const serverId = input.slice(10).trim();
+        if (!serverId) throw new Error("Usage: /mcp-ping SERVER_ID");
+        const server = await this.#command("mcp.ping", { serverId }) as { serverId: string; status: string; toolCount: number; error?: string };
+        this.#store.setPanel(`MCP ping · ${serverId}`, [
+          `status  ${server.status}`,
+          `tools   ${server.toolCount}`,
+          ...(server.error ? [`error   ${server.error}`] : []),
+        ]);
         return;
       }
       if (input === "/resources" || input === "/skills" || input === "/plugins") {
@@ -176,11 +228,9 @@ export class PsporeTuiApp {
           record: { kind: string; name: string };
           health: { status: string };
         }>;
-        this.#store.setNotice(
-          resources.length > 0
-            ? resources.map((resource) => `${resource.record.kind}:${resource.record.name}:${resource.health.status}`).join("  ")
-            : "No trusted resources",
-        );
+        this.#store.setPanel(input === "/skills" ? "Skills" : input === "/plugins" ? "Host plugins" : "Trusted resources", resources.map((resource) => (
+          `• ${resource.record.kind} · ${resource.record.name} · ${resource.health.status}`
+        )));
         return;
       }
       if (input.startsWith("/resource-inspect ")) {
@@ -293,8 +343,9 @@ export class PsporeTuiApp {
         await this.#approval(input);
         return;
       }
+      const child = this.#selectedAgent();
       const main = this.#store.snapshot().kernel.sessions["main"];
-      if (main?.status === "running") {
+      if (!child && main?.status === "running") {
         this.#store.setNotice("Session is running; use /steer TEXT or /follow TEXT explicitly");
         return;
       }
@@ -307,8 +358,19 @@ export class PsporeTuiApp {
   }
 
   async #prompt(text: string, mode: "prompt" | "steer" | "follow_up"): Promise<void> {
-    await this.#command("session.prompt", { text, mode }, "main");
-    this.#store.setNotice(`${mode} accepted`);
+    const snapshot = this.#store.snapshot();
+    const intent = conversationIntent(snapshot.kernel, snapshot.selectedSessionId, text, mode);
+    if (intent.target === "agent") {
+      await this.#command("agent.send", {
+        agentId: intent.agentId,
+        message: intent.text,
+        mode: intent.mode,
+      });
+      this.#store.setNotice(`${intent.mode} queued for ${intent.agentId}`);
+      return;
+    }
+    await this.#command("session.prompt", { text: intent.text, mode: intent.mode }, intent.sessionId);
+    this.#store.setNotice(`${mode} accepted for main`);
   }
 
   async #approval(input: string): Promise<void> {
@@ -322,6 +384,199 @@ export class PsporeTuiApp {
     const result = await this.#command("approval.resolve", { approvalId, approved, scope }) as { status: string };
     if (result.status !== "resolved") throw new Error(`Approval was not resolved: ${result.status}`);
     this.#store.setNotice(approved ? "Approval granted" : "Approval denied");
+  }
+
+  async #config(input: string): Promise<void> {
+    const settings = this.#options.settings;
+    if (!settings) throw new Error("Model settings are unavailable in this TUI session");
+    const parts = input.trim().split(/\s+/);
+    const action = parts[1] ?? "show";
+    if (action === "show") {
+      if (parts.length > 2) throw new Error("Usage: /config show");
+      this.#showSettings(await settings.get());
+      return;
+    }
+    if (action === "wizard") {
+      if (parts.length > 2) throw new Error("Usage: /config wizard");
+      await this.#settingsWizard();
+      return;
+    }
+    const current = await settings.get();
+    if (action === "set") {
+      const provider = parseProvider(parts[2]);
+      if (provider === "custom-openai") {
+        const model = parts[3];
+        const baseUrl = parts[4];
+        if (!model || !baseUrl) {
+          throw new Error("Usage: /config set custom-openai MODEL BASE_URL [chat|responses] [THINKING]");
+        }
+        const api = parseOpenAiApi(parts[5] ?? "chat");
+        const thinking = parseThinking(parts[6] ?? current.thinking);
+        await this.#saveSettings(updateFrom(current, { provider, model, baseUrl, api, thinking, customModel: true }));
+        return;
+      }
+      const model = parts[3] ?? defaultModelFor(provider);
+      const thinking = parseThinking(parts[4] ?? current.thinking);
+      if (parts.length > 5) throw new Error("Usage: /config set PROVIDER [MODEL] [THINKING]");
+      await this.#saveSettings(updateFrom(current, {
+        provider,
+        model,
+        thinking,
+        baseUrl: "",
+        api: "provider-default",
+        customModel: false,
+      }));
+      return;
+    }
+    if (action === "provider") {
+      const provider = parseProvider(parts[2]);
+      if (provider === "custom-openai") throw new Error("Use /config endpoint BASE_URL [chat|responses] for custom-openai");
+      if (parts.length !== 3) throw new Error("Usage: /config provider deepseek|openai");
+      await this.#saveSettings(updateFrom(current, {
+        provider,
+        model: defaultModelFor(provider),
+        baseUrl: "",
+        api: "provider-default",
+        customModel: false,
+      }));
+      return;
+    }
+    if (action === "model") {
+      const model = parts[2];
+      if (!model || parts.length !== 3) throw new Error("Usage: /config model MODEL");
+      await this.#saveSettings(updateFrom(current, { model }));
+      return;
+    }
+    if (action === "endpoint") {
+      const baseUrl = parts[2];
+      if (!baseUrl || parts.length > 4) throw new Error("Usage: /config endpoint BASE_URL [chat|responses]");
+      await this.#saveSettings(updateFrom(current, {
+        provider: "custom-openai",
+        model: current.provider === "custom-openai" ? current.model : defaultModelFor("custom-openai"),
+        baseUrl,
+        api: parseOpenAiApi(parts[3] ?? "chat"),
+        customModel: true,
+      }));
+      return;
+    }
+    if (action === "thinking") {
+      if (parts.length !== 3) throw new Error(`Usage: /config thinking ${THINKING_LEVELS.join("|")}`);
+      await this.#saveSettings(updateFrom(current, { thinking: parseThinking(parts[2]) }));
+      return;
+    }
+    if (action === "key") {
+      if (parts.length !== 2) throw new Error("API keys are never accepted as command arguments; use /config key");
+      const apiKey = await this.#view?.requestValue("API key (hidden; Esc cancels)", { secret: true });
+      if (apiKey === undefined) {
+        this.#store.setNotice("API key update cancelled");
+        return;
+      }
+      if (!apiKey) throw new Error("API key cannot be empty");
+      await this.#saveSettings(updateFrom(current, { apiKey }));
+      return;
+    }
+    if (action === "clear-key") {
+      if (parts.length !== 2) throw new Error("Usage: /config clear-key");
+      await this.#saveSettings(updateFrom(current, { clearApiKey: true }));
+      return;
+    }
+    throw new Error("Unknown config action; use /config, /config wizard, or /help");
+  }
+
+  async #settingsWizard(): Promise<void> {
+    const settingsPort = this.#options.settings;
+    const view = this.#view;
+    if (!settingsPort || !view) throw new Error("Settings wizard is unavailable");
+    const current = await settingsPort.get();
+    this.#store.setPanel("Model setup wizard", [
+      "1  Provider — DeepSeek, OpenAI, or custom OpenAI",
+      "2  Model",
+      "3  Endpoint/API when custom",
+      "4  Thinking level",
+      "5  API key action",
+      "6  Review and apply",
+      "",
+      "Press Esc at any prompt to cancel without saving.",
+    ]);
+    const providerValue = await view.requestValue(`1/6 provider [${current.provider}] (1 deepseek · 2 openai · 3 custom)`);
+    if (providerValue === undefined) return this.#cancelWizard();
+    const provider = providerValue.trim() ? parseProvider(providerValue) : current.provider;
+    const suggestedModel = provider === current.provider ? current.model : defaultModelFor(provider);
+    const modelValue = await view.requestValue(`2/6 model [${suggestedModel}]`);
+    if (modelValue === undefined) return this.#cancelWizard();
+    const model = modelValue.trim() || suggestedModel;
+    let baseUrl = "";
+    let api: ModelApi = "provider-default";
+    if (provider === "custom-openai") {
+      const baseUrlValue = await view.requestValue(`3/6 Base URL [${current.provider === provider ? current.baseUrl : "required"}]`);
+      if (baseUrlValue === undefined) return this.#cancelWizard();
+      baseUrl = baseUrlValue.trim() || (current.provider === provider ? current.baseUrl : "");
+      if (!baseUrl) throw new Error("A Base URL is required for custom OpenAI");
+      const apiValue = await view.requestValue("3/6 API [chat] (chat · responses)");
+      if (apiValue === undefined) return this.#cancelWizard();
+      api = parseOpenAiApi(apiValue.trim() || (current.provider === provider ? current.api : "chat"));
+    }
+    const thinkingValue = await view.requestValue(`4/6 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")})`);
+    if (thinkingValue === undefined) return this.#cancelWizard();
+    const thinking = parseThinking(thinkingValue.trim() || current.thinking);
+    const keyActionValue = await view.requestValue(`5/6 key [keep] (keep · set · clear)`);
+    if (keyActionValue === undefined) return this.#cancelWizard();
+    const keyAction = keyActionValue.trim().toLowerCase() || "keep";
+    if (!(["keep", "set", "clear"] as const).includes(keyAction as "keep" | "set" | "clear")) {
+      throw new Error("Key action must be keep, set, or clear");
+    }
+    let apiKey: string | undefined;
+    if (keyAction === "set") {
+      apiKey = await view.requestValue("5/6 API key (hidden; Esc cancels)", { secret: true });
+      if (apiKey === undefined) return this.#cancelWizard();
+      if (!apiKey) throw new Error("API key cannot be empty");
+    }
+    this.#store.setPanel("Review model settings", [
+      `Provider   ${provider}`,
+      `Model      ${model}`,
+      `Base URL   ${baseUrl || "provider default"}`,
+      `API        ${api}`,
+      `Thinking   ${thinking}`,
+      `API key    ${keyAction === "keep" ? current.hasApiKey ? "keep configured key" : "not configured" : keyAction}`,
+      "",
+      "The key value is never displayed or stored in the TUI state.",
+    ]);
+    const confirmation = await view.requestValue("6/6 save and apply? [y/N]");
+    if (confirmation === undefined || !/^(y|yes)$/i.test(confirmation.trim())) return this.#cancelWizard();
+    await this.#saveSettings(updateFrom(current, {
+      provider,
+      model,
+      baseUrl,
+      api,
+      thinking,
+      customModel: provider === "custom-openai",
+      ...(apiKey ? { apiKey } : {}),
+      clearApiKey: keyAction === "clear",
+    }));
+  }
+
+  async #saveSettings(update: LlmSettingsUpdate): Promise<void> {
+    const settingsPort = this.#options.settings;
+    if (!settingsPort) throw new Error("Model settings are unavailable");
+    this.#store.setNotice("Validating model settings…");
+    const saved = await settingsPort.save(decodeLlmSettingsUpdate(update, "TUI LLM settings"));
+    const applied = await this.#options.onSettingsSaved?.();
+    this.#showSettings(saved, applied?.message ?? "Settings saved; restart the daemon to apply them");
+  }
+
+  #showSettings(settings: LlmSettings, message = "Model settings"): void {
+    this.#store.setPanel("Model settings", settingsLines(settings));
+    this.#store.setNotice(message);
+  }
+
+  #cancelWizard(): void {
+    this.#store.clearPanel();
+    this.#store.setNotice("Settings wizard cancelled; nothing was changed");
+  }
+
+  #selectedAgent() {
+    const snapshot = this.#store.snapshot();
+    return selectedAgent(snapshot.kernel, snapshot.selectedSessionId);
   }
 
   async #command(type: string, payload: unknown, sessionId?: string): Promise<unknown> {
@@ -355,4 +610,65 @@ export class PsporeTuiApp {
 
 function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
+}
+
+function parseProvider(value: string | undefined): ProviderOption {
+  const normalized = value?.trim().toLowerCase();
+  const aliases: Readonly<Record<string, ProviderOption>> = {
+    "1": "deepseek",
+    deepseek: "deepseek",
+    "2": "openai",
+    openai: "openai",
+    "3": "custom-openai",
+    custom: "custom-openai",
+    "custom-openai": "custom-openai",
+  };
+  const provider = normalized ? aliases[normalized] : undefined;
+  if (!provider || !PROVIDER_OPTIONS.includes(provider)) {
+    throw new Error("Provider must be deepseek, openai, or custom-openai");
+  }
+  return provider;
+}
+
+function parseThinking(value: string | undefined): ThinkingLevel {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !THINKING_LEVELS.includes(normalized as ThinkingLevel)) {
+    throw new Error(`Thinking must be one of: ${THINKING_LEVELS.join(", ")}`);
+  }
+  return normalized as ThinkingLevel;
+}
+
+function parseOpenAiApi(value: string): Extract<ModelApi, "openai-completions" | "openai-responses"> {
+  const normalized = value.trim().toLowerCase();
+  const api = normalized === "chat" ? "openai-completions" : normalized === "responses" ? "openai-responses" : normalized;
+  if (!MODEL_APIS.includes(api as ModelApi) || (api !== "openai-completions" && api !== "openai-responses")) {
+    throw new Error("Custom OpenAI API must be chat/openai-completions or responses/openai-responses");
+  }
+  return api;
+}
+
+function updateFrom(settings: LlmSettings, changes: Partial<LlmSettingsUpdate>): LlmSettingsUpdate {
+  return {
+    provider: changes.provider ?? settings.provider,
+    model: changes.model ?? settings.model,
+    baseUrl: changes.baseUrl ?? settings.baseUrl,
+    api: changes.api ?? settings.api,
+    thinking: changes.thinking ?? settings.thinking,
+    customModel: changes.customModel ?? settings.customModel,
+    ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
+    clearApiKey: changes.clearApiKey ?? false,
+  };
+}
+
+function settingsLines(settings: LlmSettings): string[] {
+  return [
+    `Provider   ${settings.provider}`,
+    `Model      ${settings.model}`,
+    `Base URL   ${settings.baseUrl || "provider default"}`,
+    `API        ${settings.api}`,
+    `Thinking   ${settings.thinking}`,
+    `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
+    "",
+    "Use /config wizard for guided setup, or /help for direct commands.",
+  ];
 }

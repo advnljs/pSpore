@@ -1,17 +1,31 @@
 #!/usr/bin/env node
 import { execFile, spawn } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { PsporeDaemon } from "../daemon/daemon.js";
+import { DaemonSupervisor } from "../daemon/supervisor.js";
 import type { AgentSnapshot } from "../domain/runtime.js";
 import type { KernelState } from "../kernel/state.js";
 import { ProtocolClient } from "../protocol/client.js";
 import { readResourceTrustSummary } from "../plugins/extension-manager.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { ShellService } from "../shell/shell-service.js";
+import { LlmSettingsService } from "../settings/llm-settings-service.js";
+import {
+  defaultModelFor,
+  MODEL_APIS,
+  PROVIDER_OPTIONS,
+  THINKING_LEVELS,
+  type LlmSettings,
+  type LlmSettingsUpdate,
+  type ModelApi,
+  type ProviderOption,
+  type ThinkingLevel,
+} from "../settings/llm-settings.js";
 import { initializePsporeHome, loadConfig, psporePaths } from "../storage/home.js";
 import { PsporeTuiApp } from "../ui/tui/tui-app.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
@@ -60,6 +74,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "desktop":
       requireNoArgs(args, "desktop");
       return runDesktop(home);
+    case "config":
+      return runConfigCommand(home, args);
     case "jobs":
       requireNoArgs(args, "jobs");
       return printProtocolList(home, "jobs.list");
@@ -200,13 +216,34 @@ async function doctor(home: string): Promise<number> {
 }
 
 async function runTui(home: string): Promise<number> {
-  const paths = psporePaths(home);
-  const endpoint = await endpointFor(home).catch(() => ({ socket: paths.socket, state: "unknown" }));
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new CliError("tui requires an interactive TTY; use `pspore status` for a non-interactive check");
   }
-  await new PsporeTuiApp({ socketPath: endpoint.socket }).run();
-  return 0;
+  const { paths } = await initializePsporeHome(home);
+  const supervisor = new DaemonSupervisor({ home });
+  await supervisor.start();
+  const settings = new LlmSettingsService(home, paths);
+  try {
+    await new PsporeTuiApp({
+      socketPath: paths.socket,
+      settings,
+      onSettingsSaved: async () => {
+        if (supervisor.ownership !== "owned") {
+          return {
+            applied: false,
+            restartRequired: true,
+            message: "Settings saved; restart the external daemon to apply them",
+          };
+        }
+        await supervisor.stop();
+        await supervisor.start();
+        return { applied: true, restartRequired: false, message: "Settings saved; the TUI daemon is restarting" };
+      },
+    }).run();
+    return 0;
+  } finally {
+    await supervisor.stop();
+  }
 }
 
 async function runDesktop(home: string): Promise<number> {
@@ -217,7 +254,12 @@ async function runDesktop(home: string): Promise<number> {
     throw new CliError(`Electron entry is not built at ${entry}; run \`npm run build\` first`);
   }
   const require = createRequire(import.meta.url);
-  const electron: unknown = require("electron");
+  let electron: unknown;
+  try {
+    electron = require("electron");
+  } catch {
+    throw new CliError("Electron is not included in the npm CLI package; use the pSpore AppImage for the desktop client");
+  }
   if (typeof electron !== "string") throw new CliError("The local Electron executable could not be resolved");
   return new Promise<number>((resolve, reject) => {
     const child = spawn(electron, [entry, "--home", home], { stdio: "inherit", env: process.env });
@@ -227,6 +269,179 @@ async function runDesktop(home: string): Promise<number> {
       else resolve(code ?? 1);
     });
   });
+}
+
+async function runConfigCommand(home: string, args: readonly string[]): Promise<number> {
+  const { paths } = await initializePsporeHome(home);
+  const service = new LlmSettingsService(home, paths);
+  const action = args[0] ?? "show";
+  if (action === "show") {
+    if (args.length > 1) throw new CliError("config show does not accept arguments");
+    printModelSettings(await service.get());
+    return 0;
+  }
+  const current = await service.get();
+  let update: LlmSettingsUpdate;
+  if (action === "set") {
+    const provider = parseConfigProvider(args[1]);
+    if (provider === "custom-openai") {
+      const model = args[2];
+      const baseUrl = args[3];
+      if (!model || !baseUrl || args.length > 6) {
+        throw new CliError("config set usage: config set custom-openai MODEL BASE_URL [chat|responses] [THINKING]");
+      }
+      update = settingsUpdate(current, {
+        provider,
+        model,
+        baseUrl,
+        api: parseConfigApi(args[4] ?? "chat"),
+        thinking: parseConfigThinking(args[5] ?? current.thinking),
+        customModel: true,
+      });
+    } else {
+      if (args.length > 4) throw new CliError("config set usage: config set PROVIDER [MODEL] [THINKING]");
+      update = settingsUpdate(current, {
+        provider,
+        model: args[2] ?? defaultModelFor(provider),
+        thinking: parseConfigThinking(args[3] ?? current.thinking),
+        baseUrl: "",
+        api: "provider-default",
+        customModel: false,
+      });
+    }
+  } else if (action === "provider") {
+    const provider = parseConfigProvider(args[1]);
+    if (provider === "custom-openai") throw new CliError("Use `config endpoint BASE_URL` to select custom-openai");
+    if (args.length !== 2) throw new CliError("config provider usage: config provider deepseek|openai");
+    update = settingsUpdate(current, {
+      provider,
+      model: defaultModelFor(provider),
+      baseUrl: "",
+      api: "provider-default",
+      customModel: false,
+    });
+  } else if (action === "model") {
+    const model = args[1];
+    if (!model || args.length !== 2) throw new CliError("config model requires exactly one MODEL");
+    update = settingsUpdate(current, { model });
+  } else if (action === "endpoint") {
+    const baseUrl = args[1];
+    if (!baseUrl || args.length > 3) throw new CliError("config endpoint usage: config endpoint BASE_URL [chat|responses]");
+    update = settingsUpdate(current, {
+      provider: "custom-openai",
+      model: current.provider === "custom-openai" ? current.model : defaultModelFor("custom-openai"),
+      baseUrl,
+      api: parseConfigApi(args[2] ?? "chat"),
+      customModel: true,
+    });
+  } else if (action === "thinking") {
+    if (args.length !== 2) throw new CliError(`config thinking usage: config thinking ${THINKING_LEVELS.join("|")}`);
+    update = settingsUpdate(current, { thinking: parseConfigThinking(args[1]) });
+  } else if (action === "key") {
+    if (args.length !== 1) throw new CliError("API keys are never accepted as command arguments; use `config key` and enter it securely");
+    const apiKey = await readSecretInput();
+    if (!apiKey) throw new CliError("API key cannot be empty");
+    update = settingsUpdate(current, { apiKey });
+  } else if (action === "clear-key") {
+    if (args.length !== 1) throw new CliError("config clear-key does not accept arguments");
+    update = settingsUpdate(current, { clearApiKey: true });
+  } else {
+    throw new CliError("config usage: show | set | provider | model | endpoint | thinking | key | clear-key");
+  }
+  const saved = await service.save(update);
+  printModelSettings(saved);
+  process.stdout.write("Saved. Restart an existing daemon to apply the new model settings.\n");
+  return 0;
+}
+
+function printModelSettings(settings: LlmSettings): void {
+  process.stdout.write([
+    `Provider: ${settings.provider}`,
+    `Model: ${settings.model}`,
+    `Base URL: ${settings.baseUrl || "provider default"}`,
+    `API: ${settings.api}`,
+    `Thinking: ${settings.thinking}`,
+    `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
+  ].join("\n") + "\n");
+}
+
+async function readSecretInput(): Promise<string> {
+  if (!process.stdin.isTTY) {
+    let value = "";
+    for await (const chunk of process.stdin) {
+      value += String(chunk);
+      if (value.length > 16_386) throw new CliError("API key input exceeds 16384 characters");
+    }
+    return value.replace(/\r?\n$/, "");
+  }
+  process.stdout.write("API key (hidden): ");
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  return new Promise<string>((resolve, reject) => {
+    let value = "";
+    const finish = (error?: Error) => {
+      process.stdin.off("data", onData);
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+      process.stdout.write("\n");
+      if (error) reject(error);
+      else resolve(value);
+    };
+    const onData = (chunk: Buffer | string) => {
+      const data = String(chunk);
+      if (data.includes("\u0003")) return finish(new CliError("API key input cancelled"));
+      if (data.includes("\r") || data.includes("\n")) return finish();
+      if (data === "\u007f" || data === "\b") {
+        value = [...value].slice(0, -1).join("");
+        return;
+      }
+      const pasted = data.startsWith("\u001b[200~") && data.endsWith("\u001b[201~")
+        ? data.slice(6, -6)
+        : data;
+      const printable = [...pasted].filter((character) => character >= " " && character <= "~").join("");
+      if (value.length + printable.length > 16_384) return finish(new CliError("API key input exceeds 16384 characters"));
+      value += printable;
+    };
+    process.stdin.on("data", onData);
+  });
+}
+
+function parseConfigProvider(value: string | undefined): ProviderOption {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !PROVIDER_OPTIONS.includes(normalized as ProviderOption)) {
+    throw new CliError("Provider must be deepseek, openai, or custom-openai");
+  }
+  return normalized as ProviderOption;
+}
+
+function parseConfigThinking(value: string | undefined): ThinkingLevel {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized || !THINKING_LEVELS.includes(normalized as ThinkingLevel)) {
+    throw new CliError(`Thinking must be one of: ${THINKING_LEVELS.join(", ")}`);
+  }
+  return normalized as ThinkingLevel;
+}
+
+function parseConfigApi(value: string): Extract<ModelApi, "openai-completions" | "openai-responses"> {
+  const normalized = value.trim().toLowerCase();
+  const api = normalized === "chat" ? "openai-completions" : normalized === "responses" ? "openai-responses" : normalized;
+  if (!MODEL_APIS.includes(api as ModelApi) || (api !== "openai-completions" && api !== "openai-responses")) {
+    throw new CliError("Custom OpenAI API must be chat/openai-completions or responses/openai-responses");
+  }
+  return api;
+}
+
+function settingsUpdate(settings: LlmSettings, changes: Partial<LlmSettingsUpdate>): LlmSettingsUpdate {
+  return {
+    provider: changes.provider ?? settings.provider,
+    model: changes.model ?? settings.model,
+    baseUrl: changes.baseUrl ?? settings.baseUrl,
+    api: changes.api ?? settings.api,
+    thinking: changes.thinking ?? settings.thinking,
+    customModel: changes.customModel ?? settings.customModel,
+    ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
+    clearApiKey: changes.clearApiKey ?? false,
+  };
 }
 
 async function runPrompt(home: string, text: string): Promise<number> {
@@ -490,7 +705,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client\n  desktop          Open the secure Electron 43 client\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {
@@ -508,8 +723,7 @@ function toError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-const entrypoint = process.argv[1] ? pathToFileURL(process.argv[1]).href : undefined;
-if (entrypoint === import.meta.url) {
+if (isEntrypoint(process.argv[1], import.meta.url)) {
   runCli().then(
     (code) => {
       process.exitCode = code;
@@ -519,4 +733,13 @@ if (entrypoint === import.meta.url) {
       process.exitCode = 1;
     },
   );
+}
+
+export function isEntrypoint(argvPath: string | undefined, moduleUrl: string): boolean {
+  if (!argvPath) return false;
+  try {
+    return realpathSync(argvPath) === fileURLToPath(moduleUrl);
+  } catch {
+    return false;
+  }
 }

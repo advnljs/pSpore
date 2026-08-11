@@ -2,8 +2,22 @@
   "name": "pspore",
   "version": "0.1.0",
   "description": "Linux-first local proactive agent built on Pi",
+  "keywords": ["ai", "agent", "cli", "tui", "automation", "mcp"],
+  "homepage": "https://github.com/advnljs/pSpore#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/advnljs/pSpore.git"
+  },
+  "bugs": {
+    "url": "https://github.com/advnljs/pSpore/issues"
+  },
   "type": "module",
-  "private": true,
+  "files": [
+    "dist/**/*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=24.0.0 <25"
   },
@@ -11,10 +25,12 @@
     "pspore": "./dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && node scripts/copy-desktop-assets.mjs",
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-desktop-assets.mjs",
     "desktop": "npm run build && electron dist/desktop/main.js",
     "dev": "tsx src/cli/main.ts",
     "start": "node dist/cli/main.js",
+    "prepack": "npm run build",
+    "prepublishOnly": "npm run check",
     "test": "tsx --test test/**/*.test.ts",
     "test:electron": "npm run build && node scripts/electron-smoke.mjs",
     "typecheck": "tsc --noEmit",

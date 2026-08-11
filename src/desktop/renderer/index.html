@@ -201,13 +201,16 @@
           <section class="settings-section">
             <div class="settings-section-title"><span>01</span><div><h3>模型</h3><p>选择当前主会话使用的 provider 与 model。</p></div></div>
             <div class="field-grid two-columns">
-              <label><span>Provider</span><input id="settings-provider" name="provider" maxlength="128" spellcheck="false" required /></label>
+              <label><span>Provider</span>
+                <select id="settings-provider" name="provider">
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="custom-openai">自定义 OpenAI</option>
+                </select>
+              </label>
               <label><span>Model</span><input id="settings-model" name="model" maxlength="128" spellcheck="false" required /></label>
             </div>
-            <label class="checkbox-field">
-              <input id="settings-custom-model" name="customModel" type="checkbox" />
-              <span><b>注册为自定义模型</b><small>仅当模型不在 Pi 内置目录中时启用。</small></span>
-            </label>
+            <p id="settings-provider-help" class="settings-field-note">使用 DeepSeek 内置模型目录与默认接口。</p>
           </section>
 
           <section class="settings-section">
@@ -219,8 +222,6 @@
                   <option value="provider-default">Provider 默认</option>
                   <option value="openai-completions">OpenAI Chat Completions</option>
                   <option value="openai-responses">OpenAI Responses</option>
-                  <option value="anthropic-messages">Anthropic Messages</option>
-                  <option value="google-generative-ai">Google Generative AI</option>
                 </select>
               </label>
               <label><span>Thinking</span>

@@ -41,7 +41,7 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
   const valid = {
     provider: "deepseek",
     model: "deepseek-v4-flash",
-    baseUrl: "https://api.deepseek.com/v1",
+    baseUrl: "",
     api: "provider-default",
     thinking: "off",
     customModel: false,
@@ -49,8 +49,17 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     clearApiKey: false,
   } as const;
   assert.deepEqual(decodeDesktopLlmSettingsUpdate(valid), valid);
+  const custom = {
+    ...valid,
+    provider: "custom-openai",
+    model: "private-model",
+    baseUrl: "https://gateway.example.com/v1",
+    api: "openai-completions",
+    customModel: true,
+  } as const;
+  assert.deepEqual(decodeDesktopLlmSettingsUpdate(custom), custom);
   assert.throws(
-    () => decodeDesktopLlmSettingsUpdate({ ...valid, baseUrl: "https://user:pass@example.com/v1" }),
+    () => decodeDesktopLlmSettingsUpdate({ ...custom, baseUrl: "https://user:pass@example.com/v1" }),
     /without credentials/,
   );
   assert.throws(
@@ -63,12 +72,13 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
   );
   assert.throws(
     () => decodeDesktopLlmSettingsUpdate({ ...valid, provider: "../escape" }),
-    /unsupported characters/,
+    /must be one of/,
   );
   assert.throws(
-    () => decodeDesktopLlmSettingsUpdate({ ...valid, customModel: true, api: "provider-default" }),
-    /must be selected/,
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, customModel: true }),
+    /only available for custom-openai/,
   );
+  assert.throws(() => decodeDesktopLlmSettingsUpdate({ ...custom, api: "anthropic-messages" }), /OpenAI-compatible/);
 });
 
 test("desktop command mapping fixes session, resource root, and child ceiling", () => {

@@ -418,6 +418,7 @@ select { min-height: 40px; border-radius: var(--radius-sm); padding: 7px 34px 7p
 .settings-section-title > span { color: var(--accent); font: 700 12px/1.4 var(--font-mono); }
 .settings-section-title h3 { margin: 0 0 4px; color: var(--text); font-size: 16px; }
 .settings-section-title p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.settings-field-note { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
 .settings-section > label:not(.checkbox-field),
 .field-grid > label { display: flex; flex-direction: column; gap: 7px; }
 .settings-section > label + .field-grid,
@@ -426,7 +427,7 @@ select { min-height: 40px; border-radius: var(--radius-sm); padding: 7px 34px 7p
 .field-grid { display: grid; gap: 12px; }
 .field-grid.two-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .settings-form input,
-.settings-form select { min-height: 42px; }
+.settings-form select { min-height: 42px; font-size: 14px; }
 .checkbox-field { display: flex; align-items: flex-start; gap: 11px; padding: 11px 12px; border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-soft); cursor: pointer; }
 .checkbox-field input { width: 16px; min-height: 16px; margin: 2px 0 0; accent-color: var(--accent); }
 .checkbox-field span { display: block; min-width: 0; }

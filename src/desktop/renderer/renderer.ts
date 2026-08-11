@@ -4,6 +4,17 @@ import type { JobDefinition } from "../../automation/types.js";
 import type { RuntimeMessage } from "../../domain/runtime.js";
 import type { ResourceCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
+import { defaultModelFor, type ProviderOption } from "../../settings/llm-settings.js";
+import {
+  clockTime,
+  conversationIntent,
+  formatBytes,
+  formatTokens,
+  presentSessions,
+  selectedAgent as findSelectedAgent,
+  shortId,
+  terminalAgentStatus,
+} from "../../ui/shared/presentation.js";
 import type {
   DesktopCommand,
   DesktopFrame,
@@ -88,12 +99,12 @@ const elements = {
   settingsClose: byId<HTMLButtonElement>("settings-close"),
   settingsCancel: byId<HTMLButtonElement>("settings-cancel"),
   settingsForm: byId<HTMLFormElement>("settings-form"),
-  settingsProvider: byId<HTMLInputElement>("settings-provider"),
+  settingsProvider: byId<HTMLSelectElement>("settings-provider"),
+  settingsProviderHelp: byId<HTMLElement>("settings-provider-help"),
   settingsModel: byId<HTMLInputElement>("settings-model"),
   settingsBaseUrl: byId<HTMLInputElement>("settings-base-url"),
   settingsApi: byId<HTMLSelectElement>("settings-api"),
   settingsThinking: byId<HTMLSelectElement>("settings-thinking"),
-  settingsCustomModel: byId<HTMLInputElement>("settings-custom-model"),
   settingsApiKey: byId<HTMLInputElement>("settings-api-key"),
   settingsKeyReveal: byId<HTMLButtonElement>("settings-key-reveal"),
   settingsClearKey: byId<HTMLInputElement>("settings-clear-key"),
@@ -178,11 +189,7 @@ function bindStaticActions(): void {
     event.preventDefault();
     void saveSettings();
   });
-  elements.settingsCustomModel.addEventListener("change", () => {
-    if (elements.settingsCustomModel.checked && elements.settingsApi.value === "provider-default") {
-      elements.settingsApi.value = "openai-completions";
-    }
-  });
+  elements.settingsProvider.addEventListener("change", () => configureProviderFields(true));
   elements.settingsKeyReveal.addEventListener("click", () => {
     const revealing = elements.settingsApiKey.type === "password";
     elements.settingsApiKey.type = revealing ? "text" : "password";
@@ -316,7 +323,7 @@ function populateSettings(settings: DesktopLlmSettings): void {
   elements.settingsBaseUrl.value = settings.baseUrl;
   elements.settingsApi.value = settings.api;
   elements.settingsThinking.value = settings.thinking;
-  elements.settingsCustomModel.checked = settings.customModel;
+  configureProviderFields(false);
   elements.settingsApiKey.value = "";
   elements.settingsApiKey.type = "password";
   elements.settingsApiKey.placeholder = settings.hasApiKey ? "已配置；留空将保留" : "输入 API Key";
@@ -327,12 +334,12 @@ function populateSettings(settings: DesktopLlmSettings): void {
 async function saveSettings(): Promise<void> {
   if (savingSettings) return;
   const update: DesktopLlmSettingsUpdate = {
-    provider: elements.settingsProvider.value.trim(),
+    provider: elements.settingsProvider.value as ProviderOption,
     model: elements.settingsModel.value.trim(),
     baseUrl: elements.settingsBaseUrl.value.trim(),
     api: elements.settingsApi.value as DesktopLlmSettingsUpdate["api"],
     thinking: elements.settingsThinking.value as DesktopLlmSettingsUpdate["thinking"],
-    customModel: elements.settingsCustomModel.checked,
+    customModel: elements.settingsProvider.value === "custom-openai",
     ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
     clearApiKey: elements.settingsClearKey.checked,
   };
@@ -352,6 +359,27 @@ async function saveSettings(): Promise<void> {
     elements.settingsSave.disabled = false;
     elements.settingsCancel.disabled = false;
     elements.settingsClose.disabled = false;
+  }
+}
+
+function configureProviderFields(resetModel: boolean): void {
+  const provider = elements.settingsProvider.value as ProviderOption;
+  const custom = provider === "custom-openai";
+  if (resetModel) elements.settingsModel.value = defaultModelFor(provider);
+  elements.settingsBaseUrl.disabled = !custom;
+  elements.settingsBaseUrl.required = custom;
+  elements.settingsApi.disabled = !custom;
+  if (custom) {
+    if (elements.settingsApi.value === "provider-default") elements.settingsApi.value = "openai-completions";
+    elements.settingsProviderHelp.textContent = "使用 OpenAI 兼容接口；必须填写 Base URL，并选择 Chat Completions 或 Responses。";
+    elements.settingsBaseUrl.placeholder = "例如 https://gateway.example.com/v1";
+  } else {
+    elements.settingsBaseUrl.value = "";
+    elements.settingsApi.value = "provider-default";
+    elements.settingsProviderHelp.textContent = provider === "deepseek"
+      ? "使用 DeepSeek 内置模型目录与默认接口。"
+      : "使用 OpenAI 内置模型目录与默认接口。";
+    elements.settingsBaseUrl.placeholder = "选择“自定义 OpenAI”后配置";
   }
 }
 
@@ -393,20 +421,25 @@ async function submitComposer(): Promise<void> {
   const text = elements.composerInput.value.trim();
   if (!text) return;
   const snapshot = store.snapshot();
-  const child = selectedAgent(snapshot);
   const mode = elements.composerMode.value;
+  const intent = conversationIntent(
+    snapshot.kernel,
+    snapshot.selectedSessionId,
+    text,
+    mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "prompt",
+  );
   let command: DesktopCommand;
-  if (child) {
+  if (intent.target === "agent") {
     command = {
       action: "agent.send",
-      agentId: child.id,
-      message: text,
-      mode: mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "next",
+      agentId: intent.agentId,
+      message: intent.text,
+      mode: intent.mode,
     };
   } else {
-    command = { action: mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "prompt", text };
+    command = { action: intent.mode, text: intent.text };
   }
-  await perform(`Sending to ${child?.id ?? "main"}`, command, () => {
+  await perform(`Sending to ${intent.target === "agent" ? intent.agentId : "main"}`, command, () => {
     elements.composerInput.value = "";
     elements.composerInput.focus();
   });
@@ -492,17 +525,17 @@ function renderHeader(snapshot: DesktopStoreSnapshot): void {
 }
 
 function renderSessions(snapshot: DesktopStoreSnapshot): void {
-  const nodes: HTMLElement[] = [];
-  const mainSession = snapshot.kernel.sessions["main"];
-  nodes.push(sessionButton("main", "主会话", mainSession?.status ?? "idle", 0, snapshot.selectedSessionId === "main", Boolean(mainSession) || snapshot.selectedSessionId === "main"));
-  const agents = Object.values(snapshot.kernel.agents).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
-  for (const agent of agents) {
-    const session = snapshot.kernel.sessions[agent.sessionId];
-    const title = agent.objective || agent.id;
-    nodes.push(sessionButton(agent.id, title, session?.status ?? agent.status, Math.min(agent.depth, 5), snapshot.selectedSessionId === agent.sessionId, Boolean(session)));
-  }
+  const sessions = presentSessions(snapshot.kernel, snapshot.selectedSessionId);
+  const nodes = sessions.map((session) => sessionButton(
+    session.id,
+    session.title,
+    session.status,
+    session.depth,
+    session.selected,
+    session.active,
+  ));
   elements.sessionList.replaceChildren(...nodes);
-  elements.sessionCount.textContent = String(1 + agents.length);
+  elements.sessionCount.textContent = String(sessions.length);
   const child = selectedAgent(snapshot);
   elements.childControls.hidden = !child;
   elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
@@ -808,7 +841,7 @@ function renderVersions(): void {
 }
 
 function selectedAgent(snapshot: DesktopStoreSnapshot): DesktopStoreSnapshot["kernel"]["agents"][string] | undefined {
-  return Object.values(snapshot.kernel.agents).find((agent) => agent.sessionId === snapshot.selectedSessionId);
+  return findSelectedAgent(snapshot.kernel, snapshot.selectedSessionId);
 }
 
 function denseItem(titleValue: string, subtitleValue: string, status: string): HTMLElement {
@@ -867,29 +900,6 @@ function normalizedRole(role: string): "user" | "assistant" | "tool" {
 function safeStatus(value: string): string {
   const allowed = new Set(["ready", "active", "succeeded", "running", "connecting", "starting", "failed", "degraded", "blocked"]);
   return allowed.has(value) ? value : "unknown";
-}
-
-function terminalAgentStatus(value: string): boolean {
-  return value === "succeeded" || value === "failed" || value === "cancelled" || value === "budget_exhausted";
-}
-
-function shortId(value: string): string {
-  return value.length > 15 ? `${value.slice(0, 7)}…${value.slice(-5)}` : value;
-}
-
-function formatTokens(value: number): string {
-  return value >= 1_000 ? `${(value / 1_000).toFixed(value >= 10_000 ? 0 : 1)}k` : String(value);
-}
-
-function formatBytes(value: number): string {
-  if (value >= 1_048_576) return `${(value / 1_048_576).toFixed(1)} MB`;
-  if (value >= 1_024) return `${(value / 1_024).toFixed(1)} KB`;
-  return `${value} B`;
-}
-
-function clockTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.valueOf()) ? value.slice(0, 8) : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function initialTheme(): Theme {

@@ -6,11 +6,14 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { parseConfig } from "../config/config.js";
 import { atomicWriteFile, atomicWriteJson } from "../storage/atomic.js";
 import { loadConfig, type PsporePaths } from "../storage/home.js";
-import type {
-  DesktopLlmSettings,
-  DesktopLlmSettingsUpdate,
-  DesktopModelApi,
-} from "./ipc-contract.js";
+import {
+  decodeLlmSettingsUpdate,
+  PROVIDER_OPTIONS,
+  type LlmSettings,
+  type LlmSettingsUpdate,
+  type ModelApi,
+  type ProviderOption,
+} from "./llm-settings.js";
 
 interface ModelsFile {
   providers: Record<string, unknown>;
@@ -19,14 +22,14 @@ interface ModelsFile {
 const DEFAULT_PROVIDER = "deepseek";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const MAX_MODELS_FILE_BYTES = 1_048_576;
-const SUPPORTED_APIS = new Set<DesktopModelApi>([
+const SUPPORTED_APIS = new Set<ModelApi>([
   "openai-completions",
   "openai-responses",
   "anthropic-messages",
   "google-generative-ai",
 ]);
 
-export class DesktopSettingsService {
+export class LlmSettingsService {
   readonly #home: string;
   readonly #paths: PsporePaths;
 
@@ -35,9 +38,9 @@ export class DesktopSettingsService {
     this.#paths = paths;
   }
 
-  async get(): Promise<DesktopLlmSettings> {
+  async get(): Promise<LlmSettings> {
     const config = await loadConfig(this.#home);
-    const provider = config.model?.provider ?? DEFAULT_PROVIDER;
+    const provider = providerOption(config.model?.provider ?? DEFAULT_PROVIDER);
     const model = config.model?.model ?? DEFAULT_MODEL;
     const models = await this.#readModels();
     const providerConfig = record(models.providers[provider]);
@@ -56,7 +59,8 @@ export class DesktopSettingsService {
     };
   }
 
-  async save(update: DesktopLlmSettingsUpdate): Promise<DesktopLlmSettings> {
+  async save(update: LlmSettingsUpdate): Promise<LlmSettings> {
+    update = decodeLlmSettingsUpdate(update);
     const currentConfig = await loadConfig(this.#home);
     const models = await this.#readModels();
     const providerConfig = { ...(record(models.providers[update.provider]) ?? {}) };
@@ -79,25 +83,18 @@ export class DesktopSettingsService {
 
     if (update.apiKey || (credentialExists && !update.clearApiKey)) {
       providerConfig["apiKey"] = credentialCommand(credentialPath);
-    } else if (update.clearApiKey && isDesktopCredentialCommand(providerConfig["apiKey"], credentialPath)) {
+    } else if (update.clearApiKey && isManagedCredentialCommand(providerConfig["apiKey"], credentialPath)) {
       delete providerConfig["apiKey"];
     }
 
-    const nextModels: ModelsFile = {
-      ...models,
-      providers: { ...models.providers },
-    };
+    const nextModels: ModelsFile = { ...models, providers: { ...models.providers } };
     if (Object.keys(providerConfig).length > 0) nextModels.providers[update.provider] = providerConfig;
     else delete nextModels.providers[update.provider];
 
     const nextConfig = parseConfig(
       {
         ...currentConfig,
-        model: {
-          provider: update.provider,
-          model: update.model,
-          thinking: update.thinking,
-        },
+        model: { provider: update.provider, model: update.model, thinking: update.thinking },
       },
       this.#home,
     );
@@ -123,7 +120,7 @@ export class DesktopSettingsService {
       throw error;
     }
     if (Buffer.byteLength(source, "utf8") > MAX_MODELS_FILE_BYTES) {
-      throw new Error("models.json is too large to edit safely from Desktop settings");
+      throw new Error("models.json is too large to edit safely from pSpore settings");
     }
     const parsed: unknown = JSON.parse(source);
     const root = record(parsed);
@@ -141,7 +138,7 @@ export class DesktopSettingsService {
       await atomicWriteJson(authPath, {}, 0o600);
       const runtime = await ModelRuntime.create({ authPath, modelsPath, refreshOnCreate: false });
       if (!runtime.getModel(provider, model)) {
-        throw new Error(`Model ${provider}/${model} is not built in; enable “自定义模型”并选择兼容接口`);
+        throw new Error(`Model ${provider}/${model} is not built in; enable custom model and select a compatible API`);
       }
       const compositionError = runtime.getError();
       if (compositionError) throw new Error(`Model configuration is invalid: ${compositionError}`);
@@ -175,17 +172,20 @@ function removeCustomModel(value: unknown, model: string): unknown {
   return value.filter((candidate) => record(candidate)?.["id"] !== model);
 }
 
-function modelApi(value: unknown): DesktopModelApi {
-  return typeof value === "string" && SUPPORTED_APIS.has(value as DesktopModelApi)
-    ? value as DesktopModelApi
-    : "provider-default";
+function modelApi(value: unknown): ModelApi {
+  return typeof value === "string" && SUPPORTED_APIS.has(value as ModelApi) ? value as ModelApi : "provider-default";
+}
+
+function providerOption(value: string): ProviderOption {
+  if (PROVIDER_OPTIONS.includes(value as ProviderOption)) return value as ProviderOption;
+  throw new Error(`Unsupported provider ${value}; choose deepseek, openai, or custom-openai`);
 }
 
 function credentialCommand(path: string): string {
   return `!cat -- ${shellQuote(path)}`;
 }
 
-function isDesktopCredentialCommand(value: unknown, path: string): boolean {
+function isManagedCredentialCommand(value: unknown, path: string): boolean {
   return value === credentialCommand(path);
 }
 
@@ -194,9 +194,7 @@ function shellQuote(value: string): string {
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
+  return typeof value === "object" && value !== null && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
 async function exists(path: string): Promise<boolean> {

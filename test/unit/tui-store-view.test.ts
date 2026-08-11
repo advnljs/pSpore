@@ -7,8 +7,10 @@ import { visibleWidth } from "@earendil-works/pi-tui";
 import type { AgentSnapshot } from "../../src/domain/runtime.js";
 import { initialKernelState } from "../../src/kernel/state.js";
 import type { ServerHelloFrame } from "../../src/protocol/schema.js";
+import { conversationIntent } from "../../src/ui/shared/presentation.js";
+import { TUI_HELP_LINES } from "../../src/ui/tui/commands.js";
 import { TuiStore } from "../../src/ui/tui/store.js";
-import { renderTuiSnapshot } from "../../src/ui/tui/view.js";
+import { maskSecretInput, renderTuiSnapshot } from "../../src/ui/tui/view.js";
 
 describe("TUI protocol store", () => {
   test("uses snapshot authority, applies ordered events, and detects gaps", () => {
@@ -52,6 +54,23 @@ describe("TUI protocol store", () => {
     });
     assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 3, received: 4 });
   });
+
+  test("routes selected child input to agent.send semantics instead of main", () => {
+    const kernel = hello().snapshot;
+    assert.deepEqual(conversationIntent(kernel, "agent:child-1", "continue", "prompt"), {
+      target: "agent",
+      agentId: "child-1",
+      sessionId: "agent:child-1",
+      text: "continue",
+      mode: "next",
+    });
+    assert.deepEqual(conversationIntent(kernel, "main", "redirect", "steer"), {
+      target: "main",
+      sessionId: "main",
+      text: "redirect",
+      mode: "steer",
+    });
+  });
 });
 
 describe("TUI 160x45 snapshot", () => {
@@ -65,25 +84,43 @@ describe("TUI 160x45 snapshot", () => {
     assert.ok(lines.every((line) => visibleWidth(line) === 160));
     const screen = lines.join("\n");
     if (process.env["PSPORE_PRINT_TUI_SNAPSHOT"] === "1") process.stderr.write(`\n${screen}\n`);
-    assert.match(screen, /pSpore v1 core/);
-    assert.match(screen, /TRANSCRIPT  agent:child-1/);
-    assert.match(screen, /assistant> child result in progress/);
-    assert.match(screen, /child-1 running/);
-    assert.match(screen, /fixture ready \(3\)/);
-    assert.match(screen, /\[S\] review-skill active/);
-    assert.match(screen, /APPROVAL approval-1/);
-    assert.match(screen, /\/steer/);
-    assert.match(screen, /\/notifications/);
-    assert.match(screen, /\/agent-spawn/);
-    assert.match(screen, /\/agent-join/);
-    assert.match(screen, /\/select/);
-    assert.match(screen, /\/mcp-discover/);
-    assert.match(screen, /\/resource-inspect/);
-    assert.match(screen, /\/resource-install/);
-    assert.match(screen, /\/resource-disable/);
-    assert.match(screen, /\/quit/);
-    assert.match(screen, /prompt> inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "b33cc76af9a0c599853047448b07c6f0d52b479bba267cd824907b00d7edb976");
+    assert.match(screen, /pSpore  LOCAL AGENT/);
+    assert.match(screen, /deepseek\/deepseek-v4-flash/);
+    assert.match(screen, /CONVERSATION  agent:child-1/);
+    assert.match(screen, /pSpore  child result in progress/);
+    assert.match(screen, /child-1  running/);
+    assert.match(screen, /mcp\s+1\/1/);
+    assert.match(screen, /resources\s+1\/1/);
+    assert.match(screen, /! APPROVAL approval-1/);
+    assert.match(screen, /\/help commands/);
+    assert.match(screen, /\/config wizard/);
+    assert.match(screen, /to child-1 › inspect workspace/);
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "5821d827b8541ec55871712737e827e843771c7e6a8af3afb14d5975dbb2f0da");
+  });
+
+  test("opens the complete command palette and adapts to a compact terminal", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    store.setPanel("Command palette", TUI_HELP_LINES);
+    const help = renderTuiSnapshot(store.snapshot(), 160, 45).join("\n");
+    assert.match(help, /\/config set custom-openai/);
+    assert.match(help, /\/mcp-tools/);
+    assert.match(help, /\/resource-install/);
+    assert.match(help, /\/approve/);
+
+    store.clearPanel();
+    const compact = renderTuiSnapshot(store.snapshot(), 96, 30);
+    assert.equal(compact.length, 30);
+    assert.ok(compact.every((line) => visibleWidth(line) === 96));
+    assert.ok(compact.every((line) => !line.includes("┬")));
+    assert.match(compact.join("\n"), /CONVERSATION/);
+  });
+
+  test("never renders a secret value in clear text", () => {
+    const secret = "secret-that-must-not-render";
+    const masked = maskSecretInput(secret, 12);
+    assert.doesNotMatch(masked, /secret/);
+    assert.equal(visibleWidth(masked), 12);
   });
 });
 
@@ -93,6 +130,7 @@ function hello(): ServerHelloFrame {
     upstreamSessionId: "pi-main",
     cwd: "/workspace",
     status: "idle",
+    model: { provider: "deepseek", model: "deepseek-v4-flash" },
     thinking: "off",
     messages: [
       { role: "user", text: "hello" },

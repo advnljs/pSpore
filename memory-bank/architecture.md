@@ -15,6 +15,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - `Notification`：durable local/session delivery，进入共享 Kernel snapshot，由 TUI/Electron 表现。
 - `Subagent Router`：session actor tree、mailbox、budget、权限继承和双工消息。
 - `Extension Host`：Pi skills/extensions、pSpore plugins 和 MCP adapter。
+- `Shared Client Core`：GUI/TUI 共用 protocol state reducer、presentation model、会话输入路由、Daemon supervisor 与 LLM settings service；DOM/terminal widget 各自渲染。
 - `Storage`：atomic JSON、append-only JSONL、lock、schema migration 和 recovery。
 
 ## 数据流
@@ -30,7 +31,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 3. 主会话 in-process 使用 Pi SDK，不用 Pi RPC 子进程。
 4. pSpore 公共协议自有且稳定；Pi experimental server/protocol 不外泄。
 5. 文件/JSONL 为事实源，index 为可删除 cache；不引入默认数据库或向量库。
-6. UI 共享 backend/domain/protocol，不共享 TUI/DOM 组件。
+6. UI 共享 backend/domain/protocol，以及纯 protocol state/presentation/input-routing/config/lifecycle primitive；TUI 与 DOM 组件因渲染环境不同而独立。
 7. 所有工具走统一 policy；plugin/extension/MCP 加载另做代码信任。
 8. cron slot 去重但外部副作用不承诺 exactly-once。
 9. BOOT 在 ready 后异步运行，不阻塞服务可用性。
@@ -44,7 +45,9 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
 18. Electron main 是桌面侧唯一 UDS owner；renderer 使用原生 DOM，仅通过固定 preload API 发送离散 action。main 对 action、snapshot/event、JSON 深度/大小和 event type 做二次校验，连续 delta 可合并但 cursor 顺序不可跳过。
 19. Desktop 通过同一 PID + process-start 单实例锁决定 Daemon 所有权：锁可获取时在 Electron main process 内启动并标记 `owned`，活跃锁存在时标记 `external` 并复用；退出只停止 `owned` 实例。
-20. Desktop 模型设置是 main-process 专属窄 IPC，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，renderer 仅获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被桌面擅自中断。
+20. 模型设置由 GUI/TUI/CLI 共用 `LlmSettingsService` 与严格 decoder，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，GUI/TUI 状态只获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被客户端擅自中断。
+21. 用户级 Provider 只暴露 `deepseek`、`openai`、`custom-openai`；前两者使用受控默认 endpoint/API，只有自定义 OpenAI 可写 Base URL 并选择 Chat Completions/Responses。TUI 同时提供无副作用预览/确认的 wizard 与可脚本化配置命令。
+22. `DaemonSupervisor` 是桌面和 TUI 的共享生命周期 owner；通过单实例锁区分 `owned/external`，只停止自己拥有的 Daemon，解决独立 AppImage/TUI 启动时缺失 socket 的问题。
 
 ## 重要约束
 
@@ -69,3 +72,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-10：Phase 4 Electron 43 落地：安全 main/preload/原生 DOM renderer、固定 action IPC、UDS 重连与 delta coalescing、共享 protocol store、审批/agent/automation/integration UI，以及可重复的 1920×1080 Xvfb 安全视觉验收。
 - 2026-08-11：Desktop 增加 Daemon ownership supervisor，修复 AppImage 独立启动 `daemon.sock` ENOENT；原生 renderer 建立双主题语义色/字号基线，smoke 扩展到 owned/external Daemon、双主题和 computed typography。
 - 2026-08-11：Desktop 改为会话常驻、检查器按需展开的响应式 PC 工作台；新增严格模型设置 IPC 与私有 key-file storage，smoke 覆盖 1920×1080、1440×900、1180×720 和设置弹层。
+- 2026-08-11：GUI/TUI/CLI 抽出共享 protocol reducer、presentation/input routing、Daemon supervisor 与 LLM settings core；TUI 补齐响应式双栏、完整状态面板和 wizard/命令双配置入口，npm CLI 包可独立安装运行。

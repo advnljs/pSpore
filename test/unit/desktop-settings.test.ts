@@ -4,14 +4,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { DesktopSettingsService } from "../../src/desktop/settings-service.js";
+import { LlmSettingsService } from "../../src/settings/llm-settings-service.js";
 import { initializePsporeHome } from "../../src/storage/home.js";
 
 test("desktop settings persist model endpoint and API key without embedding the secret", async () => {
   const home = await mkdtemp(join(tmpdir(), "pspore-desktop-settings-"));
   try {
     const { paths } = await initializePsporeHome(home);
-    const service = new DesktopSettingsService(home, paths);
+    const service = new LlmSettingsService(home, paths);
     assert.deepEqual(await service.get(), {
       version: 1,
       provider: "deepseek",
@@ -27,7 +27,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
     const saved = await service.save({
       provider: "deepseek",
       model: "deepseek-v4-flash",
-      baseUrl: "https://api.deepseek.com/v1",
+      baseUrl: "",
       api: "provider-default",
       thinking: "off",
       customModel: false,
@@ -64,9 +64,9 @@ test("desktop settings can register an explicit OpenAI-compatible custom model",
   const home = await mkdtemp(join(tmpdir(), "pspore-desktop-custom-model-"));
   try {
     const { paths } = await initializePsporeHome(home);
-    const service = new DesktopSettingsService(home, paths);
+    const service = new LlmSettingsService(home, paths);
     const saved = await service.save({
-      provider: "local-gateway",
+      provider: "custom-openai",
       model: "reasoner-v1",
       baseUrl: "http://127.0.0.1:8080/v1",
       api: "openai-completions",
@@ -78,7 +78,7 @@ test("desktop settings can register an explicit OpenAI-compatible custom model",
     assert.equal(saved.customModel, true);
     assert.equal(saved.api, "openai-completions");
     const models = JSON.parse(await readFile(join(paths.agentDir, "models.json"), "utf8"));
-    assert.deepEqual(models.providers["local-gateway"].models, [{ id: "reasoner-v1", name: "reasoner-v1" }]);
+    assert.deepEqual(models.providers["custom-openai"].models, [{ id: "reasoner-v1", name: "reasoner-v1" }]);
   } finally {
     await rm(home, { recursive: true, force: true });
   }

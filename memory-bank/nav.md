@@ -13,6 +13,7 @@
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
+| `src/daemon/supervisor.ts` | GUI/TUI 共用 Daemon owned/external 生命周期管理 |
 | `src/application/agent-application.ts` | UDS command use cases 与 per-session 串行化 |
 | `src/kernel/` | 纯 reducer、权威 state 与串行 effect loop |
 | `src/storage/` | home/config 初始化、atomic write、JSONL、PID+start lock |
@@ -25,8 +26,11 @@
 | `src/plugins/` | staged resource 检查、exact-digest trust/install、host plugin lifecycle 与 skill path catalog |
 | `src/notifications/` | durable notification store、run delivery 与 notify tool |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
-| `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
-| `src/desktop/` | Electron 43 main/preload/renderer、Daemon supervisor/bridge、模型设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
+| `src/settings/` | GUI/TUI/CLI 共用 LLM schema、三类 Provider、私有 Key 与持久化 service |
+| `src/ui/shared/` | GUI/TUI 共用 protocol reducer、presentation model 与会话输入路由 |
+| `src/ui/tui/` | Pi TUI 客户端、wizard/命令配置、160×45 双栏与 96×30 单栏 renderer |
+| `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
+| `scripts/clean-dist.mjs` | 构建前只清理仓库内精确 `dist/`，避免已删除模块混入 npm 包 |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
@@ -44,6 +48,7 @@
 - `module-automation-agents.md`：trigger、BOOT、cron、subagent 与双工。
 - `module-interface-protocol.md`：Gateway、协议、TUI/Electron 与重连。
 - `module-desktop.md`：Electron main/preload/renderer、安全边界、视觉与 smoke harness。
+- `module-settings.md`：GUI/TUI/CLI 共用 LLM Provider、验证、持久化和 secret 边界。
 - `module-extensions-integrations.md`：skills、plugins、MCP 与信任边界。
 - `module-storage-daemon.md`：home、原子存储、锁、Daemon 启停与 CLI。
 
@@ -67,7 +72,9 @@
 - 初始化：`npm run dev -- init`。
 - 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
-- TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
+- npm 安装：`npm install --global pspore`；运行：`pspore tui` 或 `npx pspore --help`。npm CLI 包不含 Electron。
+- TUI：`npm run dev -- tui`（要求真实 TTY；自动拥有/复用 Daemon；主基准 `160×45`，响应式补测 `96×30`）。
+- 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key`。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
 - 单 prompt：`npm run dev -- prompt "..."`。
@@ -82,7 +89,7 @@
 
 - 默认根目录：`~/.pspore/`
 - 配置：`~/.pspore/config.json`
-- Desktop LLM 扩展配置：`~/.pspore/state/pi/models.json`；桌面保存的 provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`）。
+- LLM 扩展配置：`~/.pspore/state/pi/models.json`；GUI/TUI/CLI 保存的 Provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`）。
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
 - sessions/runs/approval grants/notifications/audit：`~/.pspore/state/`
