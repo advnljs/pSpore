@@ -70,6 +70,14 @@ test("CLI entrypoint recognizes the symlink created by npm", async () => {
   }
 });
 
+test("npm package keeps the canonical pspore bin mapping", async () => {
+  const manifestPath = fileURLToPath(new URL("../../package.json", import.meta.url));
+  const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
+    bin?: Record<string, string>;
+  };
+  assert.deepEqual(manifest.bin, { pspore: "dist/cli/main.js" });
+});
+
 async function captureStdout(run: () => Promise<number>): Promise<string> {
   const original = process.stdout.write;
   let output = "";

@@ -238,3 +238,17 @@
   - 最新 AppImage 从全新 home 实际启动为 `daemonOwnership=owned`、`connection=connected`，Provider 选项精确、设置字号 `14px`，退出后 socket/endpoint 清理；SHA-256 `ea03243750f37861c55ec2a00c1ff216b64dffbfc587b08b575d70655ae03ef4`。
 - 当前状态：共享客户端内核、GUI/TUI/CLI 三 Provider、TUI 双配置入口、npm 安装包与最新 AppImage 已完成并验证；所有临时 Daemon/Electron 进程已停止。npm registry 发布仍待浏览器认证后执行。
 - 遗留问题：真实 sudo 仍未执行；sandbox/vector/remote/mobile 继续为非目标。npm 发布结果将在认证后另行记录。
+
+## 2026-08-11 14:24 CST — npm 首发前清单加固
+
+- 阶段目标：在 `pspore@0.1.0` 首次发布到 npm registry 前，复核真实发布清单与全局 CLI 入口。
+- 完成内容：
+  - 浏览器 `npm login` 成功，`npm whoami` 确认当前用户；registry 在本次尝试前不存在 `pspore` 包。
+  - 首次 `npm publish` 预检发现 npm 11 会将带 `./` 前缀的 `bin.pspore` 视为无效并从发布 manifest 删除；已规范化为 `dist/cli/main.js`，并新增 manifest 回归测试。
+  - 修复后 `npm publish --dry-run` 无 `bin` 警告，tarball 内 package manifest 保留 `pspore` 映射。
+- 修改文件：`package.json`、`test/unit/cli-config.test.ts`、`memory-bank/overall-progress.md`、`memory-bank/todo.md`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、87 项测试与 production build 全部成功。
+  - 修复后 tarball 为 261 entries、269321 bytes、SHA-1 `399f68e6f7cd0ede377915f2054d9391f48fd9f7`；全新临时 prefix 安装后 `pspore --version` 与 `--help` 均成功，临时目录已删除。
+- 当前状态：待发布代码与包已完成加固；没有常驻服务或前端视觉改动，不需要新的 viewport 验收。
+- 遗留问题：正式上传被 npm registry 拒绝且未创建版本；账号 profile 显示 `tfa: false`，需由用户先在 npm 账号中启用 2FA，再重试 `npm publish`。
