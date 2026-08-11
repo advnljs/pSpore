@@ -198,3 +198,21 @@
   - 真实 DeepSeek 链路返回 `PSPRORE_DEEPSEEK_OK`；snapshot 确认 model `deepseek/deepseek-v4-flash`、thinking `off`、input/output/total `2729/8/2737`、cost `$0.0003843`。
 - 当前状态：最新 `dist/` 已构建，修复后 AppImage 已放入 `release-dist/`；所有验收 Daemon/Electron 进程均已停止，未留下运行 socket。本轮按用户要求只验证 PC `1920×1080`，未执行手机端验收。
 - 遗留问题：真实 sudo 仍未执行（避免无必要提权）；sandbox/vector/remote/mobile 继续作为明确非目标。
+
+## 2026-08-11 10:59 CST — Desktop 工作台重设计与安全模型设置
+
+- 阶段目标：重新设计桌面端为简洁、低密度但高空间利用率的 PC 工作台，并让用户可在界面内安全配置 LLM provider、model、Base URL、API 协议、thinking 与 API key。
+- 完成内容：
+  - 先生成三套桌面风格对比稿，选择 Calm Command 与 Editorial Workbench 的组合方向；默认只保留会话侧栏和主对话区，活动/自动化/集成/资源检查器改为按需展开，消除常驻空面板。
+  - 重写深色/浅色语义主题、对话层级、输入区、审批层、空状态与设置弹窗；主内容随窗口连续伸缩，窄桌面下检查器以覆盖层打开，不实现手机端布局。
+  - 新增受限 settings IPC 与 `DesktopSettingsService`；模型配置写入 `config.json`/`state/pi/models.json`，API key 单独写入 `credentials/<provider>.api-key`（`0600`），renderer 只接收 `hasApiKey`，不会获得密钥正文。
+  - 保存前使用 Pi `ModelRuntime` 在临时目录验证 provider/model 组合；owned Daemon 自动安全重启并重连，external Daemon 明确提示需由用户重启后生效。
+  - Electron smoke 新增设置表单、密钥不泄漏、双主题、字号、默认检查器关闭与 `1920×1080`、`1440×900`、`1180×720` 三档 PC viewport 验收。
+- 修改文件：`src/desktop/renderer/`、`src/desktop/main.ts`、`src/desktop/ipc-contract.ts`、`src/desktop/preload.cjs`、`src/desktop/settings-service.ts`、`scripts/electron-smoke.mjs`、desktop unit tests、`docs/design/desktop-style-comparison.png`、README 与 memory-bank。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、81 项测试、production build 全部成功。
+  - `PSPORE_KEEP_SMOKE=1 npm run test:electron` 通过：三档 PC viewport 无页面级 overflow；深色/浅色/设置/审批均已截图并人工检查；正文 `15.5px`、输入 `15px`、会话主文案 `14px`、设置字段 `14px`，紧凑辅助字号最低 `11.5px`。
+  - 使用隔离临时 home 和 `ds_key.txt` 实际保存 `deepseek/deepseek-v4-flash` 设置并调用 Daemon，模型精确返回 `PSPRORE_SETTINGS_OK`；验证目录已删除，密钥未输出或写入项目。
+- AppImage 验证：基于当前工作树重新打包 `release-dist/pspore-desktop-0.1.0-linux-x64.AppImage`（SHA-256 `da4131f8b247e8bf92922749ce35ef48e813d7fe799f183e7ff1c52dfbb6b575`）；从全新临时 home 启动后报告 `daemonOwnership=owned`、`connection=connected`，三档 viewport 与字号/设置断言通过，退出后 `daemon.sock`/`endpoint.json` 均不存在。
+- 当前状态：桌面重设计和安全模型设置已完成，最新 `dist/` 与 AppImage 已构建；自动验收进程均已停止。
+- 遗留问题：TUI/CLI 的模型设置入口与跨界面配置抽象按用户要求放到下一独立阶段；手机端明确不在验收范围。

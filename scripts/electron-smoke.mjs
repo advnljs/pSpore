@@ -43,7 +43,7 @@ try {
       outputDirectory,
       "--smoke-fixture",
     ],
-    30_000,
+    60_000,
   );
   const report = JSON.parse(await readFile(join(outputDirectory, "desktop-security.json"), "utf8"));
   if (report?.probe?.viewport?.width !== 1_920 || report?.probe?.viewport?.height !== 1_080) {
@@ -66,7 +66,7 @@ try {
       ownedOutputDirectory,
       "--smoke-fixture",
     ],
-    30_000,
+    60_000,
   );
   const ownedReport = JSON.parse(await readFile(join(ownedOutputDirectory, "desktop-security.json"), "utf8"));
   if (ownedReport?.daemonOwnership !== "owned" || ownedReport?.connection?.phase !== "connected") {
@@ -76,7 +76,7 @@ try {
     throw new Error("Electron-owned daemon did not clean up its runtime files on exit");
   }
   process.stdout.write(
-    `Electron 43 smoke passed: ${report.probe.viewport.width}x${report.probe.viewport.height}, dark/light themes, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
+    `Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 desktop layouts, dark/light themes, settings, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
   );
   succeeded = true;
 } finally {

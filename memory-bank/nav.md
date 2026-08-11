@@ -7,6 +7,7 @@
 | `README.md` | 项目入口、当前状态、安全边界和下一步 |
 | `initial_design.txt` | 用户原始 11 条设计思路，不作为最终契约 |
 | `docs/detailed-design.md` | 当前唯一完整详细设计与 v1 验收契约 |
+| `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |
 | `docs/adr/0001-runtime-and-pi-baseline.md` | Node 24、Pi/Electron 锁定与 Phase 0 兼容决策 |
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
@@ -25,9 +26,9 @@
 | `src/notifications/` | durable notification store、run delivery 与 notify tool |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
-| `src/desktop/` | Electron 43 main/preload/renderer、Daemon supervisor/bridge、双主题、IPC validation、安全基线与 smoke fixture |
+| `src/desktop/` | Electron 43 main/preload/renderer、Daemon supervisor/bridge、模型设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
-| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080 Electron 双主题/字号自动验收与清理 |
+| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
 | `.gitignore` | 未来 Node 产物、环境文件、私钥与本地 pSpore 数据排除 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
@@ -67,8 +68,8 @@
 - 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
-- Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，固定视觉基准 `1920×1080`。
-- Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
+- Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
+- Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。
@@ -81,6 +82,7 @@
 
 - 默认根目录：`~/.pspore/`
 - 配置：`~/.pspore/config.json`
+- Desktop LLM 扩展配置：`~/.pspore/state/pi/models.json`；桌面保存的 provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`）。
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
 - sessions/runs/approval grants/notifications/audit：`~/.pspore/state/`

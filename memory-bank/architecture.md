@@ -44,6 +44,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
 18. Electron main 是桌面侧唯一 UDS owner；renderer 使用原生 DOM，仅通过固定 preload API 发送离散 action。main 对 action、snapshot/event、JSON 深度/大小和 event type 做二次校验，连续 delta 可合并但 cursor 顺序不可跳过。
 19. Desktop 通过同一 PID + process-start 单实例锁决定 Daemon 所有权：锁可获取时在 Electron main process 内启动并标记 `owned`，活跃锁存在时标记 `external` 并复用；退出只停止 `owned` 实例。
+20. Desktop 模型设置是 main-process 专属窄 IPC，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，renderer 仅获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被桌面擅自中断。
 
 ## 重要约束
 
@@ -67,3 +68,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-10：资源信任与扩展生命周期落地：staging inspect、内容寻址安装/撤销、symlink/tamper fail closed、host manifest/capability/restart activation，以及 Pi skills 的 session-boundary progressive disclosure。
 - 2026-08-10：Phase 4 Electron 43 落地：安全 main/preload/原生 DOM renderer、固定 action IPC、UDS 重连与 delta coalescing、共享 protocol store、审批/agent/automation/integration UI，以及可重复的 1920×1080 Xvfb 安全视觉验收。
 - 2026-08-11：Desktop 增加 Daemon ownership supervisor，修复 AppImage 独立启动 `daemon.sock` ENOENT；原生 renderer 建立双主题语义色/字号基线，smoke 扩展到 owned/external Daemon、双主题和 computed typography。
+- 2026-08-11：Desktop 改为会话常驻、检查器按需展开的响应式 PC 工作台；新增严格模型设置 IPC 与私有 key-file storage，smoke 覆盖 1920×1080、1440×900、1180×720 和设置弹层。

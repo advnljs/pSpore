@@ -4,7 +4,13 @@ import type { JobDefinition } from "../../automation/types.js";
 import type { RuntimeMessage } from "../../domain/runtime.js";
 import type { ResourceCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
-import type { DesktopCommand, DesktopFrame, DesktopVersions } from "../ipc-contract.js";
+import type {
+  DesktopCommand,
+  DesktopFrame,
+  DesktopLlmSettings,
+  DesktopLlmSettingsUpdate,
+  DesktopVersions,
+} from "../ipc-contract.js";
 import { DesktopStore, type DesktopActivity, type DesktopStoreSnapshot } from "./store.js";
 
 const store = new DesktopStore();
@@ -16,12 +22,23 @@ let resources: ResourceCatalogEntry[] = [];
 let inspection: StagedResourceInspection | undefined;
 let activeApprovalId: string | undefined;
 let renderSequence = 0;
+let settingsOpen = false;
+let savingSettings = false;
+let responsiveMode: "wide" | "compact" | "narrow" | undefined;
 
 type Theme = "dark" | "light";
+type InspectorTab = "activity" | "automation" | "integrations" | "resources";
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
 
 const elements = {
   appShell: byId<HTMLElement>("app-shell"),
+  navigationPanel: byId<HTMLElement>("navigation-panel"),
+  navigationToggle: byId<HTMLButtonElement>("navigation-toggle"),
+  inspectorPanel: byId<HTMLElement>("inspector-panel"),
+  inspectorToggle: byId<HTMLButtonElement>("inspector-toggle"),
+  inspectorClose: byId<HTMLButtonElement>("inspector-close"),
+  inspectorTabs: Array.from(document.querySelectorAll<HTMLButtonElement>("[data-inspector-tab]")),
+  inspectorViews: Array.from(document.querySelectorAll<HTMLElement>("[data-inspector-panel]")),
   connectionBadge: byId<HTMLSpanElement>("connection-badge"),
   daemonInstance: byId<HTMLSpanElement>("daemon-instance"),
   revision: byId<HTMLElement>("revision-value"),
@@ -34,6 +51,9 @@ const elements = {
   connectionMessage: byId<HTMLElement>("connection-message"),
   sessionCount: byId<HTMLElement>("session-count"),
   sessionList: byId<HTMLElement>("session-list"),
+  agentCompose: byId<HTMLElement>("agent-compose"),
+  agentComposeToggle: byId<HTMLButtonElement>("agent-compose-toggle"),
+  agentComposeClose: byId<HTMLButtonElement>("agent-compose-close"),
   spawnForm: byId<HTMLFormElement>("spawn-form"),
   spawnObjective: byId<HTMLTextAreaElement>("spawn-objective"),
   childControls: byId<HTMLElement>("child-controls"),
@@ -42,6 +62,7 @@ const elements = {
   inspectForm: byId<HTMLFormElement>("inspect-form"),
   stagingName: byId<HTMLInputElement>("staging-name"),
   inspectionResult: byId<HTMLElement>("inspection-result"),
+  resourceShortcut: byId<HTMLButtonElement>("resource-shortcut"),
   versionLine: byId<HTMLElement>("version-line"),
   runtimeLine: byId<HTMLElement>("runtime-line"),
   sessionTitle: byId<HTMLElement>("session-title"),
@@ -61,6 +82,23 @@ const elements = {
   runList: byId<HTMLElement>("run-list"),
   integrationList: byId<HTMLElement>("integration-list"),
   notificationList: byId<HTMLElement>("notification-list"),
+  settingsButton: byId<HTMLButtonElement>("settings-button"),
+  settingsOverlay: byId<HTMLElement>("settings-overlay"),
+  settingsDialog: document.querySelector<HTMLElement>(".settings-dialog") ?? missingElement(".settings-dialog"),
+  settingsClose: byId<HTMLButtonElement>("settings-close"),
+  settingsCancel: byId<HTMLButtonElement>("settings-cancel"),
+  settingsForm: byId<HTMLFormElement>("settings-form"),
+  settingsProvider: byId<HTMLInputElement>("settings-provider"),
+  settingsModel: byId<HTMLInputElement>("settings-model"),
+  settingsBaseUrl: byId<HTMLInputElement>("settings-base-url"),
+  settingsApi: byId<HTMLSelectElement>("settings-api"),
+  settingsThinking: byId<HTMLSelectElement>("settings-thinking"),
+  settingsCustomModel: byId<HTMLInputElement>("settings-custom-model"),
+  settingsApiKey: byId<HTMLInputElement>("settings-api-key"),
+  settingsKeyReveal: byId<HTMLButtonElement>("settings-key-reveal"),
+  settingsClearKey: byId<HTMLInputElement>("settings-clear-key"),
+  settingsStatus: byId<HTMLElement>("settings-status"),
+  settingsSave: byId<HTMLButtonElement>("settings-save"),
   approvalOverlay: byId<HTMLElement>("approval-overlay"),
   approvalTitle: byId<HTMLElement>("approval-title"),
   approvalSummary: byId<HTMLElement>("approval-summary"),
@@ -72,6 +110,7 @@ const elements = {
 };
 
 applyTheme(initialTheme());
+syncResponsivePanels(true);
 
 const unsubscribe = window.pspore.subscribe((frame) => {
   if (!initialized) queuedFrames.push(frame);
@@ -105,6 +144,23 @@ async function initialize(): Promise<void> {
 }
 
 function bindStaticActions(): void {
+  elements.navigationToggle.addEventListener("click", () => {
+    setPanelState("navigation", document.documentElement.dataset["navigation"] !== "open");
+  });
+  elements.inspectorToggle.addEventListener("click", () => {
+    setPanelState("inspector", document.documentElement.dataset["inspector"] !== "open");
+  });
+  elements.inspectorClose.addEventListener("click", () => setPanelState("inspector", false));
+  for (const tab of elements.inspectorTabs) {
+    tab.addEventListener("click", () => selectInspectorTab(tab.dataset["inspectorTab"] as InspectorTab));
+  }
+  elements.agentComposeToggle.addEventListener("click", () => setAgentCompose(elements.agentCompose.hidden));
+  elements.agentComposeClose.addEventListener("click", () => setAgentCompose(false));
+  elements.resourceShortcut.addEventListener("click", () => {
+    selectInspectorTab("resources");
+    setPanelState("inspector", true);
+  });
+  window.addEventListener("resize", () => syncResponsivePanels(false));
   elements.themeToggle.addEventListener("click", () => {
     const theme: Theme = document.documentElement.dataset["theme"] === "light" ? "dark" : "light";
     applyTheme(theme);
@@ -115,6 +171,37 @@ function bindStaticActions(): void {
     }
   });
   elements.refresh.addEventListener("click", () => void refreshSideData());
+  elements.settingsButton.addEventListener("click", () => void openSettings());
+  elements.settingsClose.addEventListener("click", () => closeSettings());
+  elements.settingsCancel.addEventListener("click", () => closeSettings());
+  elements.settingsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    void saveSettings();
+  });
+  elements.settingsCustomModel.addEventListener("change", () => {
+    if (elements.settingsCustomModel.checked && elements.settingsApi.value === "provider-default") {
+      elements.settingsApi.value = "openai-completions";
+    }
+  });
+  elements.settingsKeyReveal.addEventListener("click", () => {
+    const revealing = elements.settingsApiKey.type === "password";
+    elements.settingsApiKey.type = revealing ? "text" : "password";
+    elements.settingsKeyReveal.textContent = revealing ? "隐藏" : "显示";
+  });
+  elements.settingsApiKey.addEventListener("input", () => {
+    if (elements.settingsApiKey.value) elements.settingsClearKey.checked = false;
+  });
+  elements.settingsClearKey.addEventListener("change", () => {
+    if (elements.settingsClearKey.checked) elements.settingsApiKey.value = "";
+  });
+  elements.settingsOverlay.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !savingSettings) {
+      event.preventDefault();
+      closeSettings();
+      return;
+    }
+    trapDialogFocus(event, elements.settingsDialog);
+  });
   elements.composerForm.addEventListener("submit", (event) => {
     event.preventDefault();
     void submitComposer();
@@ -131,6 +218,7 @@ function bindStaticActions(): void {
     if (!objective) return;
     void perform("Starting child agent", { action: "agent.spawn", objective }, () => {
       elements.spawnObjective.value = "";
+      setAgentCompose(false);
       return refreshSideData();
     });
   });
@@ -163,19 +251,142 @@ function bindStaticActions(): void {
       event.preventDefault();
       return;
     }
-    if (event.key !== "Tab") return;
-    const buttons = Array.from(elements.approvalActions.querySelectorAll<HTMLButtonElement>("button:not(:disabled)"));
-    const first = buttons[0];
-    const last = buttons.at(-1);
-    if (!first || !last) return;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapDialogFocus(event, elements.approvalOverlay);
   });
+}
+
+function syncResponsivePanels(force: boolean): void {
+  const nextMode = window.innerWidth <= 1_160 ? "narrow" : window.innerWidth <= 1_320 ? "compact" : "wide";
+  if (!force && nextMode === responsiveMode) return;
+  responsiveMode = nextMode;
+  setPanelState("navigation", nextMode !== "narrow");
+  setPanelState("inspector", false);
+}
+
+function setPanelState(panel: "navigation" | "inspector", open: boolean): void {
+  document.documentElement.dataset[panel] = open ? "open" : "closed";
+  const button = panel === "navigation" ? elements.navigationToggle : elements.inspectorToggle;
+  button.setAttribute("aria-expanded", String(open));
+  const label = panel === "navigation"
+    ? open ? "收起会话栏" : "展开会话栏"
+    : open ? "收起检查器" : "展开检查器";
+  button.setAttribute("aria-label", label);
+  button.title = label;
+}
+
+function selectInspectorTab(selected: InspectorTab): void {
+  for (const tab of elements.inspectorTabs) {
+    const active = tab.dataset["inspectorTab"] === selected;
+    tab.classList.toggle("selected", active);
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+  }
+  for (const view of elements.inspectorViews) view.hidden = view.dataset["inspectorPanel"] !== selected;
+}
+
+function setAgentCompose(open: boolean): void {
+  elements.agentCompose.hidden = !open;
+  elements.agentComposeToggle.setAttribute("aria-expanded", String(open));
+  if (open) requestAnimationFrame(() => elements.spawnObjective.focus());
+}
+
+async function openSettings(): Promise<void> {
+  if (!elements.approvalOverlay.hidden) return;
+  settingsOpen = true;
+  elements.settingsOverlay.hidden = false;
+  elements.settingsStatus.textContent = "读取设置中…";
+  elements.settingsSave.disabled = true;
+  updateAppInert();
+  requestAnimationFrame(() => elements.settingsClose.focus());
+  try {
+    const settings = await window.pspore.getSettings();
+    populateSettings(settings);
+    elements.settingsStatus.textContent = settings.hasApiKey
+      ? "已检测到私有 Key；留空会保留当前值。"
+      : "尚未通过桌面设置保存 API Key。";
+    elements.settingsSave.disabled = false;
+  } catch (error) {
+    elements.settingsStatus.textContent = `读取失败：${toError(error).message}`;
+  }
+}
+
+function populateSettings(settings: DesktopLlmSettings): void {
+  elements.settingsProvider.value = settings.provider;
+  elements.settingsModel.value = settings.model;
+  elements.settingsBaseUrl.value = settings.baseUrl;
+  elements.settingsApi.value = settings.api;
+  elements.settingsThinking.value = settings.thinking;
+  elements.settingsCustomModel.checked = settings.customModel;
+  elements.settingsApiKey.value = "";
+  elements.settingsApiKey.type = "password";
+  elements.settingsApiKey.placeholder = settings.hasApiKey ? "已配置；留空将保留" : "输入 API Key";
+  elements.settingsKeyReveal.textContent = "显示";
+  elements.settingsClearKey.checked = false;
+}
+
+async function saveSettings(): Promise<void> {
+  if (savingSettings) return;
+  const update: DesktopLlmSettingsUpdate = {
+    provider: elements.settingsProvider.value.trim(),
+    model: elements.settingsModel.value.trim(),
+    baseUrl: elements.settingsBaseUrl.value.trim(),
+    api: elements.settingsApi.value as DesktopLlmSettingsUpdate["api"],
+    thinking: elements.settingsThinking.value as DesktopLlmSettingsUpdate["thinking"],
+    customModel: elements.settingsCustomModel.checked,
+    ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
+    clearApiKey: elements.settingsClearKey.checked,
+  };
+  savingSettings = true;
+  elements.settingsSave.disabled = true;
+  elements.settingsCancel.disabled = true;
+  elements.settingsClose.disabled = true;
+  elements.settingsStatus.textContent = "正在验证并保存设置…";
+  try {
+    const result = await window.pspore.saveSettings(update);
+    populateSettings(result.settings);
+    elements.settingsStatus.textContent = result.message;
+  } catch (error) {
+    elements.settingsStatus.textContent = `保存失败：${toError(error).message}`;
+  } finally {
+    savingSettings = false;
+    elements.settingsSave.disabled = false;
+    elements.settingsCancel.disabled = false;
+    elements.settingsClose.disabled = false;
+  }
+}
+
+function closeSettings(restoreFocus = true): void {
+  if (!settingsOpen || savingSettings) return;
+  settingsOpen = false;
+  elements.settingsOverlay.hidden = true;
+  elements.settingsApiKey.value = "";
+  elements.settingsApiKey.type = "password";
+  updateAppInert();
+  if (restoreFocus) requestAnimationFrame(() => elements.settingsButton.focus());
+}
+
+function updateAppInert(): void {
+  const inert = settingsOpen || !elements.approvalOverlay.hidden;
+  elements.appShell.inert = inert;
+  if (inert) elements.appShell.setAttribute("aria-hidden", "true");
+  else elements.appShell.removeAttribute("aria-hidden");
+}
+
+function trapDialogFocus(event: KeyboardEvent, container: HTMLElement): void {
+  if (event.key !== "Tab") return;
+  const focusable = Array.from(container.querySelectorAll<HTMLElement>(
+    "button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])",
+  )).filter((candidate) => candidate.offsetParent !== null);
+  const first = focusable[0];
+  const last = focusable.at(-1);
+  if (!first || !last) return;
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 async function submitComposer(): Promise<void> {
@@ -522,15 +733,14 @@ function renderApproval(snapshot: DesktopStoreSnapshot): void {
   if (!request) {
     const previousApproval = activeApprovalId;
     elements.approvalOverlay.hidden = true;
-    elements.appShell.inert = false;
-    elements.appShell.removeAttribute("aria-hidden");
+    updateAppInert();
     activeApprovalId = undefined;
     if (previousApproval) requestAnimationFrame(() => elements.composerInput.focus());
     return;
   }
+  if (settingsOpen && !savingSettings) closeSettings(false);
   elements.approvalOverlay.hidden = false;
-  elements.appShell.inert = true;
-  elements.appShell.setAttribute("aria-hidden", "true");
+  updateAppInert();
   elements.approvalTitle.textContent = request.display.summary;
   elements.approvalSummary.textContent = `Agent ${request.agentPath.join(" → ")} 请求执行受保护操作。批准范围会被守护进程记录并强制执行。`;
   elements.approvalCapability.textContent = request.capability;
@@ -642,6 +852,10 @@ function byId<T extends HTMLElement>(id: string): T {
   const value = document.getElementById(id);
   if (!value) throw new Error(`Missing desktop element #${id}`);
   return value as T;
+}
+
+function missingElement(selector: string): never {
+  throw new Error(`Missing desktop element ${selector}`);
 }
 
 function normalizedRole(role: string): "user" | "assistant" | "tool" {

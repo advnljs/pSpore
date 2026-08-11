@@ -32,6 +32,9 @@
 - 本轮明确只做 PC Electron 桌面端，不做手机端或移动 viewport 验收。
 - AppImage 双击启动后不得因为缺失 `~/.pspore/run/daemon.sock` 无限等待；必须自动初始化/启动或安全复用 Daemon。
 - 使用用户提供但不得提交/输出的 `ds_key.txt` 实际验证 `deepseek-v4-flash`。
+- 桌面界面重新设计前可用 image generation 比较多种风格；最终不要高信息密度，应简洁大气。所谓高利用率是修复侧栏长期占位、上下区块失衡和无意义空区，不是缩小字号或塞满信息。
+- PC Electron 主工作区必须配合窗口缩放响应式调整；不增加手机布局。辅助检查器应按需展开，会话与输入保持稳定可见。
+- 设置菜单至少支持 LLM provider、model、Base URL、API Key、API 兼容类型与 thinking；Key 不得回读明文、进入日志、会话、memory 或 Git。
 
 ## 设计验收标准
 
@@ -45,5 +48,7 @@
 - Electron renderer 必须保持 `contextIsolation + sandbox`、关闭 Node integration，只暴露固定 allowlisted API；外部导航、新窗口、下载、远程 script 和任意 channel/path IPC 均不得开放。
 - Electron 验收必须覆盖与 TUI 同时连接同一 Daemon、断线重连、streaming delta、长消息/代码 overflow、transcript scroll、工具输出折叠、固定 composer、审批 modal 与焦点。
 - 桌面 smoke 还必须覆盖 owned/external Daemon 两种启动路径、深色/浅色截图和计算后字号下限；本轮不扩展移动端矩阵。
+- 响应式桌面验收在 `1920×1080` 主基准通过后，补测 `1440×900` 与 `1180×720`；三档均不得产生 document overflow，composer 必须完整可见，窄窗口检查器以受控抽屉呈现。
+- 设置弹层必须留在 viewport 内、锁定背景焦点、API Key input 保持 password，read API 只返回 `hasApiKey` 状态。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。

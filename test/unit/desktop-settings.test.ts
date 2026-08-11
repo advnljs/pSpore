@@ -1,0 +1,85 @@
+import assert from "node:assert/strict";
+import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import { DesktopSettingsService } from "../../src/desktop/settings-service.js";
+import { initializePsporeHome } from "../../src/storage/home.js";
+
+test("desktop settings persist model endpoint and API key without embedding the secret", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-desktop-settings-"));
+  try {
+    const { paths } = await initializePsporeHome(home);
+    const service = new DesktopSettingsService(home, paths);
+    assert.deepEqual(await service.get(), {
+      version: 1,
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      baseUrl: "",
+      api: "provider-default",
+      thinking: "off",
+      customModel: false,
+      hasApiKey: false,
+    });
+
+    const secret = "unit-test-key-that-must-not-enter-models-json";
+    const saved = await service.save({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      baseUrl: "https://api.deepseek.com/v1",
+      api: "provider-default",
+      thinking: "off",
+      customModel: false,
+      apiKey: secret,
+      clearApiKey: false,
+    });
+    assert.equal(saved.hasApiKey, true);
+    const config = JSON.parse(await readFile(paths.config, "utf8"));
+    assert.deepEqual(config.model, { provider: "deepseek", model: "deepseek-v4-flash", thinking: "off" });
+    const modelsSource = await readFile(join(paths.agentDir, "models.json"), "utf8");
+    assert.doesNotMatch(modelsSource, new RegExp(secret));
+    assert.match(modelsSource, /deepseek\.api-key/);
+    const credentialPath = join(paths.credentials, "deepseek.api-key");
+    assert.equal(await readFile(credentialPath, "utf8"), secret);
+    assert.equal((await stat(credentialPath)).mode & 0o777, 0o600);
+
+    const cleared = await service.save({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      baseUrl: "",
+      api: "provider-default",
+      thinking: "low",
+      customModel: false,
+      clearApiKey: true,
+    });
+    assert.equal(cleared.hasApiKey, false);
+    await assert.rejects(() => access(credentialPath), /ENOENT/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("desktop settings can register an explicit OpenAI-compatible custom model", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-desktop-custom-model-"));
+  try {
+    const { paths } = await initializePsporeHome(home);
+    const service = new DesktopSettingsService(home, paths);
+    const saved = await service.save({
+      provider: "local-gateway",
+      model: "reasoner-v1",
+      baseUrl: "http://127.0.0.1:8080/v1",
+      api: "openai-completions",
+      thinking: "off",
+      customModel: true,
+      apiKey: "local-only",
+      clearApiKey: false,
+    });
+    assert.equal(saved.customModel, true);
+    assert.equal(saved.api, "openai-completions");
+    const models = JSON.parse(await readFile(join(paths.agentDir, "models.json"), "utf8"));
+    assert.deepEqual(models.providers["local-gateway"].models, [{ id: "reasoner-v1", name: "reasoner-v1" }]);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});

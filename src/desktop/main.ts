@@ -13,9 +13,14 @@ import {
   DESKTOP_BOOTSTRAP_CHANNEL,
   DESKTOP_DISPATCH_CHANNEL,
   DESKTOP_FRAME_CHANNEL,
+  DESKTOP_SETTINGS_GET_CHANNEL,
+  DESKTOP_SETTINGS_SAVE_CHANNEL,
+  decodeDesktopLlmSettingsUpdate,
   type DesktopFrame,
+  type DesktopSettingsSaveResult,
 } from "./ipc-contract.js";
 import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
+import { DesktopSettingsService } from "./settings-service.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 
 interface DesktopArguments {
@@ -31,6 +36,9 @@ interface SmokeReport {
   images: {
     main: { width: number; height: number };
     light: { width: number; height: number };
+    settings: { width: number; height: number };
+    medium: { width: number; height: number };
+    compact: { width: number; height: number };
     approval?: { width: number; height: number };
   };
   themes: {
@@ -43,6 +51,18 @@ interface SmokeReport {
     codeContained: boolean;
     composerVisible: boolean;
     streamingVisible: boolean;
+  };
+  responsive: {
+    medium: ResponsiveLayoutProbe;
+    compact: ResponsiveLayoutProbe;
+    compactInspector: ResponsiveLayoutProbe;
+  };
+  settings: {
+    dialogContained: boolean;
+    backgroundInert: boolean;
+    apiKeyInputType: string;
+    returnedSecret: boolean;
+    fieldFontSize: number;
   };
   probe: {
     viewport: { width: number; height: number; devicePixelRatio: number };
@@ -65,16 +85,29 @@ interface SmokeReport {
   ipcProbe: { jobsArray: boolean; rejected: boolean; rejectionMessage: string };
 }
 
+interface ResponsiveLayoutProbe {
+  viewport: { width: number; height: number };
+  scrollWidth: number;
+  scrollHeight: number;
+  navigationVisible: boolean;
+  inspectorVisible: boolean;
+  inspectorContained: boolean;
+  conversationWidth: number;
+  composerVisible: boolean;
+}
+
 const arguments_ = parseArguments(process.argv.slice(1));
 if (arguments_.smokeDirectory) app.disableHardwareAcceleration();
 
 let window: BrowserWindow | undefined;
 let bridge: DaemonBridge | undefined;
 let daemonSupervisor: DesktopDaemonSupervisor | undefined;
+let settingsService: DesktopSettingsService | undefined;
 let unsubscribeBridge: (() => void) | undefined;
 let rendererUrl = "";
 let exitCode = 0;
 let shuttingDown = false;
+let savingSettings = false;
 
 app.on("window-all-closed", () => requestShutdown(0));
 app.on("before-quit", (event) => {
@@ -110,10 +143,11 @@ async function startDesktop(): Promise<void> {
     },
   });
   bridge.start();
+  settingsService = new DesktopSettingsService(home, paths);
 
   window = new BrowserWindow(desktopWindowOptions(preloadPath));
   hardenWindow(window, rendererUrl);
-  installIpc(window, bridge);
+  installIpc(window, bridge, settingsService);
   unsubscribeBridge = bridge.subscribe((frame) => sendFrame(window, frame));
   await window.loadFile(rendererPath);
 
@@ -153,9 +187,15 @@ function hardenWindow(target: BrowserWindow, expectedUrl: string): void {
   contents.on("will-attach-webview", (event) => event.preventDefault());
 }
 
-function installIpc(target: BrowserWindow, daemonBridge: DaemonBridge): void {
+function installIpc(
+  target: BrowserWindow,
+  daemonBridge: DaemonBridge,
+  desktopSettings: DesktopSettingsService,
+): void {
   ipcMain.removeHandler(DESKTOP_BOOTSTRAP_CHANNEL);
   ipcMain.removeHandler(DESKTOP_DISPATCH_CHANNEL);
+  ipcMain.removeHandler(DESKTOP_SETTINGS_GET_CHANNEL);
+  ipcMain.removeHandler(DESKTOP_SETTINGS_SAVE_CHANNEL);
   ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
     assertTrustedSender(event, target.webContents);
     return daemonBridge.bootstrap();
@@ -163,6 +203,41 @@ function installIpc(target: BrowserWindow, daemonBridge: DaemonBridge): void {
   ipcMain.handle(DESKTOP_DISPATCH_CHANNEL, async (event, command: unknown) => {
     assertTrustedSender(event, target.webContents);
     return daemonBridge.dispatch(command);
+  });
+  ipcMain.handle(DESKTOP_SETTINGS_GET_CHANNEL, async (event) => {
+    assertTrustedSender(event, target.webContents);
+    return desktopSettings.get();
+  });
+  ipcMain.handle(DESKTOP_SETTINGS_SAVE_CHANNEL, async (event, candidate: unknown) => {
+    assertTrustedSender(event, target.webContents);
+    if (savingSettings) throw new Error("Desktop settings are already being saved");
+    const update = decodeDesktopLlmSettingsUpdate(candidate);
+    savingSettings = true;
+    try {
+      const settings = await desktopSettings.save(update);
+      const ownership = daemonSupervisor?.ownership;
+      if (ownership !== "owned") {
+        return {
+          settings,
+          applied: false,
+          restartRequired: true,
+          message: "设置已安全保存；当前由外部 Daemon 提供服务，重启该 Daemon 后生效。",
+        } satisfies DesktopSettingsSaveResult;
+      }
+      await daemonBridge.stop();
+      await daemonSupervisor?.stop();
+      await daemonSupervisor?.start();
+      daemonBridge.start();
+      await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 10_000);
+      return {
+        settings,
+        applied: true,
+        restartRequired: false,
+        message: "设置已保存并应用，本地 Daemon 已安全重启。",
+      } satisfies DesktopSettingsSaveResult;
+    } finally {
+      savingSettings = false;
+    }
   });
 }
 
@@ -261,6 +336,47 @@ async function runSmoke(
   await writeFile(join(outputDirectory, "desktop-main-light-1920x1080.png"), lightImage.toPNG(), { mode: 0o600 });
   await setRendererTheme(target, "dark");
 
+  await target.webContents.executeJavaScript("document.querySelector('#settings-button')?.click()");
+  await waitForRenderer(target, "document.querySelector('#settings-overlay')?.hidden === false", 5_000);
+  await waitForRenderer(target, "document.querySelector('#settings-save')?.disabled === false", 5_000);
+  await settlePaint();
+  const settingsImage = await target.webContents.capturePage();
+  await writeFile(join(outputDirectory, "desktop-settings-1920x1080.png"), settingsImage.toPNG(), { mode: 0o600 });
+  const settingsProbe: SmokeReport["settings"] = await target.webContents.executeJavaScript(`(async () => {
+    const dialog = document.querySelector('.settings-dialog');
+    const dialogRect = dialog?.getBoundingClientRect();
+    const settings = await window.pspore.getSettings();
+    return {
+      dialogContained: Boolean(dialogRect && dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight),
+      backgroundInert: Boolean(document.querySelector('#app-shell')?.inert),
+      apiKeyInputType: document.querySelector('#settings-api-key')?.type || '',
+      returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey'),
+      fieldFontSize: Number.parseFloat(getComputedStyle(document.querySelector('#settings-provider')).fontSize)
+    };
+  })()`);
+  await target.webContents.executeJavaScript("document.querySelector('#settings-close')?.click()");
+  await waitForRenderer(target, "document.querySelector('#settings-overlay')?.hidden === true", 2_000);
+  await target.webContents.executeJavaScript("document.activeElement?.blur()");
+
+  target.setContentSize(1_440, 900);
+  await settlePaint();
+  const mediumLayout = await readResponsiveLayout(target);
+  const mediumImage = await target.webContents.capturePage();
+  await writeFile(join(outputDirectory, "desktop-responsive-1440x900.png"), mediumImage.toPNG(), { mode: 0o600 });
+
+  target.setContentSize(1_180, 720);
+  await settlePaint();
+  const compactLayout = await readResponsiveLayout(target);
+  const compactImage = await target.webContents.capturePage();
+  await writeFile(join(outputDirectory, "desktop-responsive-1180x720.png"), compactImage.toPNG(), { mode: 0o600 });
+  await target.webContents.executeJavaScript("document.querySelector('#inspector-toggle')?.click()");
+  await settlePaint();
+  const compactInspectorLayout = await readResponsiveLayout(target);
+  await target.webContents.executeJavaScript("document.querySelector('#inspector-close')?.click()");
+
+  target.setContentSize(1_920, 1_080);
+  await settlePaint();
+
   let approvalSize: { width: number; height: number } | undefined;
   if (fixture) {
     const base = daemonBridge.bootstrap();
@@ -328,11 +444,16 @@ async function runSmoke(
     images: {
       main: mainImage.getSize(),
       light: lightImage.getSize(),
+      settings: settingsImage.getSize(),
+      medium: mediumImage.getSize(),
+      compact: compactImage.getSize(),
       ...(approvalSize ? { approval: approvalSize } : {}),
     },
     themes: { dark: darkTheme, light: lightTheme },
     typography,
     mainVisual,
+    responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
+    settings: settingsProbe,
     probe,
     ipcProbe,
   };
@@ -346,6 +467,9 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   if (fixture && !report.reconnectVerified) failures.push("desktop reconnect path was not verified");
   if (report.images.main.width !== 1_920 || report.images.main.height !== 1_080) failures.push("main capture is not 1920x1080");
   if (report.images.light.width !== 1_920 || report.images.light.height !== 1_080) failures.push("light capture is not 1920x1080");
+  if (report.images.settings.width !== 1_920 || report.images.settings.height !== 1_080) failures.push("settings capture is not 1920x1080");
+  if (report.images.medium.width !== 1_440 || report.images.medium.height !== 900) failures.push("medium capture is not 1440x900");
+  if (report.images.compact.width !== 1_180 || report.images.compact.height !== 720) failures.push("compact capture is not 1180x720");
   if (report.themes.dark.colorScheme !== "dark" || report.themes.light.colorScheme !== "light") failures.push("theme color-scheme did not switch");
   if (report.themes.dark.backgroundColor === report.themes.light.backgroundColor) failures.push("theme canvas colors did not switch");
   if (report.themes.dark.surfaceColor === report.themes.light.surfaceColor) failures.push("theme surface colors did not switch");
@@ -358,7 +482,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     sessionPrimary: 13,
     sessionSecondary: 11.5,
     denseTitle: 12.5,
-    auxiliary: 10.5,
+    auxiliary: 11.5,
   };
   for (const [name, minimum] of Object.entries(minimumFontSizes)) {
     const actual = report.typography[name];
@@ -371,9 +495,26 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   for (const global of ["process", "require", "Buffer", "electron"]) {
     if (report.probe.globals[global] !== "undefined") failures.push(`renderer exposes ${global}`);
   }
-  if (report.probe.apiKeys.join(",") !== "bootstrap,dispatch,subscribe") failures.push("preload API surface changed");
+  if (report.probe.apiKeys.join(",") !== "bootstrap,dispatch,getSettings,saveSettings,subscribe") failures.push("preload API surface changed");
   if (!report.ipcProbe.jobsArray) failures.push("allowlisted IPC round trip failed");
   if (!report.ipcProbe.rejected || !report.ipcProbe.rejectionMessage.includes("not allowlisted")) failures.push("non-allowlisted IPC was not rejected");
+  if (!report.settings.dialogContained || !report.settings.backgroundInert) failures.push("settings dialog is not contained and modal");
+  if (report.settings.apiKeyInputType !== "password" || report.settings.returnedSecret) failures.push("settings API exposed an API key");
+  if (report.settings.fieldFontSize < 14) failures.push("settings field font size is below 14px");
+  const expectedResponsive: Array<[string, ResponsiveLayoutProbe, number, number]> = [
+    ["medium", report.responsive.medium, 1_440, 900],
+    ["compact", report.responsive.compact, 1_180, 720],
+    ["compact inspector", report.responsive.compactInspector, 1_180, 720],
+  ];
+  for (const [name, layout, width, height] of expectedResponsive) {
+    if (layout.viewport.width !== width || layout.viewport.height !== height) failures.push(`${name} viewport changed unexpectedly`);
+    if (layout.scrollWidth !== width || layout.scrollHeight !== height) failures.push(`${name} document overflows the viewport`);
+    if (!layout.composerVisible || layout.conversationWidth < 520) failures.push(`${name} conversation does not use the available space`);
+    if (!layout.inspectorContained) failures.push(`${name} inspector escapes the viewport`);
+  }
+  if (!report.responsive.medium.navigationVisible || report.responsive.medium.inspectorVisible) failures.push("medium layout did not maximize the conversation canvas by default");
+  if (!report.responsive.compact.navigationVisible || report.responsive.compact.inspectorVisible) failures.push("compact layout did not collapse the inspector");
+  if (!report.responsive.compactInspector.inspectorVisible) failures.push("compact inspector drawer did not open");
   if (fixture) {
     if (report.images.approval?.width !== 1_920 || report.images.approval.height !== 1_080) failures.push("approval capture is not 1920x1080");
     if (!report.mainVisual.transcriptScrollable || !report.probe.document.transcriptScrollable) failures.push("transcript fixture did not exercise vertical scrolling");
@@ -439,6 +580,28 @@ async function readThemeSnapshot(
     backgroundColor: getComputedStyle(document.body).backgroundColor,
     surfaceColor: getComputedStyle(document.querySelector('.panel')).backgroundColor
   }))()`);
+}
+
+async function readResponsiveLayout(target: BrowserWindow): Promise<ResponsiveLayoutProbe> {
+  return target.webContents.executeJavaScript(`(() => {
+    const visible = (selector) => {
+      const node = document.querySelector(selector);
+      return Boolean(node && getComputedStyle(node).display !== 'none');
+    };
+    const composerRect = document.querySelector('.composer')?.getBoundingClientRect();
+    const conversationRect = document.querySelector('.conversation')?.getBoundingClientRect();
+    const inspectorRect = document.querySelector('#inspector-panel')?.getBoundingClientRect();
+    return {
+      viewport: { width: innerWidth, height: innerHeight },
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      navigationVisible: visible('#navigation-panel'),
+      inspectorVisible: visible('#inspector-panel'),
+      inspectorContained: !visible('#inspector-panel') || Boolean(inspectorRect && inspectorRect.left >= 0 && inspectorRect.top >= 0 && inspectorRect.right <= innerWidth && inspectorRect.bottom <= innerHeight),
+      conversationWidth: conversationRect?.width || 0,
+      composerVisible: Boolean(composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight)
+    };
+  })()`);
 }
 
 function parseArguments(argv: readonly string[]): DesktopArguments {

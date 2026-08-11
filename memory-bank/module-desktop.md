@@ -17,6 +17,7 @@
 - `ipc-contract.ts`：离散 `DesktopCommand` union、严格 decoder 与 protocol mapping。
 - `daemon-bridge.ts`：UDS owner、cursor、gap/reconnect、snapshot、连续 delta coalescing。
 - `daemon-supervisor.ts`：原子判定 desktop 是拥有新 Daemon 还是复用现有实例，只关闭自己拥有的实例。
+- `settings-service.ts`：验证并原子持久化模型选择、Base URL、自定义兼容模型与私有 API Key 引用；保存前用 Pi `ModelRuntime` 验证模型可解析。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
 - `security.ts`：BrowserWindow security flags、严格 CSP 与 exact local navigation 检查。
 - `smoke-fixture.ts`：只由显式 `--smoke-fixture` 使用的长内容、agent、run、MCP/resource 和审批视觉状态。
@@ -29,6 +30,8 @@ preload 仅暴露：
 
 - `bootstrap()`：读取 connection、authoritative snapshot、cursor 与版本。
 - `dispatch(command)`：发送严格 allowlisted action；不接受 channel 名或协议 type。
+- `getSettings()`：只返回模型设置和 `hasApiKey` 布尔状态，不返回 secret。
+- `saveSettings(settings)`：发送严格解码的模型设置；owned Daemon 自动重启应用，external Daemon 只保存并提示用户重启。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
 
 支持 main prompt/steer/follow-up/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。resource IPC 只接受单层 staging name；renderer 不能提交任意绝对路径。
@@ -48,9 +51,11 @@ preload 仅暴露：
 - renderer 所有动态内容都通过 `textContent`/Text node 写入，不使用 `innerHTML`。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
-- renderer 通过语义色变量提供持久化深色/浅色主题；正文与对话字号不低于 `14/15px`，仅辅助标签允许 `10.5px`。
-- smoke 使用 2048×1200 Xvfb screen 承载精确 1920×1080 content viewport；报告会自动断言外部/拥有 Daemon、双主题、计算后字号、尺寸、overflow、焦点、隔离、重连与 IPC allowlist。
+- renderer 通过语义色变量提供持久化深色/浅色主题；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
+- 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
+- API Key 保存到 `credentials/<provider>.api-key` 且 mode `0600`；`models.json` 只存私有文件读取引用。renderer 始终只看见 `hasApiKey`。
+- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；报告自动断言外部/拥有 Daemon、双主题、设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
 
 ## 常见修改点
 
-新增用户动作时同时修改 `DesktopCommand` decoder、protocol mapping、renderer 控件和测试；不得增加通用 `send(channel, payload)`。新增 Kernel 顶层字段或 event type 时同步更新 main validation 与 renderer store。修改视觉布局后运行 `npm run test:electron`，并用 `PSPORE_KEEP_SMOKE=1` 检查深色、浅色和审批截图。
+新增用户动作时同时修改 `DesktopCommand` decoder、protocol mapping、renderer 控件和测试；不得增加通用 `send(channel, payload)`。模型设置改动同时检查 `DesktopLlmSettingsUpdate` decoder、`settings-service`、owned/external restart 语义与 secret 回读。新增 Kernel 顶层字段或 event type 时同步更新 main validation 与 renderer store。修改视觉布局后运行 `npm run test:electron`，并用 `PSPORE_KEEP_SMOKE=1` 检查深色、浅色、设置、响应式和审批截图。

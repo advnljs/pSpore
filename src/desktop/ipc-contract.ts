@@ -4,6 +4,8 @@ import type { EventEnvelope } from "../protocol/schema.js";
 export const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
 export const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
+export const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
+export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 
 export type DesktopConnectionPhase = "connecting" | "connected" | "disconnected";
 
@@ -72,7 +74,94 @@ export interface DesktopProtocolInvocation {
 export interface DesktopApi {
   bootstrap(): Promise<DesktopBootstrap>;
   dispatch(command: DesktopCommand): Promise<unknown>;
+  getSettings(): Promise<DesktopLlmSettings>;
+  saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;
   subscribe(listener: (frame: DesktopFrame) => void): () => void;
+}
+
+export type DesktopModelApi =
+  | "provider-default"
+  | "openai-completions"
+  | "openai-responses"
+  | "anthropic-messages"
+  | "google-generative-ai";
+
+export type DesktopThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface DesktopLlmSettings {
+  version: 1;
+  provider: string;
+  model: string;
+  baseUrl: string;
+  api: DesktopModelApi;
+  thinking: DesktopThinkingLevel;
+  customModel: boolean;
+  hasApiKey: boolean;
+}
+
+export interface DesktopLlmSettingsUpdate {
+  provider: string;
+  model: string;
+  baseUrl: string;
+  api: DesktopModelApi;
+  thinking: DesktopThinkingLevel;
+  customModel: boolean;
+  apiKey?: string;
+  clearApiKey: boolean;
+}
+
+export interface DesktopSettingsSaveResult {
+  settings: DesktopLlmSettings;
+  applied: boolean;
+  restartRequired: boolean;
+  message: string;
+}
+
+export function decodeDesktopLlmSettingsUpdate(value: unknown): DesktopLlmSettingsUpdate {
+  const input = object(value, "desktop LLM settings");
+  exactShape(
+    input,
+    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "clearApiKey"],
+    ["apiKey"],
+    "desktop LLM settings",
+  );
+  const provider = modelIdentifier(input["provider"], "desktop LLM settings.provider", false);
+  const model = modelIdentifier(input["model"], "desktop LLM settings.model", true);
+  const baseUrl = optionalString(input["baseUrl"], "desktop LLM settings.baseUrl", 2_048);
+  if (baseUrl) validateBaseUrl(baseUrl);
+  const customModel = booleanValue(input["customModel"], "desktop LLM settings.customModel");
+  const api = enumeration(
+    input["api"],
+    ["provider-default", "openai-completions", "openai-responses", "anthropic-messages", "google-generative-ai"],
+    "desktop LLM settings.api",
+  );
+  if (customModel && !baseUrl) throw new Error("desktop LLM settings.baseUrl is required for a custom model");
+  if (customModel && api === "provider-default") {
+    throw new Error("desktop LLM settings.api must be selected for a custom model");
+  }
+  const apiKeyValue = input["apiKey"];
+  let apiKey: string | undefined;
+  if (apiKeyValue !== undefined) {
+    apiKey = optionalString(apiKeyValue, "desktop LLM settings.apiKey", 16_384);
+    if (!apiKey) apiKey = undefined;
+    if (apiKey && /[\r\n\u0000]/.test(apiKey)) throw new Error("desktop LLM settings.apiKey cannot contain line breaks");
+  }
+  const clearApiKey = booleanValue(input["clearApiKey"], "desktop LLM settings.clearApiKey");
+  if (apiKey && clearApiKey) throw new Error("desktop LLM settings cannot set and clear the API key together");
+  return {
+    provider,
+    model,
+    baseUrl,
+    api,
+    thinking: enumeration(
+      input["thinking"],
+      ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+      "desktop LLM settings.thinking",
+    ),
+    customModel,
+    ...(apiKey ? { apiKey } : {}),
+    clearApiKey,
+  };
 }
 
 export function decodeDesktopCommand(value: unknown): DesktopCommand {
@@ -248,6 +337,18 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[], path
   for (const key of keys) if (!(key in value)) throw new Error(`${path}.${key} is required`);
 }
 
+function exactShape(
+  value: Record<string, unknown>,
+  required: readonly string[],
+  optional: readonly string[],
+  path: string,
+): void {
+  const allowed = new Set([...required, ...optional]);
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key));
+  if (unknown.length > 0) throw new Error(`${path} contains unknown fields: ${unknown.join(", ")}`);
+  for (const key of required) if (!(key in value)) throw new Error(`${path}.${key} is required`);
+}
+
 function boundedString(value: unknown, path: string, maximum: number): string {
   if (typeof value !== "string" || !value.trim() || value.length > maximum || /[\u0000]/.test(value)) {
     throw new Error(`${path} must be a non-empty string of at most ${maximum} characters`);
@@ -286,4 +387,37 @@ function digest(value: unknown, path: string): string {
 function enumeration<const T extends string>(value: unknown, allowed: readonly T[], path: string): T {
   if (typeof value !== "string" || !allowed.includes(value as T)) throw new Error(`${path} must be one of: ${allowed.join(", ")}`);
   return value as T;
+}
+
+function optionalString(value: unknown, path: string, maximum: number): string {
+  if (typeof value !== "string" || value.length > maximum || /[\u0000]/.test(value)) {
+    throw new Error(`${path} must be a string of at most ${maximum} characters`);
+  }
+  return value.trim();
+}
+
+function booleanValue(value: unknown, path: string): boolean {
+  if (typeof value !== "boolean") throw new Error(`${path} must be boolean`);
+  return value;
+}
+
+function modelIdentifier(value: unknown, path: string, allowSlash: boolean): string {
+  const identifierValue = optionalString(value, path, 128);
+  const expression = allowSlash ? /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/ : /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+  if (!identifierValue || !expression.test(identifierValue)) {
+    throw new Error(`${path} contains unsupported characters`);
+  }
+  return identifierValue;
+}
+
+function validateBaseUrl(value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("desktop LLM settings.baseUrl must be a valid URL");
+  }
+  if ((url.protocol !== "https:" && url.protocol !== "http:") || url.username || url.password || url.search || url.hash) {
+    throw new Error("desktop LLM settings.baseUrl must be an HTTP(S) URL without credentials, query, or fragment");
+  }
 }

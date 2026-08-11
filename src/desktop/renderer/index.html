@@ -15,27 +15,40 @@
     <a class="skip-link" href="#main-workspace">跳到主工作区</a>
     <div id="app-shell" class="app-shell">
       <header class="topbar">
-        <div class="brand-lockup" aria-label="pSpore local agent">
-          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
-          <div>
-            <h1>pSpore</h1>
-            <span>LOCAL AGENT</span>
+        <div class="topbar-leading">
+          <button id="navigation-toggle" class="icon-button" type="button" title="收起会话栏" aria-label="收起会话栏" aria-controls="navigation-panel" aria-expanded="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16M4 12h10M4 19h16"></path></svg>
+          </button>
+          <div class="brand-lockup" aria-label="pSpore local agent">
+            <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+            <div>
+              <h1>pSpore</h1>
+              <span>LOCAL AGENT</span>
+            </div>
           </div>
         </div>
-        <div class="topbar-center">
+        <div class="runtime-status">
           <span id="connection-badge" class="connection-badge disconnected"><i></i>OFFLINE</span>
           <span id="daemon-instance" class="muted">等待本地守护进程</span>
         </div>
-        <div class="topbar-metrics" aria-label="Runtime metrics">
-          <span><small>REV</small><b id="revision-value">0</b></span>
-          <span><small>CONTEXT</small><b id="usage-value">0</b></span>
-          <span><small>CACHE</small><b id="cache-value">0</b></span>
+        <div class="topbar-actions">
+          <div class="topbar-metrics" aria-label="运行指标">
+            <span><small>修订</small><b id="revision-value">0</b></span>
+            <span><small>上下文</small><b id="usage-value">0</b></span>
+            <span><small>缓存</small><b id="cache-value">0</b></span>
+          </div>
+          <button id="inspector-toggle" class="icon-button" type="button" title="收起检查器" aria-label="收起检查器" aria-controls="inspector-panel" aria-expanded="true">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M14 5v14"></path></svg>
+          </button>
           <button id="theme-toggle" class="icon-button theme-toggle" type="button" title="切换到浅色模式" aria-label="切换到浅色模式">
             <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
             <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.4 8.4 0 0 1 8.8 4a8.4 8.4 0 1 0 11.2 11.2Z"></path></svg>
           </button>
           <button id="refresh-button" class="icon-button" type="button" title="刷新列表" aria-label="刷新列表">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5"></path><path d="M7.1 7.1A7 7 0 0 1 19 12M5 12a7 7 0 0 0 11.9 4.9"></path></svg>
+          </button>
+          <button id="settings-button" class="icon-button" type="button" title="设置" aria-label="打开设置">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6 1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"></path></svg>
           </button>
         </div>
       </header>
@@ -46,48 +59,44 @@
       </div>
 
       <main id="main-workspace" class="workspace-grid">
-        <aside class="left-rail panel" aria-label="Sessions and agents">
-          <section class="rail-section sessions-section">
+        <aside id="navigation-panel" class="left-rail panel" aria-label="会话与 Agent">
+          <header class="panel-header navigation-header">
             <div class="section-heading">
-              <div><span class="eyebrow">CONTEXT</span><h2>会话树</h2></div>
+              <div><span class="eyebrow">CONTEXT</span><h2>会话</h2></div>
               <span id="session-count" class="count-pill">0</span>
             </div>
+            <p>主会话与有界子任务共享同一上下文视图。</p>
+          </header>
+          <section class="sessions-section">
             <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
           </section>
 
-          <section class="rail-section spawn-section">
-            <div class="section-heading compact">
-              <div><span class="eyebrow">DELEGATE</span><h2>新建子 Agent</h2></div>
-            </div>
-            <form id="spawn-form" class="compact-form" autocomplete="off">
-              <label for="spawn-objective">目标</label>
-              <textarea id="spawn-objective" name="objective" rows="3" maxlength="16384" placeholder="例如：检查测试失败的根因…"></textarea>
-              <button class="secondary-button" type="submit"><span>＋</span>启动有界任务</button>
-            </form>
+          <div class="navigation-actions">
+            <button id="agent-compose-toggle" class="secondary-button wide-button" type="button" aria-controls="agent-compose" aria-expanded="false">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+              新建子 Agent
+            </button>
+            <section id="agent-compose" class="inline-editor" hidden>
+              <div class="inline-editor-heading">
+                <div><span class="eyebrow">DELEGATE</span><h3>委派一个有界任务</h3></div>
+                <button id="agent-compose-close" class="quiet-icon-button" type="button" aria-label="关闭新建子 Agent">×</button>
+              </div>
+              <form id="spawn-form" class="compact-form" autocomplete="off">
+                <label for="spawn-objective">任务目标</label>
+                <textarea id="spawn-objective" name="objective" rows="4" maxlength="16384" placeholder="例如：检查测试失败的根因…"></textarea>
+                <button class="primary-button" type="submit">启动任务</button>
+              </form>
+            </section>
             <div id="child-controls" class="child-controls" hidden>
               <button id="join-agent-button" class="ghost-button" type="button">等待完成</button>
               <button id="cancel-agent-button" class="danger-ghost-button" type="button">取消 Agent</button>
             </div>
-          </section>
-
-          <section class="rail-section staging-section">
-            <div class="section-heading compact">
-              <div><span class="eyebrow">TRUST GATE</span><h2>暂存资源</h2></div>
-            </div>
-            <form id="inspect-form" class="compact-form inline-form" autocomplete="off">
-              <label for="staging-name">workspace/staging/</label>
-              <div>
-                <input id="staging-name" name="stagingName" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="例如：review-helper…" spellcheck="false" />
-                <button class="ghost-button" type="submit">检查</button>
-              </div>
-            </form>
-            <div id="inspection-result" class="inspection-result" hidden></div>
-          </section>
-
-          <footer class="rail-footer">
-            <span id="version-line">pSpore — · Pi —</span>
-            <span id="runtime-line">Electron — · Node —</span>
-          </footer>
+            <button id="resource-shortcut" class="ghost-button wide-button" type="button">资源与信任</button>
+            <footer class="rail-footer">
+              <span id="version-line">pSpore — · Pi —</span>
+              <span id="runtime-line">Electron — · Node —</span>
+            </footer>
+          </div>
         </aside>
 
         <section class="conversation panel" aria-label="Conversation">
@@ -126,38 +135,131 @@
           </div>
         </section>
 
-        <aside class="right-rail panel" aria-label="Activity and automation">
-          <section class="right-section activity-section">
-            <div class="section-heading">
-              <div><span class="eyebrow">LIVE TRACE</span><h2>活动</h2></div>
-              <span id="activity-count" class="count-pill">0</span>
-            </div>
-            <div id="activity-list" class="activity-list"></div>
-          </section>
+        <aside id="inspector-panel" class="right-rail panel" aria-label="上下文检查器">
+          <header class="inspector-header">
+            <div><span class="eyebrow">WORKSPACE</span><h2>检查器</h2></div>
+            <button id="inspector-close" class="quiet-icon-button" type="button" aria-label="关闭检查器">×</button>
+          </header>
+          <nav class="inspector-tabs" role="tablist" aria-label="检查器分类">
+            <button id="tab-activity" class="inspector-tab selected" type="button" role="tab" aria-selected="true" aria-controls="panel-activity" data-inspector-tab="activity">活动</button>
+            <button id="tab-automation" class="inspector-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-automation" data-inspector-tab="automation">自动化</button>
+            <button id="tab-integrations" class="inspector-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-integrations" data-inspector-tab="integrations">集成</button>
+            <button id="tab-resources" class="inspector-tab" type="button" role="tab" aria-selected="false" aria-controls="panel-resources" data-inspector-tab="resources">资源</button>
+          </nav>
+          <div class="inspector-content">
+            <section id="panel-activity" class="inspector-view" role="tabpanel" aria-labelledby="tab-activity" data-inspector-panel="activity">
+              <div class="section-heading">
+                <div><span class="eyebrow">LIVE TRACE</span><h2>最近活动</h2></div>
+                <span id="activity-count" class="count-pill">0</span>
+              </div>
+              <div id="activity-list" class="activity-list"></div>
+              <div class="subsection-heading"><span>最近通知</span></div>
+              <div id="notification-list" class="dense-list"></div>
+            </section>
 
-          <section class="right-section">
-            <div class="section-heading compact">
-              <div><span class="eyebrow">AUTOMATION</span><h2>计划与运行</h2></div>
-            </div>
-            <div id="job-list" class="dense-list"></div>
-            <div id="run-list" class="dense-list"></div>
-          </section>
+            <section id="panel-automation" class="inspector-view" role="tabpanel" aria-labelledby="tab-automation" data-inspector-panel="automation" hidden>
+              <div class="section-heading"><div><span class="eyebrow">AUTOMATION</span><h2>计划与运行</h2></div></div>
+              <div class="subsection-heading"><span>计划任务</span></div>
+              <div id="job-list" class="dense-list"></div>
+              <div class="subsection-heading"><span>运行记录</span></div>
+              <div id="run-list" class="dense-list"></div>
+            </section>
 
-          <section class="right-section integrations-section">
-            <div class="section-heading compact">
-              <div><span class="eyebrow">EXTENSIONS</span><h2>集成状态</h2></div>
-            </div>
-            <div id="integration-list" class="dense-list"></div>
-          </section>
+            <section id="panel-integrations" class="inspector-view" role="tabpanel" aria-labelledby="tab-integrations" data-inspector-panel="integrations" hidden>
+              <div class="section-heading"><div><span class="eyebrow">EXTENSIONS</span><h2>集成状态</h2></div></div>
+              <div id="integration-list" class="dense-list"></div>
+            </section>
 
-          <section class="right-section notification-section">
-            <div class="section-heading compact">
-              <div><span class="eyebrow">INBOX</span><h2>最近通知</h2></div>
-            </div>
-            <div id="notification-list" class="dense-list"></div>
-          </section>
+            <section id="panel-resources" class="inspector-view" role="tabpanel" aria-labelledby="tab-resources" data-inspector-panel="resources" hidden>
+              <div class="section-heading"><div><span class="eyebrow">TRUST GATE</span><h2>资源与信任</h2></div></div>
+              <p class="section-description">只检查 <code>workspace/staging</code> 下的单层资源，安装时锁定精确摘要。</p>
+              <form id="inspect-form" class="compact-form inline-form" autocomplete="off">
+                <label for="staging-name">暂存资源名称</label>
+                <div>
+                  <input id="staging-name" name="stagingName" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="例如：review-helper" spellcheck="false" />
+                  <button class="secondary-button" type="submit">检查</button>
+                </div>
+              </form>
+              <div id="inspection-result" class="inspection-result" hidden></div>
+            </section>
+          </div>
         </aside>
       </main>
+    </div>
+
+    <div id="settings-overlay" class="settings-overlay" hidden>
+      <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-description">
+        <header class="settings-header">
+          <div>
+            <span class="eyebrow">PREFERENCES</span>
+            <h2 id="settings-title">模型设置</h2>
+            <p id="settings-description">配置本地 Daemon 使用的模型、接口与凭据。</p>
+          </div>
+          <button id="settings-close" class="quiet-icon-button" type="button" aria-label="关闭设置">×</button>
+        </header>
+        <form id="settings-form" class="settings-form" autocomplete="off">
+          <section class="settings-section">
+            <div class="settings-section-title"><span>01</span><div><h3>模型</h3><p>选择当前主会话使用的 provider 与 model。</p></div></div>
+            <div class="field-grid two-columns">
+              <label><span>Provider</span><input id="settings-provider" name="provider" maxlength="128" spellcheck="false" required /></label>
+              <label><span>Model</span><input id="settings-model" name="model" maxlength="128" spellcheck="false" required /></label>
+            </div>
+            <label class="checkbox-field">
+              <input id="settings-custom-model" name="customModel" type="checkbox" />
+              <span><b>注册为自定义模型</b><small>仅当模型不在 Pi 内置目录中时启用。</small></span>
+            </label>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-title"><span>02</span><div><h3>接口</h3><p>Base URL 留空时使用 provider 默认地址。</p></div></div>
+            <label><span>Base URL</span><input id="settings-base-url" name="baseUrl" type="url" maxlength="2048" placeholder="输入完整 API 服务地址" spellcheck="false" /></label>
+            <div class="field-grid two-columns">
+              <label><span>API 兼容类型</span>
+                <select id="settings-api" name="api">
+                  <option value="provider-default">Provider 默认</option>
+                  <option value="openai-completions">OpenAI Chat Completions</option>
+                  <option value="openai-responses">OpenAI Responses</option>
+                  <option value="anthropic-messages">Anthropic Messages</option>
+                  <option value="google-generative-ai">Google Generative AI</option>
+                </select>
+              </label>
+              <label><span>Thinking</span>
+                <select id="settings-thinking" name="thinking">
+                  <option value="off">Off</option>
+                  <option value="minimal">Minimal</option>
+                  <option value="low">Low</option>
+                  <option value="medium">Medium</option>
+                  <option value="high">High</option>
+                  <option value="xhigh">XHigh</option>
+                  <option value="max">Max</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-title"><span>03</span><div><h3>凭据</h3><p>Key 只保存到当前用户私有目录，不进入聊天、日志或仓库。</p></div></div>
+            <label><span>API Key</span>
+              <div class="secret-input">
+                <input id="settings-api-key" name="apiKey" type="password" maxlength="16384" placeholder="未配置" autocomplete="new-password" spellcheck="false" />
+                <button id="settings-key-reveal" class="quiet-text-button" type="button">显示</button>
+              </div>
+            </label>
+            <label class="checkbox-field destructive">
+              <input id="settings-clear-key" name="clearApiKey" type="checkbox" />
+              <span><b>清除桌面设置保存的 Key</b><small>不会删除其他 provider 的凭据。</small></span>
+            </label>
+          </section>
+
+          <footer class="settings-footer">
+            <p id="settings-status" role="status">读取设置中…</p>
+            <div>
+              <button id="settings-cancel" class="ghost-button" type="button">取消</button>
+              <button id="settings-save" class="primary-button" type="submit">保存并应用</button>
+            </div>
+          </footer>
+        </form>
+      </section>
     </div>
 
     <div id="approval-overlay" class="approval-overlay" hidden>

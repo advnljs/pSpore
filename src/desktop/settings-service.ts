@@ -1,0 +1,218 @@
+import { access, mkdir, mkdtemp, readFile, rm, unlink } from "node:fs/promises";
+import { join } from "node:path";
+
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
+
+import { parseConfig } from "../config/config.js";
+import { atomicWriteFile, atomicWriteJson } from "../storage/atomic.js";
+import { loadConfig, type PsporePaths } from "../storage/home.js";
+import type {
+  DesktopLlmSettings,
+  DesktopLlmSettingsUpdate,
+  DesktopModelApi,
+} from "./ipc-contract.js";
+
+interface ModelsFile {
+  providers: Record<string, unknown>;
+}
+
+const DEFAULT_PROVIDER = "deepseek";
+const DEFAULT_MODEL = "deepseek-v4-flash";
+const MAX_MODELS_FILE_BYTES = 1_048_576;
+const SUPPORTED_APIS = new Set<DesktopModelApi>([
+  "openai-completions",
+  "openai-responses",
+  "anthropic-messages",
+  "google-generative-ai",
+]);
+
+export class DesktopSettingsService {
+  readonly #home: string;
+  readonly #paths: PsporePaths;
+
+  constructor(home: string, paths: PsporePaths) {
+    this.#home = home;
+    this.#paths = paths;
+  }
+
+  async get(): Promise<DesktopLlmSettings> {
+    const config = await loadConfig(this.#home);
+    const provider = config.model?.provider ?? DEFAULT_PROVIDER;
+    const model = config.model?.model ?? DEFAULT_MODEL;
+    const models = await this.#readModels();
+    const providerConfig = record(models.providers[provider]);
+    const api = modelApi(providerConfig?.["api"]);
+    const customModel = Array.isArray(providerConfig?.["models"])
+      && providerConfig["models"].some((candidate) => record(candidate)?.["id"] === model);
+    return {
+      version: 1,
+      provider,
+      model,
+      baseUrl: typeof providerConfig?.["baseUrl"] === "string" ? providerConfig["baseUrl"] : "",
+      api,
+      thinking: config.model?.thinking ?? "off",
+      customModel,
+      hasApiKey: await this.#hasApiKey(provider, providerConfig),
+    };
+  }
+
+  async save(update: DesktopLlmSettingsUpdate): Promise<DesktopLlmSettings> {
+    const currentConfig = await loadConfig(this.#home);
+    const models = await this.#readModels();
+    const providerConfig = { ...(record(models.providers[update.provider]) ?? {}) };
+    const credentialPath = this.#credentialPath(update.provider);
+    const credentialExists = await exists(credentialPath);
+
+    if (update.baseUrl) providerConfig["baseUrl"] = update.baseUrl;
+    else delete providerConfig["baseUrl"];
+
+    if (update.customModel) {
+      providerConfig["api"] = update.api;
+      providerConfig["models"] = upsertCustomModel(providerConfig["models"], update.model);
+    } else {
+      if (update.api === "provider-default") delete providerConfig["api"];
+      else providerConfig["api"] = update.api;
+      const remainingModels = removeCustomModel(providerConfig["models"], update.model);
+      if (Array.isArray(remainingModels) && remainingModels.length > 0) providerConfig["models"] = remainingModels;
+      else delete providerConfig["models"];
+    }
+
+    if (update.apiKey || (credentialExists && !update.clearApiKey)) {
+      providerConfig["apiKey"] = credentialCommand(credentialPath);
+    } else if (update.clearApiKey && isDesktopCredentialCommand(providerConfig["apiKey"], credentialPath)) {
+      delete providerConfig["apiKey"];
+    }
+
+    const nextModels: ModelsFile = {
+      ...models,
+      providers: { ...models.providers },
+    };
+    if (Object.keys(providerConfig).length > 0) nextModels.providers[update.provider] = providerConfig;
+    else delete nextModels.providers[update.provider];
+
+    const nextConfig = parseConfig(
+      {
+        ...currentConfig,
+        model: {
+          provider: update.provider,
+          model: update.model,
+          thinking: update.thinking,
+        },
+      },
+      this.#home,
+    );
+
+    await this.#validateModel(nextModels, update.provider, update.model);
+    if (update.apiKey) {
+      await mkdir(this.#paths.credentials, { recursive: true, mode: 0o700 });
+      await atomicWriteFile(credentialPath, update.apiKey, 0o600);
+    }
+    await atomicWriteJson(join(this.#paths.agentDir, "models.json"), nextModels, 0o600);
+    await atomicWriteJson(this.#paths.config, nextConfig, 0o600);
+    if (update.clearApiKey) await unlink(credentialPath).catch(ignoreMissingFile);
+    return this.get();
+  }
+
+  async #readModels(): Promise<ModelsFile> {
+    const path = join(this.#paths.agentDir, "models.json");
+    let source: string;
+    try {
+      source = await readFile(path, "utf8");
+    } catch (error) {
+      if (isNodeError(error) && error.code === "ENOENT") return { providers: {} };
+      throw error;
+    }
+    if (Buffer.byteLength(source, "utf8") > MAX_MODELS_FILE_BYTES) {
+      throw new Error("models.json is too large to edit safely from Desktop settings");
+    }
+    const parsed: unknown = JSON.parse(source);
+    const root = record(parsed);
+    const providers = record(root?.["providers"]);
+    if (!root || !providers) throw new Error("models.json must contain a providers object");
+    return { ...root, providers } as ModelsFile;
+  }
+
+  async #validateModel(models: ModelsFile, provider: string, model: string): Promise<void> {
+    const temporaryDirectory = await mkdtemp(join(this.#paths.agentDir, ".settings-validate-"));
+    try {
+      const modelsPath = join(temporaryDirectory, "models.json");
+      const authPath = join(temporaryDirectory, "auth.json");
+      await atomicWriteJson(modelsPath, models, 0o600);
+      await atomicWriteJson(authPath, {}, 0o600);
+      const runtime = await ModelRuntime.create({ authPath, modelsPath, refreshOnCreate: false });
+      if (!runtime.getModel(provider, model)) {
+        throw new Error(`Model ${provider}/${model} is not built in; enable “自定义模型”并选择兼容接口`);
+      }
+      const compositionError = runtime.getError();
+      if (compositionError) throw new Error(`Model configuration is invalid: ${compositionError}`);
+    } finally {
+      await rm(temporaryDirectory, { recursive: true, force: true });
+    }
+  }
+
+  async #hasApiKey(provider: string, providerConfig: Record<string, unknown> | undefined): Promise<boolean> {
+    if (await exists(this.#credentialPath(provider))) return true;
+    return typeof providerConfig?.["apiKey"] === "string" && providerConfig["apiKey"].length > 0;
+  }
+
+  #credentialPath(provider: string): string {
+    return join(this.#paths.credentials, `${provider}.api-key`);
+  }
+}
+
+function upsertCustomModel(value: unknown, model: string): unknown[] {
+  const models = Array.isArray(value) ? [...value] : [];
+  const index = models.findIndex((candidate) => record(candidate)?.["id"] === model);
+  const current = index >= 0 ? (record(models[index]) ?? {}) : {};
+  const next = { ...current, id: model, name: typeof current["name"] === "string" ? current["name"] : model };
+  if (index >= 0) models[index] = next;
+  else models.push(next);
+  return models;
+}
+
+function removeCustomModel(value: unknown, model: string): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.filter((candidate) => record(candidate)?.["id"] !== model);
+}
+
+function modelApi(value: unknown): DesktopModelApi {
+  return typeof value === "string" && SUPPORTED_APIS.has(value as DesktopModelApi)
+    ? value as DesktopModelApi
+    : "provider-default";
+}
+
+function credentialCommand(path: string): string {
+  return `!cat -- ${shellQuote(path)}`;
+}
+
+function isDesktopCredentialCommand(value: unknown, path: string): boolean {
+  return value === credentialCommand(path);
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
+function ignoreMissingFile(error: unknown): void {
+  if (!isNodeError(error) || error.code !== "ENOENT") throw error;
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
+}

@@ -4,6 +4,7 @@ import test from "node:test";
 import { initialKernelState } from "../../src/kernel/state.js";
 import {
   decodeDesktopCommand,
+  decodeDesktopLlmSettingsUpdate,
   toProtocolInvocation,
   type DesktopCommand,
 } from "../../src/desktop/ipc-contract.js";
@@ -33,6 +34,40 @@ test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
   assert.throws(
     () => decodeDesktopCommand({ action: "resources.install", stagingName: "skill", expectedDigest: "ABC" }),
     /lowercase SHA-256/,
+  );
+});
+
+test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoints", () => {
+  const valid = {
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    baseUrl: "https://api.deepseek.com/v1",
+    api: "provider-default",
+    thinking: "off",
+    customModel: false,
+    apiKey: "test-key",
+    clearApiKey: false,
+  } as const;
+  assert.deepEqual(decodeDesktopLlmSettingsUpdate(valid), valid);
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, baseUrl: "https://user:pass@example.com/v1" }),
+    /without credentials/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, apiKey: "line\nbreak" }),
+    /cannot contain line breaks/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, clearApiKey: true }),
+    /set and clear/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, provider: "../escape" }),
+    /unsupported characters/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, customModel: true, api: "provider-default" }),
+    /must be selected/,
   );
 });
 
