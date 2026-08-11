@@ -18,7 +18,7 @@
 | P3 | 实现 plugin trust/staging 与 skills reload | Done | 无 | 已覆盖 exact digest、symlink/tamper、capability grant、restart lifecycle 与 Pi progressive disclosure |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
-| P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | In Progress | npm 账号尚未启用 2FA，registry 拒绝发布 | 代码、npm 安装、DeepSeek、Electron/AppImage 回归与 npm `bin` 清单加固均已完成；用户启用 2FA 后重试 `npm publish` |
+| P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 
 ## 已知风险
 

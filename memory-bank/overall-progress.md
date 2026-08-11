@@ -252,3 +252,18 @@
   - 修复后 tarball 为 261 entries、269321 bytes、SHA-1 `399f68e6f7cd0ede377915f2054d9391f48fd9f7`；全新临时 prefix 安装后 `pspore --version` 与 `--help` 均成功，临时目录已删除。
 - 当前状态：待发布代码与包已完成加固；没有常驻服务或前端视觉改动，不需要新的 viewport 验收。
 - 遗留问题：正式上传被 npm registry 拒绝且未创建版本；账号 profile 显示 `tfa: false`，需由用户先在 npm 账号中启用 2FA，再重试 `npm publish`。
+
+## 2026-08-11 15:46 CST — `p-spore@0.1.0` npm 首发
+
+- 阶段目标：在 npm 名称保护与 2FA 约束下完成可安装、可验证的 CLI 公开首发。
+- 完成内容：
+  - npm 拒绝未作用域名称 `pspore`，用户明确选定 `p-spore`；已同步 `package.json`、lockfile、README、测试与项目导航，全局 CLI 命令仍为 `pspore`。
+  - 用户启用 npm `auth-and-writes` 2FA，发布使用 npm 浏览器 WebAuthn 流程，未读取、粘贴或保存 token/OTP。
+  - `p-spore@0.1.0` 已发布为 public 包且 `latest=0.1.0`；远端 manifest 保留 `bin.pspore=dist/cli/main.js`。
+- 修改文件：`package.json`、`package-lock.json`、`README.md`、`test/unit/cli-config.test.ts`、`memory-bank/*.md`。
+- 验证方式与结果：
+  - 改名后与正式发布前的 `npm run check` 均通过：严格 typecheck、87 项测试和 production build 成功。
+  - 发布 tarball 为 261 entries、269347 bytes、SHA-1 `68f3204636914f049b7df53b035d5868000913c9`、SHA-512 integrity `sha512-lKDQW54aMwbPHHrF40Z55eCPF+R5sSJuesnYSfeWTsKeCiilBj82L+ZlPUmBkcXhqrdAdDH5GceWLCggAUpZOg==`。
+  - 使用全新临时 npm cache/prefix 从 registry 安装 `p-spore@0.1.0`；远端 hash/integrity 与发布产物一致，installed manifest 正确，`pspore --version` 与 `--help` 成功，临时目录已删除。
+- 当前状态：v1 共享客户端内核与 npm CLI 发布阶段完成；当前无常驻服务，本阶段无前端视觉改动，不需要新的 viewport 验收。
+- 遗留问题：真实 sudo 仍未执行；sandbox/vector/remote/mobile 继续为明确非目标。

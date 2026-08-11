@@ -39,6 +39,7 @@
 - TUI 模型配置必须同时支持 launch wizard 与命令方式；wizard 可取消且确认前不持久化，命令方式可直接设置同一共享配置。
 - TUI/CLI 与桌面版必须基于相同 Kernel、Daemon、协议状态、会话路由和模型设置内核，功能面覆盖 prompt、main/child、审批、自动化、MCP、资源与设置；平台渲染组件可以独立。
 - CLI/TUI 必须可以从 npm 直接安装使用；npm CLI 包不应把 Electron 作为生产依赖。如需发布认证，使用 npm 浏览器认证，不读取或粘贴 token。
+- 用户明确选定公开 npm 包名 `p-spore`；安装后的全局 CLI 命令保持为 `pspore`。
 
 ## 设计验收标准
 

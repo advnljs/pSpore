@@ -45,6 +45,7 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - renderer 不能指定任意 IPC channel 或路径；resource UI 只提交单层 staging name，main 才解析为配置 workspace 下的 staging 路径，Daemon 再执行 canonical containment。
 - TUI >=104 cells 使用会话+内容双栏，较窄终端使用单内容区；`/help` 打开完整命令面板，`/config wizard` 与 `/config` 子命令使用同一 settings service。
 - 普通输入、steer、follow-up 根据共享 `conversationIntent` 路由到当前选中的 main/child，避免 child 输入误发给 main。
+- npm 分发包名为 `p-spore`，全局可执行命令为 `pspore`；纯 npm 包不包含 Electron 生产依赖，桌面端由 AppImage 分发。
 
 ## 常见修改点
 
