@@ -17,7 +17,7 @@
 | P3 | 实现 MCP lazy adapter | Done | 无 | 已用官方 SDK fake stdio server 与真实 UDS/CLI 验证 discover/activation/policy/abort/health/idle reconnect/backoff |
 | P3 | 实现 plugin trust/staging 与 skills reload | Done | 无 | 已覆盖 exact digest、symlink/tamper、capability grant、restart lifecycle 与 Pi progressive disclosure |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
-| P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、共享 UDS store、重连、审批/agent UI 与 1920×1080 验收；未实现 Tauri |
+| P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、双主题、字号基线与 1920×1080 验收；未实现 Tauri |
 
 ## 已知风险
 
@@ -26,4 +26,4 @@
 - 同用户运行、Pi extension、host plugin 和 MCP server 均不构成安全沙箱。
 - 外部副作用在崩溃边界不能普遍保证 exactly-once。
 - 当前 UDS replay 与 command cache 仅在进程内；重启靠 snapshot，durable event log/session mapping 尚未完成。
-- 当前模型未配置时 Daemon 可正常 ready，但 prompt 会返回 `model_not_configured`；真实付费 provider 未用于自动化测试。
+- 当前模型未配置时 Daemon 可正常 ready，但 prompt 会返回 `model_not_configured`；`deepseek/deepseek-v4-flash` 已于 2026-08-11 使用临时 credential 完成真实 API 验证，不将付费调用纳入默认自动化。

@@ -16,6 +16,16 @@ export interface DaemonLock {
   release(): Promise<void>;
 }
 
+export class DaemonAlreadyRunningError extends Error {
+  readonly pid: number;
+
+  constructor(pid: number) {
+    super(`pSpore daemon is already running with PID ${pid}`);
+    this.name = "DaemonAlreadyRunningError";
+    this.pid = pid;
+  }
+}
+
 export async function acquireDaemonLock(path: string, now = new Date()): Promise<DaemonLock> {
   const current: LockRecord = {
     version: 1,
@@ -45,7 +55,7 @@ export async function acquireDaemonLock(path: string, now = new Date()): Promise
       if (!isNodeError(error) || error.code !== "EEXIST") throw error;
       const existing = await readLock(path);
       if (existing && (await isSameProcess(existing))) {
-        throw new Error(`pSpore daemon is already running with PID ${existing.pid}`);
+        throw new DaemonAlreadyRunningError(existing.pid);
       }
       await unlink(path).catch((unlinkError: unknown) => {
         if (!isNodeError(unlinkError) || unlinkError.code !== "ENOENT") throw unlinkError;

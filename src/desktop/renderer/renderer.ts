@@ -17,6 +17,9 @@ let inspection: StagedResourceInspection | undefined;
 let activeApprovalId: string | undefined;
 let renderSequence = 0;
 
+type Theme = "dark" | "light";
+const THEME_STORAGE_KEY = "pspore.desktop.theme";
+
 const elements = {
   appShell: byId<HTMLElement>("app-shell"),
   connectionBadge: byId<HTMLSpanElement>("connection-badge"),
@@ -24,6 +27,8 @@ const elements = {
   revision: byId<HTMLElement>("revision-value"),
   usage: byId<HTMLElement>("usage-value"),
   cache: byId<HTMLElement>("cache-value"),
+  themeToggle: byId<HTMLButtonElement>("theme-toggle"),
+  themeColor: byId<HTMLMetaElement>("theme-color"),
   refresh: byId<HTMLButtonElement>("refresh-button"),
   connectionBanner: byId<HTMLElement>("connection-banner"),
   connectionMessage: byId<HTMLElement>("connection-message"),
@@ -66,6 +71,8 @@ const elements = {
   approvalActions: byId<HTMLElement>("approval-actions"),
 };
 
+applyTheme(initialTheme());
+
 const unsubscribe = window.pspore.subscribe((frame) => {
   if (!initialized) queuedFrames.push(frame);
   else {
@@ -98,6 +105,15 @@ async function initialize(): Promise<void> {
 }
 
 function bindStaticActions(): void {
+  elements.themeToggle.addEventListener("click", () => {
+    const theme: Theme = document.documentElement.dataset["theme"] === "light" ? "dark" : "light";
+    applyTheme(theme);
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // Theme remains active for this session when local persistence is unavailable.
+    }
+  });
   elements.refresh.addEventListener("click", () => void refreshSideData());
   elements.composerForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -255,7 +271,7 @@ function renderHeader(snapshot: DesktopStoreSnapshot): void {
   elements.connectionBadge.replaceChildren(element("i"), text(connection.phase === "connected" ? "ONLINE" : connection.phase.toUpperCase()));
   elements.daemonInstance.textContent = connection.instanceId ? `daemon ${shortId(connection.instanceId)}` : "等待本地守护进程";
   elements.connectionBanner.classList.toggle("visible", connection.phase !== "connected");
-  elements.connectionMessage.textContent = connection.message ?? (connection.phase === "connecting" ? "正在连接本地守护进程…" : "守护进程已断开，正在重试");
+  elements.connectionMessage.textContent = friendlyConnectionMessage(connection.message, connection.phase);
   elements.revision.textContent = String(snapshot.kernel.revision);
   const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
   elements.usage.textContent = formatTokens(session?.usage.total ?? 0);
@@ -401,8 +417,9 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
     const header = element("header");
     const title = element("b");
     title.textContent = activity.summary;
-    const time = element("time");
+    const time = element("time") as HTMLTimeElement;
     time.textContent = clockTime(activity.ts);
+    time.dateTime = activity.ts;
     header.append(title, time);
     card.append(header);
     if (activity.sessionId) {
@@ -659,6 +676,31 @@ function formatBytes(value: number): string {
 function clockTime(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? value.slice(0, 8) : date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function initialTheme(): Theme {
+  try {
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch {
+    // Fall through to the operating-system preference.
+  }
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function applyTheme(theme: Theme): void {
+  document.documentElement.dataset["theme"] = theme;
+  const nextLabel = theme === "dark" ? "切换到浅色模式" : "切换到深色模式";
+  elements.themeToggle.setAttribute("aria-label", nextLabel);
+  elements.themeToggle.title = nextLabel;
+  elements.themeColor.content = theme === "dark" ? "#0d100e" : "#f2f2ec";
+}
+
+function friendlyConnectionMessage(message: string | undefined, phase: string): string {
+  if (message?.includes("ENOENT") || message?.includes("daemon.sock")) {
+    return "本地守护进程正在启动，连接就绪后会自动恢复…";
+  }
+  return message ?? (phase === "connecting" ? "正在连接本地守护进程…" : "守护进程已断开，正在重试…");
 }
 
 function isJobDefinition(value: unknown): value is JobDefinition {

@@ -5,9 +5,10 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, session, type IpcMainInvokeEvent, type WebContents } from "electron";
 
 import { resolvePsporeHome } from "../config/config.js";
-import { loadConfig, psporePaths } from "../storage/home.js";
+import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { DaemonBridge } from "./daemon-bridge.js";
+import { DesktopDaemonSupervisor, type DesktopDaemonOwnership } from "./daemon-supervisor.js";
 import {
   DESKTOP_BOOTSTRAP_CHANNEL,
   DESKTOP_DISPATCH_CHANNEL,
@@ -25,8 +26,18 @@ interface DesktopArguments {
 
 interface SmokeReport {
   connection: { phase: string };
+  daemonOwnership: DesktopDaemonOwnership;
   reconnectVerified: boolean;
-  images: { main: { width: number; height: number }; approval?: { width: number; height: number } };
+  images: {
+    main: { width: number; height: number };
+    light: { width: number; height: number };
+    approval?: { width: number; height: number };
+  };
+  themes: {
+    dark: { colorScheme: string; backgroundColor: string; surfaceColor: string };
+    light: { colorScheme: string; backgroundColor: string; surfaceColor: string };
+  };
+  typography: Record<string, number>;
   mainVisual: {
     transcriptScrollable: boolean;
     codeContained: boolean;
@@ -59,6 +70,7 @@ if (arguments_.smokeDirectory) app.disableHardwareAcceleration();
 
 let window: BrowserWindow | undefined;
 let bridge: DaemonBridge | undefined;
+let daemonSupervisor: DesktopDaemonSupervisor | undefined;
 let unsubscribeBridge: (() => void) | undefined;
 let rendererUrl = "";
 let exitCode = 0;
@@ -78,14 +90,15 @@ app.whenReady().then(startDesktop).catch(failStartup);
 
 async function startDesktop(): Promise<void> {
   const home = resolvePsporeHome(arguments_.home);
-  const config = await loadConfig(home);
-  const paths = psporePaths(home, config.runtime.workspace);
+  const { paths } = await initializePsporeHome(home);
   const moduleDirectory = fileURLToPath(new URL(".", import.meta.url));
   const preloadPath = join(moduleDirectory, "preload.cjs");
   const rendererPath = join(moduleDirectory, "renderer", "index.html");
   rendererUrl = pathToFileURL(rendererPath).href;
 
   installSessionSecurity();
+  daemonSupervisor = new DesktopDaemonSupervisor({ home });
+  await daemonSupervisor.start();
   bridge = new DaemonBridge({
     socketPath: paths.socket,
     stagingRoot: join(paths.workspace, "staging"),
@@ -211,6 +224,7 @@ async function runSmoke(
 
   await waitForRenderer(target, "Number(document.documentElement.dataset.renderSequence || '0') > 0", 5_000);
   if (fixture) await waitForRenderer(target, "Boolean(document.querySelector('.message.streaming'))", 5_000);
+  await setRendererTheme(target, "dark");
   await settlePaint();
   const mainVisual: SmokeReport["mainVisual"] = await target.webContents.executeJavaScript(`(() => {
     const transcript = document.querySelector('#transcript');
@@ -224,7 +238,28 @@ async function runSmoke(
     };
   })()`);
   const mainImage = await target.webContents.capturePage();
-  await writeFile(join(outputDirectory, "desktop-main-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
+  await writeFile(join(outputDirectory, "desktop-main-dark-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
+  const darkTheme = await readThemeSnapshot(target);
+  const typography: Record<string, number> = await target.webContents.executeJavaScript(`(() => {
+    const size = (selector) => Number.parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
+    return {
+      body: Number.parseFloat(getComputedStyle(document.body).fontSize),
+      conversationTitle: size('.conversation-header h2'),
+      messageBody: size('.message-body'),
+      composerInput: size('#composer-input'),
+      sectionHeading: size('.section-heading h2'),
+      sessionPrimary: size('.session-item strong'),
+      sessionSecondary: size('.session-item small'),
+      denseTitle: size('.dense-item b'),
+      auxiliary: size('.eyebrow')
+    };
+  })()`);
+  await setRendererTheme(target, "light");
+  await settlePaint();
+  const lightTheme = await readThemeSnapshot(target);
+  const lightImage = await target.webContents.capturePage();
+  await writeFile(join(outputDirectory, "desktop-main-light-1920x1080.png"), lightImage.toPNG(), { mode: 0o600 });
+  await setRendererTheme(target, "dark");
 
   let approvalSize: { width: number; height: number } | undefined;
   if (fixture) {
@@ -288,11 +323,15 @@ async function runSmoke(
     version: 1,
     capturedAt: new Date().toISOString(),
     connection: daemonBridge.bootstrap().connection,
+    daemonOwnership: daemonSupervisor?.ownership ?? "external",
     reconnectVerified,
     images: {
       main: mainImage.getSize(),
+      light: lightImage.getSize(),
       ...(approvalSize ? { approval: approvalSize } : {}),
     },
+    themes: { dark: darkTheme, light: lightTheme },
+    typography,
     mainVisual,
     probe,
     ipcProbe,
@@ -306,6 +345,25 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   if (report.connection.phase !== "connected") failures.push("desktop did not connect to the real daemon");
   if (fixture && !report.reconnectVerified) failures.push("desktop reconnect path was not verified");
   if (report.images.main.width !== 1_920 || report.images.main.height !== 1_080) failures.push("main capture is not 1920x1080");
+  if (report.images.light.width !== 1_920 || report.images.light.height !== 1_080) failures.push("light capture is not 1920x1080");
+  if (report.themes.dark.colorScheme !== "dark" || report.themes.light.colorScheme !== "light") failures.push("theme color-scheme did not switch");
+  if (report.themes.dark.backgroundColor === report.themes.light.backgroundColor) failures.push("theme canvas colors did not switch");
+  if (report.themes.dark.surfaceColor === report.themes.light.surfaceColor) failures.push("theme surface colors did not switch");
+  const minimumFontSizes: Record<string, number> = {
+    body: 14,
+    conversationTitle: 20,
+    messageBody: 15,
+    composerInput: 14,
+    sectionHeading: 15,
+    sessionPrimary: 13,
+    sessionSecondary: 11.5,
+    denseTitle: 12.5,
+    auxiliary: 10.5,
+  };
+  for (const [name, minimum] of Object.entries(minimumFontSizes)) {
+    const actual = report.typography[name];
+    if (actual === undefined || !Number.isFinite(actual) || actual < minimum) failures.push(`${name} font size is below ${minimum}px`);
+  }
   if (report.probe.viewport.width !== 1_920 || report.probe.viewport.height !== 1_080) failures.push("renderer viewport is not 1920x1080");
   if (report.probe.document.scrollWidth !== 1_920 || report.probe.document.scrollHeight !== 1_080) failures.push("document overflows the viewport");
   if (report.probe.document.bodyOverflow !== "hidden") failures.push("body overflow is not contained");
@@ -361,7 +419,26 @@ async function waitFor(predicate: () => boolean | Promise<boolean>, timeoutMs: n
 }
 
 async function settlePaint(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 180));
+  await new Promise((resolve) => setTimeout(resolve, 320));
+}
+
+async function setRendererTheme(target: BrowserWindow, theme: "dark" | "light"): Promise<void> {
+  await target.webContents.executeJavaScript(`(() => {
+    if (document.documentElement.dataset.theme !== ${JSON.stringify(theme)}) {
+      document.querySelector('#theme-toggle')?.click();
+    }
+  })()`);
+  await waitForRenderer(target, `document.documentElement.dataset.theme === ${JSON.stringify(theme)}`, 2_000);
+}
+
+async function readThemeSnapshot(
+  target: BrowserWindow,
+): Promise<{ colorScheme: string; backgroundColor: string; surfaceColor: string }> {
+  return target.webContents.executeJavaScript(`(() => ({
+    colorScheme: getComputedStyle(document.documentElement).colorScheme,
+    backgroundColor: getComputedStyle(document.body).backgroundColor,
+    surfaceColor: getComputedStyle(document.querySelector('.panel')).backgroundColor
+  }))()`);
 }
 
 function parseArguments(argv: readonly string[]): DesktopArguments {
@@ -405,7 +482,15 @@ function requestShutdown(code: number): void {
   exitCode = code;
   unsubscribeBridge?.();
   unsubscribeBridge = undefined;
-  void (bridge?.stop() ?? Promise.resolve()).finally(() => app.exit(exitCode));
+  void (async () => {
+    await bridge?.stop();
+    await daemonSupervisor?.stop();
+  })()
+    .catch((error: unknown) => {
+      process.stderr.write(`pSpore desktop shutdown: ${toError(error).message}\n`);
+      exitCode = 1;
+    })
+    .finally(() => app.exit(exitCode));
 }
 
 function toError(error: unknown): Error {

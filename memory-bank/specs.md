@@ -28,6 +28,10 @@
 - 新增生产依赖必须另行征求用户确认。
 - 用户已确认当前实现依赖，并允许安装/下载时使用中国大陆相关镜像源；不得因此静默改写全局 npm 配置。
 - 用户已明确授权在其休息期间不等待新指令，在现有范围与安全边界内持续开发，直到 v1 完成。
+- 2026-08-11 桌面优化必须简洁大气，支持深色/浅色模式切换，并重点实际验证字号与可读性。
+- 本轮明确只做 PC Electron 桌面端，不做手机端或移动 viewport 验收。
+- AppImage 双击启动后不得因为缺失 `~/.pspore/run/daemon.sock` 无限等待；必须自动初始化/启动或安全复用 Daemon。
+- 使用用户提供但不得提交/输出的 `ds_key.txt` 实际验证 `deepseek-v4-flash`。
 
 ## 设计验收标准
 
@@ -40,5 +44,6 @@
 - Electron 后置阶段视觉测试主基准为 `1920 × 1080`；核心 v1 使用固定 `160 × 45` TUI snapshot，未要求时不扩展设备矩阵。
 - Electron renderer 必须保持 `contextIsolation + sandbox`、关闭 Node integration，只暴露固定 allowlisted API；外部导航、新窗口、下载、远程 script 和任意 channel/path IPC 均不得开放。
 - Electron 验收必须覆盖与 TUI 同时连接同一 Daemon、断线重连、streaming delta、长消息/代码 overflow、transcript scroll、工具输出折叠、固定 composer、审批 modal 与焦点。
+- 桌面 smoke 还必须覆盖 owned/external Daemon 两种启动路径、深色/浅色截图和计算后字号下限；本轮不扩展移动端矩阵。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。

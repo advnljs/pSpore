@@ -25,9 +25,9 @@
 | `src/notifications/` | durable notification store、run delivery 与 notify tool |
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/ui/tui/` | Pi TUI 客户端、协议 store、160×45 renderer |
-| `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、IPC validation、安全基线与 smoke fixture |
+| `src/desktop/` | Electron 43 main/preload/renderer、Daemon supervisor/bridge、双主题、IPC validation、安全基线与 smoke fixture |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
-| `scripts/electron-smoke.mjs` | 临时 Daemon + Xvfb + 1920×1080 Electron 自动验收与清理 |
+| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080 Electron 双主题/字号自动验收与清理 |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
 | `.gitignore` | 未来 Node 产物、环境文件、私钥与本地 pSpore 数据排除 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
@@ -67,8 +67,8 @@
 - 前台 Daemon：`npm run dev -- daemon`；SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - TUI：`npm run dev -- tui`（要求真实 TTY；固定视觉基准 `160×45`）。
-- Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；要求已有 Daemon，固定视觉基准 `1920×1080`。
-- Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动创建/清理临时 home；`PSPORE_KEEP_SMOKE=1` 保留证据）。
+- Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，固定视觉基准 `1920×1080`。
+- Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

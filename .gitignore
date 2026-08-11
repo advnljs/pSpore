@@ -1,5 +1,6 @@
 node_modules/
 dist/
+release-dist/
 coverage/
 .cache/
 *.log
@@ -13,6 +14,7 @@ coverage/
 *.p12
 *.crt
 **/secrets*
+ds_key.txt
 
 .pspore/
 .DS_Store

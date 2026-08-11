@@ -181,3 +181,20 @@
   - 环境与供应链：Node `v24.19.0`、Electron `v43.3.0`；`npm audit --omit=dev --audit-level=high` 为 0 vulnerabilities；源码与 `dist` desktop 静态资源一致，package/lockfile 无 Tauri dependency。
 - 当前状态：Phase 0—4 与功能 v1 全部完成；最新 `dist/` 已构建。当前无常驻验收实例，因为 Xvfb、Daemon 和临时 home 均已在验证后正常停止/删除；可用 `npm run desktop` 启动真实客户端，或用 `npm run test:electron` 完整复现验收。
 - 遗留问题：真实付费 provider 与真实 sudo 未在自动测试中使用；sandbox/vector/remote/mobile 仍按 v1 非目标延期，不阻塞 v1。
+
+## 2026-08-11 10:10 CST — Desktop 双主题、AppImage Daemon 自启与 DeepSeek 实验
+
+- 阶段目标：优化 PC Electron 界面与字号，支持深色/浅色切换，修复 AppImage 独立启动一直等待 `daemon.sock` 的问题，并用 `deepseek-v4-flash` 真实验证模型链路。
+- 完成内容：
+  - 新增 `DesktopDaemonSupervisor`与可类型化 `DaemonAlreadyRunningError`；Desktop create-only 初始化 home，通过原子单实例锁决定 `owned/external`，启动时等 Daemon ready 再连接，退出只停止自己拥有的 Daemon。
+  - renderer 重构为暖深色/暖浅色语义主题，增加持久化切换、`color-scheme/theme-color`、焦点/跳转链接、表单 name/autocomplete、可减少动效，并将对话/输入/分区/侧栏主次字号固定为 `15/14/15/13/11.5px` 基线。
+  - Electron smoke 扩展到外部 Daemon 复用与桌面 Daemon 自启两条路径，截取深色/浅色/审批三张 1920×1080 截图，并直接断言 computed font sizes、主题色、overflow、焦点、sandbox 和 IPC allowlist。
+  - `ds_key.txt` 已加入 `.gitignore` 并收紧为 `0600`；只在临时 Daemon 进程环境注入 `DEEPSEEK_API_KEY`，未输出、未写入 config/session/memory/Git。
+- 修改文件：`src/desktop/main.ts`、`daemon-supervisor.ts`、renderer HTML/TS/CSS、`src/storage/daemon-lock.ts`、`scripts/electron-smoke.mjs`、desktop supervisor tests、`.gitignore`、README 与 memory-bank。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、78 项测试、production build 全部成功。
+  - `PSPORE_KEEP_SMOKE=1 npm run test:electron` 通过：Electron `43.3.0`，精确 `1920×1080`，owned/external Daemon、双主题、字号、重连、隔离、overflow、composer 与审批焦点全部通过；人工检查深色/浅色/审批截图无明显遮挡或不可读文字。
+  - 临时构建 AppImage 从空 home 实际启动：`daemonOwnership=owned`、`connection=connected`，reconnect 通过，退出后 socket/endpoint 清理；验证包 SHA-256 为 `27865b3bbbf6eab537296495c95b766ee76fc288ddb518427f7bb40bb0ea5d4c`，已更新到 `release-dist/pspore-desktop-0.1.0-linux-x64.AppImage`。
+  - 真实 DeepSeek 链路返回 `PSPRORE_DEEPSEEK_OK`；snapshot 确认 model `deepseek/deepseek-v4-flash`、thinking `off`、input/output/total `2729/8/2737`、cost `$0.0003843`。
+- 当前状态：最新 `dist/` 已构建，修复后 AppImage 已放入 `release-dist/`；所有验收 Daemon/Electron 进程均已停止，未留下运行 socket。本轮按用户要求只验证 PC `1920×1080`，未执行手机端验收。
+- 遗留问题：真实 sudo 仍未执行（避免无必要提权）；sandbox/vector/remote/mobile 继续作为明确非目标。

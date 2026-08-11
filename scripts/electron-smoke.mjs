@@ -14,6 +14,8 @@ if (typeof electron !== "string") throw new Error("Could not resolve the local E
 
 const temporaryHome = await mkdtemp(join(tmpdir(), "pspore-electron-smoke-"));
 const outputDirectory = join(temporaryHome, "smoke");
+const ownedHome = await mkdtemp(join(tmpdir(), "pspore-electron-owned-smoke-"));
+const ownedOutputDirectory = join(ownedHome, "smoke");
 let daemon;
 let daemonExit;
 let succeeded = false;
@@ -47,8 +49,34 @@ try {
   if (report?.probe?.viewport?.width !== 1_920 || report?.probe?.viewport?.height !== 1_080) {
     throw new Error("Electron smoke report did not contain the 1920x1080 viewport");
   }
+  if (report?.daemonOwnership !== "external") {
+    throw new Error("Electron did not reuse the externally started daemon");
+  }
+  await run(
+    "xvfb-run",
+    [
+      "-a",
+      "-s",
+      "-screen 0 2048x1200x24",
+      electron,
+      desktop,
+      "--home",
+      ownedHome,
+      "--smoke-dir",
+      ownedOutputDirectory,
+      "--smoke-fixture",
+    ],
+    30_000,
+  );
+  const ownedReport = JSON.parse(await readFile(join(ownedOutputDirectory, "desktop-security.json"), "utf8"));
+  if (ownedReport?.daemonOwnership !== "owned" || ownedReport?.connection?.phase !== "connected") {
+    throw new Error("Electron did not initialize and own its desktop daemon");
+  }
+  if (await exists(join(ownedHome, "run", "daemon.sock")) || await exists(join(ownedHome, "run", "endpoint.json"))) {
+    throw new Error("Electron-owned daemon did not clean up its runtime files on exit");
+  }
   process.stdout.write(
-    `Electron 43 smoke passed: ${report.probe.viewport.width}x${report.probe.viewport.height}, isolated renderer, reconnect and IPC allowlist verified.\n`,
+    `Electron 43 smoke passed: ${report.probe.viewport.width}x${report.probe.viewport.height}, dark/light themes, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
   );
   succeeded = true;
 } finally {
@@ -57,9 +85,12 @@ try {
     if (daemonExit) await Promise.race([daemonExit.promise, delay(5_000)]);
     if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill("SIGKILL");
   }
-  if (succeeded && process.env["PSPORE_KEEP_SMOKE"] !== "1") await rm(temporaryHome, { recursive: true });
+  if (succeeded && process.env["PSPORE_KEEP_SMOKE"] !== "1") {
+    await rm(temporaryHome, { recursive: true });
+    await rm(ownedHome, { recursive: true });
+  }
   else if (!succeeded || process.env["PSPORE_KEEP_SMOKE"] === "1") {
-    process.stderr.write(`Electron smoke artifacts retained at ${temporaryHome}\n`);
+    process.stderr.write(`Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}\n`);
   }
 }
 

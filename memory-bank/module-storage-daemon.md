@@ -23,6 +23,7 @@
 - `initializePsporeHome` / `loadConfig` / `psporePaths`
 - `atomicWriteFile` / `atomicWriteJson` / `appendJsonLine`
 - `acquireDaemonLock` / `writeEndpoint`
+- `DaemonAlreadyRunningError`：为桌面端复用已有实例提供可类型化的单实例分支，不匹配错误文本。
 - `PsporeDaemon.start` / `stop` / `whenStopped`
 - CLI：`init | daemon | status | doctor | tui | jobs | runs | notifications | schedule put | run | cancel | prompt | version`
 
@@ -40,6 +41,7 @@ Node.js 24 filesystem/process/net API 与 Linux `/proc/<pid>/stat`。
 - 初始化使用 create-only，不覆盖已有 workspace 文件；配置存在但 malformed 时 fail closed。
 - atomic write 在同目录 write + fsync + rename + directory fsync，失败时清理临时文件。
 - stale lock 不能只依赖 PID，必须同时核对 process start identity；release 只删除本 instance lock。
+- 桌面 supervisor 的 `owned/external` 决策必须经过同一单实例锁；只有 `owned` 实例随桌面退出。
 - stop 即使某一步失败也继续尝试关闭 approval/session/gateway 并释放 endpoint/lock，最后回报首个错误。
 - monthly run JSONL 只把完整 newline 视为 commit；破损尾行备份后截断，中间损坏拒绝启动。
 - job JSON 使用 source hash compare-and-swap + atomic replace；notification 使用 `state/events/notifications.jsonl` durable append。

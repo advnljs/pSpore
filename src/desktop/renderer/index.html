@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -7,16 +7,18 @@
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta id="theme-color" name="theme-color" content="#0d100e" />
     <title>pSpore</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#main-workspace">跳到主工作区</a>
     <div id="app-shell" class="app-shell">
       <header class="topbar">
         <div class="brand-lockup" aria-label="pSpore local agent">
           <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <div>
-            <strong>pSpore</strong>
+            <h1>pSpore</h1>
             <span>LOCAL AGENT</span>
           </div>
         </div>
@@ -28,7 +30,13 @@
           <span><small>REV</small><b id="revision-value">0</b></span>
           <span><small>CONTEXT</small><b id="usage-value">0</b></span>
           <span><small>CACHE</small><b id="cache-value">0</b></span>
-          <button id="refresh-button" class="icon-button" type="button" title="刷新列表" aria-label="刷新列表">↻</button>
+          <button id="theme-toggle" class="icon-button theme-toggle" type="button" title="切换到浅色模式" aria-label="切换到浅色模式">
+            <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
+            <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.4 8.4 0 0 1 8.8 4a8.4 8.4 0 1 0 11.2 11.2Z"></path></svg>
+          </button>
+          <button id="refresh-button" class="icon-button" type="button" title="刷新列表" aria-label="刷新列表">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 7v5h-5M5 17v-5h5"></path><path d="M7.1 7.1A7 7 0 0 1 19 12M5 12a7 7 0 0 0 11.9 4.9"></path></svg>
+          </button>
         </div>
       </header>
 
@@ -37,7 +45,7 @@
         <span id="connection-message">正在连接本地守护进程…</span>
       </div>
 
-      <main class="workspace-grid">
+      <main id="main-workspace" class="workspace-grid">
         <aside class="left-rail panel" aria-label="Sessions and agents">
           <section class="rail-section sessions-section">
             <div class="section-heading">
@@ -51,9 +59,9 @@
             <div class="section-heading compact">
               <div><span class="eyebrow">DELEGATE</span><h2>新建子 Agent</h2></div>
             </div>
-            <form id="spawn-form" class="compact-form">
+            <form id="spawn-form" class="compact-form" autocomplete="off">
               <label for="spawn-objective">目标</label>
-              <textarea id="spawn-objective" rows="3" maxlength="16384" placeholder="例如：检查测试失败的根因"></textarea>
+              <textarea id="spawn-objective" name="objective" rows="3" maxlength="16384" placeholder="例如：检查测试失败的根因…"></textarea>
               <button class="secondary-button" type="submit"><span>＋</span>启动有界任务</button>
             </form>
             <div id="child-controls" class="child-controls" hidden>
@@ -66,10 +74,10 @@
             <div class="section-heading compact">
               <div><span class="eyebrow">TRUST GATE</span><h2>暂存资源</h2></div>
             </div>
-            <form id="inspect-form" class="compact-form inline-form">
+            <form id="inspect-form" class="compact-form inline-form" autocomplete="off">
               <label for="staging-name">workspace/staging/</label>
               <div>
-                <input id="staging-name" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="resource-name" />
+                <input id="staging-name" name="stagingName" maxlength="128" pattern="[A-Za-z0-9][A-Za-z0-9._-]*" placeholder="例如：review-helper…" spellcheck="false" />
                 <button class="ghost-button" type="submit">检查</button>
               </div>
             </form>
@@ -86,7 +94,7 @@
           <header class="conversation-header">
             <div>
               <span class="eyebrow">ACTIVE SESSION</span>
-              <h1 id="session-title">main</h1>
+              <h2 id="session-title">main</h2>
             </div>
             <div class="session-health">
               <span id="session-status" class="status-chip idle">IDLE</span>
@@ -98,11 +106,11 @@
 
           <div class="composer-wrap">
             <div id="notice-line" class="notice-line" role="status">正在启动…</div>
-            <form id="composer-form" class="composer">
-              <textarea id="composer-input" rows="3" maxlength="65536" placeholder="向 main 发送消息…" aria-label="消息"></textarea>
+            <form id="composer-form" class="composer" autocomplete="off">
+              <textarea id="composer-input" name="message" rows="3" maxlength="65536" placeholder="向 main 发送消息…" aria-label="消息"></textarea>
               <div class="composer-toolbar">
                 <label class="mode-select"><span>发送方式</span>
-                  <select id="composer-mode">
+                  <select id="composer-mode" name="mode">
                     <option value="prompt">Prompt</option>
                     <option value="steer">Steer</option>
                     <option value="follow_up">Follow-up</option>
