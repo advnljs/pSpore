@@ -286,3 +286,20 @@
   - 对照验证：从 registry 安装的已发布 `p-spore@0.1.0` 只生成 `pspore`，执行 `p-spore` 报“没有那个文件或目录”，确认为用户报告的同一问题。
 - 当前状态：修复已在本地打包产物上端到端验证；本阶段无常驻服务与前端视觉改动，不需要新的 viewport 验收。`0.1.1` 尚未发布到 npm。
 - 遗留问题：Electron 桌面 renderer 仍为中文文案，本次未改（用户本次只要求 CLI 英文）；已记入 todo。
+
+## 2026-08-13 09:52 CST — `p-spore@0.1.1` 发布并完成 registry 实装验证
+
+- 阶段目标：把 `p-spore` 命令缺失的修复正式发布到 npm，并以全新用户视角验证。
+- 完成内容：
+  - `npm login` 会话已过期，重新以浏览器 web 流程登录（`ljdavns`）；未读取、粘贴或保存 token/OTP。
+  - 首次 `npm publish` 在非 TTY 后台进程中直接以 `EOTP` 失败，且 npm 把 2FA URL 在 stdout 和 debug log 中都打码为 `***`；改用 `script` 分配伪终端重跑，取得完整 URL 并由浏览器完成 2FA。
+  - `p-spore@0.1.1` 发布成功，`latest` 指向 `0.1.1`；远端 manifest 同时包含 `pspore` 与 `p-spore` 两个 bin。
+- 修改文件：无源码改动（发布 `f625261` 已提交的内容）；本次仅更新 `memory-bank/*.md`。
+- 验证方式与结果：
+  - `prepublishOnly` 的 `npm run check` 在发布前自动通过：typecheck、89 项测试、build 全绿。
+  - 远端 `dist.shasum` `3de29b49bac96dc9d70795cb9ec07f02000c22a7` 与本地 `npm pack` 产物一致；`integrity` 为 `sha512-ems5KA+Fe5e3u...myDScMWCEbnDA==`；261 files、267.3 kB。
+  - 全新 cache + prefix 从 registry 安装 `p-spore@0.1.1`：`bin/` 同时生成 `p-spore` 与 `pspore`；`--version`、`--help`、`init`、`doctor`、`status` 均正常，help usage 正确回显所用命令名。
+  - 从仓库外启动 daemon 成功（`ready`，UDS socket 建立），`status` 与 `jobs` 经 UDS 正常返回，daemon 干净退出（exit 0）。
+  - 临时 cache/prefix/home 已全部删除。
+- 当前状态：用户报告的“安装后命令不存在”问题已在 registry 上修复并验证。当前无常驻服务，本阶段无前端视觉改动，不需要 viewport 验收。
+- 遗留问题：当 `PSPORE_HOME` 导致 UDS 路径超过 108 字节时，daemon 只报 `listen EINVAL: invalid argument`，错误信息不明确；已记入 todo。Electron renderer 中文文案仍未英文化。
