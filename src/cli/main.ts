@@ -3,6 +3,7 @@ import { execFile, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { basename } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -31,6 +32,13 @@ import { PsporeTuiApp } from "../ui/tui/tui-app.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * Both npm bin aliases point at this file; echo back whichever one the user typed.
+ * Declared above the top-level entrypoint call so it is initialized before `runCli` runs.
+ */
+const BIN_ALIASES = new Set(["pspore", "p-spore"]);
+const DEFAULT_BIN_ALIAS = "pspore";
 
 export async function runCli(argv = process.argv.slice(2)): Promise<number> {
   const parsed = parseGlobalOptions(argv);
@@ -217,7 +225,9 @@ async function doctor(home: string): Promise<number> {
 
 async function runTui(home: string): Promise<number> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
-    throw new CliError("tui requires an interactive TTY; use `pspore status` for a non-interactive check");
+    throw new CliError(
+      `tui requires an interactive TTY; use \`${resolveInvokedName(process.argv[1])} status\` for a non-interactive check`,
+    );
   }
   const { paths } = await initializePsporeHome(home);
   const supervisor = new DaemonSupervisor({ home });
@@ -673,7 +683,9 @@ async function endpointFor(home: string): Promise<{ socket: string; state: strin
   try {
     value = JSON.parse(await readFile(path, "utf8"));
   } catch (error) {
-    throw new CliError(`No daemon endpoint at ${path}; start it with \`pspore daemon\``);
+    throw new CliError(
+      `No daemon endpoint at ${path}; start it with \`${resolveInvokedName(process.argv[1])} daemon\``,
+    );
   }
   if (!isRecord(value) || value["version"] !== 1 || typeof value["socket"] !== "string" || typeof value["state"] !== "string") {
     throw new CliError(`Invalid daemon endpoint file: ${path}`);
@@ -705,7 +717,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: pspore [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {
@@ -733,6 +745,12 @@ if (isEntrypoint(process.argv[1], import.meta.url)) {
       process.exitCode = 1;
     },
   );
+}
+
+export function resolveInvokedName(argvPath: string | undefined): string {
+  if (!argvPath) return DEFAULT_BIN_ALIAS;
+  const invoked = basename(argvPath);
+  return BIN_ALIASES.has(invoked) ? invoked : DEFAULT_BIN_ALIAS;
 }
 
 export function isEntrypoint(argvPath: string | undefined, moduleUrl: string): boolean {

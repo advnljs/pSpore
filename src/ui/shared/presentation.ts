@@ -34,7 +34,7 @@ export function presentSessions(kernel: KernelState, selectedSessionId: string):
   const result: SessionListItem[] = [{
     id: "main",
     sessionId: "main",
-    title: "主会话",
+    title: "Main session",
     status: main?.status ?? "idle",
     depth: 0,
     selected: selectedSessionId === "main",

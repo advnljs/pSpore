@@ -1,97 +1,140 @@
-# pSpore
+# p-spore
 
-pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本地主动式 Agent。目标是在保留 Pi 极简 agent loop 的前提下，增加持久记忆、权限治理、计划任务、subagent、MCP，以及共享同一后端的 TUI/Electron UI。
+A Linux-first, local-first AI agent you run from your own terminal. `p-spore` keeps a
+long-running local daemon that holds your sessions, memory, scheduled jobs and child
+agents, and gives you a reconnecting TUI on top of it. Everything lives on your machine
+under `~/.pspore` — there is no hosted backend and no account.
 
-## 当前状态
+Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`).
 
-功能 v1 已完成。Phase 0—4 的 Node/Pi 契约、Kernel、私有存储、权限/审批、Shell、pinned memory、exact/BM25、cron/BOOT、durable run ledger、双工 subagent tree、按需 MCP、受信资源生命周期、UDS Daemon、CLI、可重连 TUI，以及安全 Electron 43 客户端均已落地。TUI 与 Electron 同时连接同一个权威 Daemon；桌面 renderer 不拥有 Node 或文件系统权限。
+## Requirements
 
-- 原始想法：[initial_design.txt](initial_design.txt)
-- 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
-- 项目记忆与导航：[memory-bank/nav.md](memory-bank/nav.md)
+- Linux
+- Node.js 24 (`>=24.0.0 <25`)
 
-运行时基线为 Node.js 24，Pi 精确锁定 `v0.84.1`；最终桌面客户端使用 Electron 43，核心功能先通过 TUI 验证。版本决策见 [ADR 0001](docs/adr/0001-runtime-and-pi-baseline.md)。
-
-## 核心边界
-
-- Linux-first、local-first、单用户；默认不提供多租户或公网服务。
-- 主进程与工具默认使用启动 pSpore 的登录用户权限，不构成沙箱。
-- `allow_all` 会允许模型以当前用户身份执行任意工具操作；当用户拥有免密或已缓存的 `sudo` 权限时，影响可能扩大到 root。
-- skills、Pi extensions、pSpore plugins 和本地 MCP server 都可能执行任意代码，只能在显式信任后加载。
-- 默认记忆检索为精确搜索与 BM25；向量搜索保留为可插拔扩展，不属于首版范围。
-
-## 当前可运行流程
-
-要求 Node.js 24。发布包可直接安装并启动 TUI；`pspore tui` 会初始化缺失的 home，并在没有现有实例时自动拥有/启动 Daemon，退出时只关闭自己拥有的实例。
+## Install
 
 ```bash
 npm install --global p-spore
-pspore tui
+p-spore tui
 ```
 
-也可以用 `npx p-spore --help` 临时运行。npm 包名为 `p-spore`，安装后的 CLI 命令仍为 `pspore`。npm CLI 包不携带 Electron；桌面端请使用 release 中的 AppImage。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
+This installs two equivalent commands, `p-spore` and the shorter `pspore` — both start the
+same CLI, so use whichever you prefer. To run it once without installing:
 
 ```bash
-npm install
-npm run check
-npm run test:electron
-npm run build
-
-node dist/cli/main.js init
-node dist/cli/main.js daemon
+npx p-spore --help
 ```
 
-桌面客户端无需预先手动启动 Daemon；它会初始化缺失的 pSpore home，在没有现有实例时拥有并启动一个 Daemon，已有实例时安全复用。
+`p-spore tui` initializes a missing home directory, starts a local daemon if none is
+running, and shuts down only the daemon it started itself. If one is already running, it
+reconnects to it instead.
 
-另开终端后可运行：
+## Configure a model
+
+No model is configured out of the box. The daemon still starts so you can check its
+health, and the first prompt returns `model_not_configured` until you set one up.
 
 ```bash
-node dist/cli/main.js status
-node dist/cli/main.js doctor
-node dist/cli/main.js tui
-node dist/cli/main.js desktop
-node dist/cli/main.js jobs
-node dist/cli/main.js runs
-node dist/cli/main.js notifications
-node dist/cli/main.js agents
-node dist/cli/main.js agent spawn "inspect the workspace API"
-node dist/cli/main.js agent send <agent-id> "focus on error handling"
-node dist/cli/main.js agent join <agent-id>
-node dist/cli/main.js agent cancel <agent-id>
-node dist/cli/main.js mcp list
-node dist/cli/main.js mcp discover <server-id>
-node dist/cli/main.js mcp tools
-node dist/cli/main.js mcp ping <server-id>
-node dist/cli/main.js resources
-node dist/cli/main.js resource inspect <staging-path>
-node dist/cli/main.js resource install <staging-path> <sha256>
-node dist/cli/main.js resource disable <skill|host-plugin> <name> <sha256>
-node dist/cli/main.js schedule put examples/jobs/heartbeat.json
-node dist/cli/main.js run <job-id>
-node dist/cli/main.js cancel <run-id>
+p-spore config show
+p-spore config set deepseek deepseek-v4-flash off
+p-spore config set openai gpt-5.6-terra low
+p-spore config set custom-openai my-model https://gateway.example.com/v1 responses off
+p-spore config key                 # hidden TTY input, or piped from stdin
+p-spore config clear-key
 ```
 
-Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。GUI、TUI 与 CLI 共享同一设置 decoder/service，只提供 `deepseek`、`openai`、`custom-openai`（界面显示“自定义 OpenAI”）三类 Provider。TUI 同时支持 `/config wizard` 引导配置和 `/config …` 命令配置；CLI 使用相同命令语义：
+Three provider kinds are supported: `deepseek`, `openai`, and `custom-openai` for any
+OpenAI-compatible endpoint (choose `chat` or `responses` compatibility). API keys are
+written to `~/.pspore/credentials/<provider>.api-key` with mode `0600` and are never
+stored in `config.json`, sessions, or logs. You can also supply credentials through the
+daemon's environment instead.
+
+## Everyday commands
 
 ```bash
-pspore config show
-pspore config set deepseek deepseek-v4-flash off
-pspore config set openai gpt-5.6-terra low
-pspore config set custom-openai my-model https://gateway.example.com/v1 responses off
-pspore config key                 # TTY 中隐藏输入，也可从 stdin 安全读取
-pspore config clear-key
+p-spore init                       # create config/workspace/state directories
+p-spore doctor                     # check Node, config, model, shell, ripgrep, MCP, daemon
+p-spore status                     # daemon and session status
+p-spore tui                        # reconnecting terminal client
+p-spore prompt "summarize today's notes"
+p-spore daemon                     # run the daemon in the foreground
 ```
 
-`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking 与 API Key；Key 独立保存到 `~/.pspore/credentials/<provider>.api-key`（`0600`），`models.json` 只保存对该私有文件的引用，不写入 `config.json`、会话或日志。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
+Add `--home PATH` to any command, or set `PSPORE_HOME`, to work against a home other than
+the default `~/.pspore`. Run `p-spore help` for the full command list.
 
-用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。TUI 普通输入发送到当前选中的 main/child session，忙时必须显式使用 `/steer` 或 `/follow`；还可以用 `/agent-spawn`、`/select`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。输入 `/help` 打开完整命令面板，`/back` 或 Esc 返回对话。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。
+### Scheduled jobs
 
-生成或复制来的 skill/host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
+Define a five-field cron job in `workspace/jobs/<job-id>.json`, or create and update one
+atomically from a file. Runs are recorded in a durable ledger and can be triggered or
+cancelled by hand.
 
-源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。AppImage 双击启动时也会自动初始化/启动本地 Daemon；如已有同 home Daemon 则复用，退出时只关闭桌面自己拥有的实例。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/getSettings/saveSettings/subscribe` 五个固定 API；renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。桌面端采用会话常驻、检查器按需展开的对话优先布局，支持窗口缩放、主/子会话、流式消息、steer/follow-up/abort、审批、run、MCP、受信资源、模型设置与持久化深色/浅色主题切换。
+```bash
+p-spore schedule put job.json
+p-spore jobs
+p-spore run <job-id>
+p-spore runs
+p-spore cancel <run-id>
+p-spore notifications
+```
 
-`npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home，并以 `1920 × 1080` 为主基准、补充 `1440 × 900` 与 `1180 × 720` PC 窗口，自动验证外部/桌面拥有两种 Daemon 路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、计算后字号下限、响应式面板收纳、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留深色、浅色、设置、响应式与审批截图及 JSON 探针。
+### Child agents
 
-## v1 之后
+Spawn bounded child agents that share read access, exchange messages with them while they
+work, and wait on or cancel them.
 
-默认不继续扩大到 sandbox executor、vector、remote transport、mobile 或插件市场；这些能力只有在明确提出需求并重新评估边界后进入后续版本。
+```bash
+p-spore agent spawn "inspect the workspace API"
+p-spore agent send <agent-id> "focus on error handling"
+p-spore agents
+p-spore agent join <agent-id>
+p-spore agent cancel <agent-id>
+```
+
+### MCP servers
+
+MCP servers are declared in `config.json` and reference secrets indirectly through
+`envRefs`/`headerRefs`. Only `trusted-local` servers are started, and only on demand.
+
+```bash
+p-spore mcp list                   # configured servers and health, without connecting
+p-spore mcp discover <server-id>   # connect and activate one trusted server
+p-spore mcp tools                  # schemas active in this daemon process
+p-spore mcp ping <server-id>
+```
+
+### Skills and plugins
+
+Skills and host plugins can execute arbitrary code, so they are only loaded after you
+explicitly trust them. Staged content is inspected first — schema, paths, dependencies and
+syntax only, never imported — and installing requires echoing back the exact SHA-256 you
+were just shown.
+
+```bash
+p-spore resource inspect <staging-path>
+p-spore resource install <staging-path> <sha256>
+p-spore resources
+p-spore resource disable <skill|host-plugin> <name> <sha256>
+```
+
+## Security model
+
+- Single user, local-first. Nothing is exposed to the network; clients talk to the daemon
+  over a Unix domain socket.
+- Tools run as the user who started `p-spore`. This is **not** a sandbox.
+- `allow_all` lets the model run any tool action as that user, which can reach root if you
+  have passwordless or cached `sudo`.
+- Skills, Pi extensions, plugins and local MCP servers are loaded only after explicit trust.
+
+## Desktop client
+
+This npm package is the CLI and does not bundle Electron. `p-spore desktop` works when
+Electron is available in a source checkout; otherwise use the AppImage from the project's
+releases.
+
+## Links
+
+- [Repository](https://github.com/advnljs/pSpore)
+- [Issues](https://github.com/advnljs/pSpore/issues)
+- Project overview and development notes (Chinese): `docs/project-overview.md`

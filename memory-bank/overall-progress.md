@@ -267,3 +267,22 @@
   - 使用全新临时 npm cache/prefix 从 registry 安装 `p-spore@0.1.0`；远端 hash/integrity 与发布产物一致，installed manifest 正确，`pspore --version` 与 `--help` 成功，临时目录已删除。
 - 当前状态：v1 共享客户端内核与 npm CLI 发布阶段完成；当前无常驻服务，本阶段无前端视觉改动，不需要新的 viewport 验收。
 - 遗留问题：真实 sudo 仍未执行；sandbox/vector/remote/mobile 继续为明确非目标。
+
+## 2026-08-13 09:30 CST — 修复 npm 安装后命令不存在，并统一 CLI/npm 页面为英文
+
+- 阶段目标：消除 `npm install --global p-spore` 之后 `p-spore` 命令不存在的问题，并让 npm 展示页与 CLI 文案面向 CLI 用户、全部使用英文。
+- 完成内容：
+  - 复现根因：包名为 `p-spore`，但 `bin` 只映射 `pspore`，全局安装只生成 `pspore` 一个 symlink，用户按包名执行 `p-spore` 必然 command not found。
+  - `bin` 增加 `p-spore` 别名，与 `pspore` 指向同一入口，两者等价；版本升到 `0.1.1` 以便发布修复。
+  - `resolveInvokedName` 按 `process.argv[1]` basename 回显用户实际使用的命令名，help usage 与 `status`/`tui` 提示不再硬编码 `pspore`。
+  - 端到端安装验证时发现并修复一个真实缺陷：`BIN_ALIASES` 常量原本声明在顶层 entrypoint 调用之后，`--help` 在 TDZ 中崩溃（`Cannot access 'BIN_ALIASES' before initialization`）；常量已上移到 `runCli` 之前。
+  - 新增以子进程方式执行 entrypoint 的回归测试，覆盖 import 无法发现的初始化顺序问题；已先注入缺陷确认该测试会失败。
+  - README 重写为英文、面向 CLI 功能（安装、双命令、模型配置、日常命令、cron job、child agent、MCP、skills/plugins、安全模型），原中文项目文档移至 `docs/project-overview.md`，不再作为 npm 展示页。
+  - CLI/TUI 唯一中文文案 `主会话` 改为 `Main session`。
+- 修改文件：`package.json`、`src/version.ts`、`src/cli/main.ts`、`src/ui/shared/presentation.ts`、`test/unit/cli-config.test.ts`、`README.md`（新英文页）、`docs/project-overview.md`（由原 README 移动）、`memory-bank/*.md`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、89 项测试（新增 2 项）与 production build 全部成功。
+  - `npm pack` 后在全新临时 prefix 全局安装：`bin/` 同时生成 `p-spore` 与 `pspore` 两个 symlink；经 PATH 执行 `p-spore --version`、`p-spore --help`、`pspore --help`、`p-spore init`、`p-spore status` 均符合预期，且 `status` 提示正确回显 `p-spore daemon`。
+  - 对照验证：从 registry 安装的已发布 `p-spore@0.1.0` 只生成 `pspore`，执行 `p-spore` 报“没有那个文件或目录”，确认为用户报告的同一问题。
+- 当前状态：修复已在本地打包产物上端到端验证；本阶段无常驻服务与前端视觉改动，不需要新的 viewport 验收。`0.1.1` 尚未发布到 npm。
+- 遗留问题：Electron 桌面 renderer 仍为中文文案，本次未改（用户本次只要求 CLI 英文）；已记入 todo。

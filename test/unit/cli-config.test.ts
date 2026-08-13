@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
+import { promisify } from "node:util";
 
-import { isEntrypoint, runCli } from "../../src/cli/main.js";
+const execFileAsync = promisify(execFile);
+
+import { isEntrypoint, resolveInvokedName, runCli } from "../../src/cli/main.js";
 import { LlmSettingsService } from "../../src/settings/llm-settings-service.js";
 import { psporePaths } from "../../src/storage/home.js";
+import { PSPORE_VERSION } from "../../src/version.js";
 
 test("CLI config supports the same provider presets and custom OpenAI settings as the GUI", async () => {
   const home = await mkdtemp(join(tmpdir(), "pspore-cli-config-"));
@@ -70,14 +75,39 @@ test("CLI entrypoint recognizes the symlink created by npm", async () => {
   }
 });
 
-test("npm package keeps the public name and canonical pspore bin mapping", async () => {
+test("npm package installs both the package name and the short pspore command", async () => {
   const manifestPath = fileURLToPath(new URL("../../package.json", import.meta.url));
   const manifest = JSON.parse(await readFile(manifestPath, "utf8")) as {
     name?: string;
+    version?: string;
     bin?: Record<string, string>;
   };
   assert.equal(manifest.name, "p-spore");
-  assert.deepEqual(manifest.bin, { pspore: "dist/cli/main.js" });
+  assert.equal(manifest.version, PSPORE_VERSION);
+  // `npm install --global p-spore` must expose a command matching the package name.
+  assert.equal(manifest.bin?.["p-spore"], "dist/cli/main.js");
+  assert.deepEqual(manifest.bin, {
+    pspore: "dist/cli/main.js",
+    "p-spore": "dist/cli/main.js",
+  });
+});
+
+// Importing the module cannot catch initialization-order faults that only surface when the
+// file is executed directly, the way both npm bin symlinks execute it.
+test("running the CLI as an entrypoint renders help without initialization errors", async () => {
+  const cli = fileURLToPath(new URL("../../src/cli/main.ts", import.meta.url));
+  const tsx = fileURLToPath(new URL("../../node_modules/.bin/tsx", import.meta.url));
+  const { stdout, stderr } = await execFileAsync(tsx, [cli, "--help"]);
+  assert.equal(stderr, "");
+  assert.match(stdout, /Usage: pspore \[--home PATH\] <command>/);
+  assert.match(stdout, /^pSpore \d+\.\d+\.\d+ — Linux local agent core/);
+});
+
+test("help and hints echo back whichever bin alias was invoked", () => {
+  assert.equal(resolveInvokedName("/usr/local/bin/p-spore"), "p-spore");
+  assert.equal(resolveInvokedName("/usr/local/bin/pspore"), "pspore");
+  assert.equal(resolveInvokedName("/opt/app/dist/cli/main.js"), "pspore");
+  assert.equal(resolveInvokedName(undefined), "pspore");
 });
 
 async function captureStdout(run: () => Promise<number>): Promise<string> {

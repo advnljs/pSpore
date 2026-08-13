@@ -56,6 +56,9 @@
 - 响应式桌面验收在 `1920×1080` 主基准通过后，补测 `1440×900` 与 `1180×720`；三档均不得产生 document overflow，composer 必须完整可见，窄窗口检查器以受控抽屉呈现。
 - 设置弹层必须留在 viewport 内、锁定背景焦点、API Key input 保持 password，read API 只返回 `hasApiKey` 状态。
 - TUI 主基准 `160×45` 必须保持简洁双栏、完整输入和可访问命令；补测 `96×30` 单栏，不要求手机端。完整命令经 `/help` 展示，不用常驻高密度底栏。
-- npm tarball 只能包含运行需要的 README、`dist` 与 package metadata；全新 prefix 安装后 `pspore` bin 必须可执行，并能从仓库外启动 TUI、自动管理 Daemon。
+- npm tarball 只能包含运行需要的 README、`dist` 与 package metadata；全新 prefix 安装后 bin 必须可执行，并能从仓库外启动 TUI、自动管理 Daemon。
+- 全局安装后必须存在与包名一致的 `p-spore` 命令；`pspore` 作为等价短命令保留，两者指向同一入口。
+- npm 展示页（根 `README.md`）必须为英文，且面向 p-spore CLI 自身功能与用法，不放项目记忆、开发流程或阶段进度；中文项目文档放在 `docs/project-overview.md`。
+- p-spore CLI（含 TUI）的用户可见文案必须为英文。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。

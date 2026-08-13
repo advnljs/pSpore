@@ -4,7 +4,8 @@
 
 | 路径 | 用途 |
 |---|---|
-| `README.md` | 项目入口、当前状态、安全边界和下一步 |
+| `README.md` | npm 展示页：英文、面向 p-spore CLI 安装与用法 |
+| `docs/project-overview.md` | 中文项目文档：当前状态、安全边界、开发流程与下一步（原 README） |
 | `initial_design.txt` | 用户原始 11 条设计思路，不作为最终契约 |
 | `docs/detailed-design.md` | 当前唯一完整详细设计与 v1 验收契约 |
 | `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |

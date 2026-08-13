@@ -1,6 +1,6 @@
 {
   "name": "p-spore",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Linux-first local proactive agent built on Pi",
   "keywords": ["ai", "agent", "cli", "tui", "automation", "mcp"],
   "homepage": "https://github.com/advnljs/pSpore#readme",
@@ -22,7 +22,8 @@
     "node": ">=24.0.0 <25"
   },
   "bin": {
-    "pspore": "dist/cli/main.js"
+    "pspore": "dist/cli/main.js",
+    "p-spore": "dist/cli/main.js"
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-desktop-assets.mjs",
