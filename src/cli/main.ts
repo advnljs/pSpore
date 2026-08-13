@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { access, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -28,7 +29,7 @@ import {
   type ThinkingLevel,
 } from "../settings/llm-settings.js";
 import { initializePsporeHome, loadConfig, psporePaths } from "../storage/home.js";
-import { PsporeTuiApp } from "../ui/tui/tui-app.js";
+import { acceptsModelSetupOffer, PsporeTuiApp } from "../ui/tui/tui-app.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 
 const execFileAsync = promisify(execFile);
@@ -50,8 +51,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "help":
     case "--help":
     case "-h":
-      process.stdout.write(helpText());
-      return 0;
+      // A bare invocation is the first thing a new user runs, so offer setup there.
+      return runHelp(home, parsed.args.length === 0);
+    case "setup":
+      requireNoArgs(args, "setup");
+      return runSetupWizard(home);
     case "version":
     case "--version":
     case "-v":
@@ -281,7 +285,110 @@ async function runDesktop(home: string): Promise<number> {
   });
 }
 
+/** True when nothing usable is configured yet, including a home that does not exist. */
+async function modelNeedsSetup(home: string): Promise<boolean> {
+  const paths = psporePaths(home);
+  try {
+    await access(paths.config);
+  } catch {
+    return true;
+  }
+  return !(await new LlmSettingsService(home, paths).isModelConfigured());
+}
+
+async function runHelp(home: string, offerSetup: boolean): Promise<number> {
+  // Never let a settings problem hide the help text.
+  const needsSetup = await modelNeedsSetup(home).catch(() => false);
+  if (!needsSetup) {
+    process.stdout.write(helpText());
+    return 0;
+  }
+  const cli = resolveInvokedName(process.argv[1]);
+  process.stdout.write(
+    `No model is configured yet, so prompts would fail with model_not_configured.\n`
+      + `Run \`${cli} setup\` for guided setup, or \`${cli} config set ...\` to configure it directly.\n\n`,
+  );
+  if (!offerSetup || !process.stdin.isTTY || !process.stdout.isTTY) {
+    process.stdout.write(helpText());
+    return 0;
+  }
+  const answer = await readLineInput("Run the model setup wizard now? [Y/n] ");
+  if (!acceptsModelSetupOffer(answer)) {
+    process.stdout.write(`\nSkipped. Run \`${cli} setup\` whenever you are ready.\n\n`);
+    process.stdout.write(helpText());
+    return 0;
+  }
+  return runSetupWizard(home);
+}
+
+async function runSetupWizard(home: string): Promise<number> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new CliError(
+      `setup requires an interactive TTY; use \`${resolveInvokedName(process.argv[1])} config set ...\` instead`,
+    );
+  }
+  const { paths } = await initializePsporeHome(home);
+  const service = new LlmSettingsService(home, paths);
+  const current = await service.get();
+  process.stdout.write("\nModel setup — press Enter to accept each default, Ctrl+C to abort.\n\n");
+
+  const providerAnswer = await readLineInput(`1/5 provider [${current.provider}] (deepseek · openai · custom-openai): `);
+  const provider = providerAnswer.trim() ? parseConfigProvider(providerAnswer.trim()) : current.provider;
+
+  const suggestedModel = provider === current.provider ? current.model : defaultModelFor(provider);
+  const modelAnswer = await readLineInput(`2/5 model [${suggestedModel}]: `);
+  const model = modelAnswer.trim() || suggestedModel;
+
+  let baseUrl = "";
+  let api: ModelApi = "provider-default";
+  if (provider === "custom-openai") {
+    const suggestedUrl = current.provider === provider ? current.baseUrl : "";
+    const urlAnswer = await readLineInput(`3/5 Base URL${suggestedUrl ? ` [${suggestedUrl}]` : " (required)"}: `);
+    baseUrl = urlAnswer.trim() || suggestedUrl;
+    if (!baseUrl) throw new CliError("A Base URL is required for custom OpenAI");
+    const apiAnswer = await readLineInput("3/5 API [chat] (chat · responses): ");
+    api = parseConfigApi(apiAnswer.trim() || "chat");
+  }
+
+  const thinkingAnswer = await readLineInput(`4/5 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")}): `);
+  const thinking = parseConfigThinking(thinkingAnswer.trim() || current.thinking);
+
+  const keyDefault = current.hasApiKey ? "keep" : "set";
+  const keyAnswer = await readLineInput(`5/5 API key [${keyDefault}] (set · keep · clear): `);
+  const keyAction = (keyAnswer.trim().toLowerCase() || keyDefault);
+  if (!["set", "keep", "clear"].includes(keyAction)) throw new CliError("Key action must be set, keep, or clear");
+  let apiKey: string | undefined;
+  if (keyAction === "set") {
+    apiKey = await readSecretInput();
+    if (!apiKey) throw new CliError("API key cannot be empty");
+  }
+
+  const saved = await service.save(settingsUpdate(current, {
+    provider,
+    model,
+    baseUrl,
+    api,
+    thinking,
+    customModel: provider === "custom-openai",
+    ...(apiKey ? { apiKey } : {}),
+    clearApiKey: keyAction === "clear",
+  }));
+  process.stdout.write("\n");
+  printModelSettings(saved);
+  const cli = resolveInvokedName(process.argv[1]);
+  process.stdout.write(
+    saved.hasApiKey
+      ? `\nSaved. Start the agent with \`${cli} tui\`.\n`
+      : `\nSaved, but no API key is configured yet; add one with \`${cli} config key\`.\n`,
+  );
+  return 0;
+}
+
 async function runConfigCommand(home: string, args: readonly string[]): Promise<number> {
+  if (args[0] === "wizard") {
+    requireNoArgs(args.slice(1), "config wizard");
+    return runSetupWizard(home);
+  }
   const { paths } = await initializePsporeHome(home);
   const service = new LlmSettingsService(home, paths);
   const action = args[0] ?? "show";
@@ -373,6 +480,16 @@ function printModelSettings(settings: LlmSettings): void {
     `Thinking: ${settings.thinking}`,
     `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
   ].join("\n") + "\n");
+}
+
+/** Visible single-line prompt; secrets must go through readSecretInput instead. */
+async function readLineInput(prompt: string): Promise<string> {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    return await rl.question(prompt);
+  } finally {
+    rl.close();
+  }
 }
 
 async function readSecretInput(): Promise<string> {
@@ -717,7 +834,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

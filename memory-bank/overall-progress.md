@@ -337,3 +337,22 @@
   - 临时 cache/prefix/home 已清理。
 - 当前状态：首启动引导已在 registry 上可用并验证。无常驻服务，本阶段无前端视觉改动。
 - 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。
+
+## 2026-08-13 11:20 CST — CLI 侧补齐配置引导入口（0.1.3 待发布）
+
+- 阶段目标：用户反馈裸跑 `p-spore` 只看到帮助、看不到配置引导入口；把引导补到 CLI 本身，而不只在 TUI 内。
+- 完成内容：
+  - 新增 `p-spore setup` 命令（`config wizard` 为同义写法），CLI 原生 5 步引导：provider、model、custom 时的 Base URL/API、thinking、API key；不依赖 TUI。
+  - 裸跑 `p-spore`（无任何参数）且 `config.model` 为空时，先输出说明与 `setup` 指引；在交互式 TTY 下追加 `Run the model setup wizard now? [Y/n]`，接受即进入引导，拒绝则打印帮助。
+  - `--help`/`help` 显式请求时只加指引横幅、不提问，保持可脚本化。
+  - `helpText()` 增加 `setup` 与 `config wizard` 两行，使入口可被发现。
+  - 新增 `readLineInput()` 明文单行输入；API key 仍走既有隐藏输入 `readSecretInput()`。
+  - `modelNeedsSetup()` 在 home 尚不存在时判定为未配置，且不会因此创建目录；settings 异常不遮挡帮助输出。
+- 修改文件：`src/cli/main.ts`、`test/unit/cli-config.test.ts`、`package.json`、`package-lock.json`、`src/version.ts`。
+- 验证方式与结果：
+  - `npm run check` 通过：typecheck、92 项测试、build 全绿；entrypoint 测试改为隔离临时 home，同时断言未配置时出现指引、配置后指引消失。
+  - PTY 真机验证（注意 `script` 必须带 `-f` 才会实时刷新日志，否则轮询读不到输出）：裸跑弹出 `[Y/n]`，回车后依次走完 1/5→5/5，`config.json` 写入 `{"provider":"deepseek","model":"deepseek-v4-flash","thinking":"off"}`，并正确提示尚未配置 API key。
+  - 已配置后裸跑不再出现指引横幅；`--help` 可见 `setup` 与 `config wizard`；非 TTY 下 `setup` 明确报错并指向 `config set`。
+  - 临时 home 已清理。
+- 当前状态：版本已升至 `0.1.3` 并通过全量验证，尚未发布到 npm。
+- 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。

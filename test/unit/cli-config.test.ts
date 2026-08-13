@@ -111,13 +111,33 @@ test("a fresh home reports no configured model until settings are saved", async 
 // Importing the module cannot catch initialization-order faults that only surface when the
 // file is executed directly, the way both npm bin symlinks execute it.
 test("running the CLI as an entrypoint renders help without initialization errors", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-help-"));
+  try {
+    // An unconfigured home leads with the setup pointer, then still prints the full help.
+    const unconfigured = await runCliProcess(["--home", home, "--help"]);
+    assert.equal(unconfigured.stderr, "");
+    assert.match(unconfigured.stdout, /^No model is configured yet/);
+    assert.match(unconfigured.stdout, /pspore setup/);
+    assert.match(unconfigured.stdout, /Usage: pspore \[--home PATH\] <command>/);
+    assert.match(unconfigured.stdout, /^\s*setup\s+Guided model setup/m);
+
+    await captureStdout(() => runCli(["--home", home, "config", "set", "deepseek", "deepseek-v4-flash", "off"]));
+
+    // Once configured the pointer disappears and help leads with the banner again.
+    const configured = await runCliProcess(["--home", home, "--help"]);
+    assert.equal(configured.stderr, "");
+    assert.doesNotMatch(configured.stdout, /No model is configured yet/);
+    assert.match(configured.stdout, /^pSpore \d+\.\d+\.\d+ — Linux local agent core/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+async function runCliProcess(args: readonly string[]): Promise<{ stdout: string; stderr: string }> {
   const cli = fileURLToPath(new URL("../../src/cli/main.ts", import.meta.url));
   const tsx = fileURLToPath(new URL("../../node_modules/.bin/tsx", import.meta.url));
-  const { stdout, stderr } = await execFileAsync(tsx, [cli, "--help"]);
-  assert.equal(stderr, "");
-  assert.match(stdout, /Usage: pspore \[--home PATH\] <command>/);
-  assert.match(stdout, /^pSpore \d+\.\d+\.\d+ — Linux local agent core/);
-});
+  return execFileAsync(tsx, [cli, ...args]);
+}
 
 test("help and hints echo back whichever bin alias was invoked", () => {
   assert.equal(resolveInvokedName("/usr/local/bin/p-spore"), "p-spore");

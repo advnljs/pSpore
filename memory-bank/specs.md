@@ -61,5 +61,6 @@
 - npm 展示页（根 `README.md`）必须为英文，且面向 p-spore CLI 自身功能与用法，不放项目记忆、开发流程或阶段进度；中文项目文档放在 `docs/project-overview.md`。
 - p-spore CLI（含 TUI）的用户可见文案必须为英文。
 - 首次启动 TUI 且 `config.model` 为空时，必须主动推荐进入模型配置 wizard 并由用户 y/n 确认；不得强制进入，拒绝后仍可正常使用其余功能。
+- 裸跑 `p-spore` 且未配置模型时，必须直接给出配置引导入口并在 TTY 下 y/n 询问；引导必须是 CLI 原生命令（`setup`），不能只存在于 TUI 内，且必须出现在 `--help` 列表中。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
