@@ -45,6 +45,7 @@
 - 可参考 OpenCode、Codex CLI 与 Claude Code 的公开交互方式，不使用泄露或非公开源码。pSpore 定位是 cowork agent：能力可与 coding agent 对齐，展示应围绕任务、文件、记忆、自动化和集成等工作语义，而非只呈现编码事件。
 - TUI 优化的事件归一、语义标签、状态、结果、耗时和脱敏逻辑必须对 GUI 同时生效；平台只允许在渲染层有差异。
 - 本轮完成、验证和记录后必须发布新 npm 版本。
+- npm 0.1.4 发布后，GUI 也必须以同版本重新构建 Linux x86_64 AppImage，通过发行包本身的启动/视觉/安全验收后发布新 GitHub Release。
 
 ## 设计验收标准
 

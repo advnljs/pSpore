@@ -362,6 +362,15 @@
 - 当前状态：0.1.4 已在 GitHub main 与 npm registry 发布并完成全新用户实装验证；最新 `dist/` 已构建，验收 Daemon/TUI/Electron 进程全部停止，DeepSeek/npm 临时 home、临时凭据副本、发布认证 transcript 与安装目录已删除（不可恢复，均为本轮临时产物）。
 - 遗留问题：桌面端首次启动引导、UDS 超长路径提示、Electron renderer 英文化未纳入本轮；sandbox/vector/remote/mobile 仍为非目标。
 
+## 2026-08-13 16:54 CST — 0.1.4 Electron GUI AppImage 重新发行
+
+- 阶段目标：为已发布的 npm 0.1.4 生成同版本 Linux x86_64 GUI AppImage，直接从发行包完成启动、视觉和安全验收后创建 GitHub Release。
+- 完成内容：使用 Electron 43.3.0 / electron-builder 26.15.3 从提交 `d12bcbb` 构建 `release-dist/pspore-desktop-0.1.4-linux-x64.AppImage`；包内含最新共享 `CoworkActivity` reducer、TUI/GUI 工具语义与 0.1.4 版本元数据。
+- 产物：156,349,369 bytes，mode `0755`，SHA-256 `02a3d74d669977284019c9ba623c42ccc912dee666337db60e2a74c79baad017`，Linux x86-64 ELF/AppImage 结构可执行。
+- AppImage 本体验证：从全新临时 home 直接启动 AppImage，`daemonOwnership=owned`、`connection=connected`、reconnect 通过，退出后 socket/endpoint 均清理。检查 `1920×1080` 深/浅主题、设置/审批，以及 `1440×900`、`1180×720` 响应式布局；无 document overflow，composer/检查器可见，字号下限、password input、密钥不回读和 IPC allowlist 断言全部通过。人工检查 1920×1080 与 1180×720 截图无明显遮挡/溢出。
+- 当前状态：AppImage 已就绪，构建中间目录、smoke home/截图/报告已删除（不可恢复，均为本轮临时产物）；待提交本记录、创建 `v0.1.4` 标签/GitHub Release 并上传产物。
+- 遗留问题：electron-builder 依旧使用默认 Electron 图标且未设置 `desktopName`/WM_CLASS，不影响启动、布局或安全验收，已记录为后续打包体验待办。
+
 ## 2026-08-13 11:20 CST — CLI 侧补齐配置引导入口（0.1.3 待发布）
 
 - 阶段目标：用户反馈裸跑 `p-spore` 只看到帮助、看不到配置引导入口；把引导补到 CLI 本身，而不只在 TUI 内。

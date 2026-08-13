@@ -21,6 +21,7 @@
 | P3 | 桌面端首次启动同样推荐模型配置 | Pending | 本次只做 TUI | 可复用 `LlmSettingsService.isModelConfigured()` |
 | P3 | daemon 在 UDS 路径超长时给出可理解的错误 | Pending | 无 | 现在只报 `listen EINVAL: invalid argument`；应在 `listen` 前检查 socket 路径长度（sun_path 上限 108 字节）并提示改用更短的 `PSPORE_HOME` |
 | P2 | Electron 桌面 renderer 文案英文化 | Pending | 本次只要求 CLI 英文 | `src/desktop/renderer/index.html`、`renderer.ts`、`main.ts`、`smoke-fixture.ts` 仍为中文，需确认是否统一英文 |
+| P3 | 为 AppImage 补齐产品图标与 WM_CLASS/desktopName | Pending | 不影响当前启动与功能 | 增加受控图标资产，并在 electron-builder 配置中设置 `desktopName` / `linux.syncDesktopName` |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
