@@ -320,3 +320,20 @@
   - 临时 home 与日志已清理。
 - 当前状态：首启动引导已可用，未改变既有 `/config wizard` 行为与 CLI `config` 语义。TUI 主基准 `160×45` 未改布局，本次仅新增面板与问句。
 - 遗留问题：TUI 顶栏在尚无会话时恒显示 `model not configured`（读的是 `selected?.model` 而非配置），属既有显示问题，已记入 todo；桌面端未加同样引导。
+
+## 2026-08-13 10:47 CST — `p-spore@0.1.2` 发布（首启动模型配置引导）
+
+- 阶段目标：把首次启动推荐进入模型配置 wizard 的能力发布到 npm。
+- 完成内容：
+  - 版本升到 `0.1.2`（`package.json`、`src/version.ts`、lockfile 同步）。
+  - 首次 `npm publish` 因 2FA 认证链接在点击前过期失败（`E404 GET /-/v1/done?authId=***`），registry 未产生任何版本；确认 `0.1.2` 未被占用后重试。
+  - 重试改用 `--ignore-scripts` 跳过发布前重复的 `prepublishOnly`，让 2FA 链接立即出现、把完整有效期留给点击；等价校验已在发布前手动执行并确认 `dist/` 为 0.1.2 最新构建。
+  - `p-spore@0.1.2` 发布成功，`latest` 指向 `0.1.2`。
+- 修改文件：`package.json`、`package-lock.json`、`src/version.ts`、`memory-bank/*.md`。
+- 验证方式与结果：
+  - 发布前 `npm run check` 通过：typecheck、92 项测试、build 全绿。
+  - 远端 `dist.shasum` `7f26f90ef739dffe4073e457e3b8a0b2d9a9654b`；全新 cache + prefix 安装 `p-spore@latest` 得到 `0.1.2`，`p-spore` 与 `pspore` 两个 bin 均生成。
+  - 用 registry 安装的产物在 PTY 中真实首启动：全新 home 正确弹出 `MODEL SETUP RECOMMENDED` 面板与 `Run the model setup wizard now? [Y/n]`；`p-spore --version` 为 `0.1.2`。
+  - 临时 cache/prefix/home 已清理。
+- 当前状态：首启动引导已在 registry 上可用并验证。无常驻服务，本阶段无前端视觉改动。
+- 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。
