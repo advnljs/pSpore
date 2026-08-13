@@ -357,7 +357,9 @@
   - 真实 TUI 文件任务：`edit` 从 `Updating file` spinner 原位变为 `Updated file`，显示 `92 B written · 14 ms`；生成的 `tui-brief.md` 内容精确，`/work` 历史与详情面板均正常。
 - 验证方式与当前结果：针对性 typecheck 与 20 项 TUI/desktop/memory/policy 测试通过；`npm run check` 通过严格 typecheck、94 项测试和 production build；真 TTY 在 `160×45` 和 `96×30` 验证配色、动画、换行、工作历史与详情无溢出；`npm run test:electron` 通过 `1920×1080`、`1440×900`、`1180×720`、双主题、设置、owned/external Daemon、重连与 IPC allowlist。
 - npm 发布门禁：`npm pack` 生成 265 entries、282293 bytes，SHA-1 `29939fc938e4e879c825ab24dcaf26508d11787f`，顶层只有 README/`dist`/`package.json`；全新 cache + prefix 安装后 `p-spore`/`pspore --version` 均为 0.1.4，从仓库外运行 help 成功，临时产物已清理。
-- 当前状态：源码已升到 `0.1.4`，最新 `dist/` 已构建，测试 Daemon/TUI/Electron 进程已停止；待完成 Git 提交/push 和 registry 发布后更新本记录。
+- 发布结果：功能与版本提交 `c9d0152` 已 push 到 `origin/main`；通过 npm 短时浏览器 WebAuthn 流程发布 `p-spore@0.1.4`，未读取或保存 token/OTP。Registry 直连确认 `latest=0.1.4`、SHA-1 `29939fc938e4e879c825ab24dcaf26508d11787f`、SHA-512 `sha512-yIttaEGj5xw6hI4nae++7DMLowLr99RWkJgR6MASYHWvbOijba+0tgfiaaFobJf5TNFC3wPe2toVN/HEzebl4w==`，与本地包一致。
+- Registry 实装：全新 cache/prefix 安装指定的 `p-spore@0.1.4`，`p-spore`/`pspore` 均报告 0.1.4；从远端包初始化全新 home、启动 Daemon 到 `ready`，`status`/`jobs` 经 UDS 成功，SIGTERM 后 socket 已清理。
+- 当前状态：0.1.4 已在 GitHub main 与 npm registry 发布并完成全新用户实装验证；最新 `dist/` 已构建，验收 Daemon/TUI/Electron 进程全部停止，DeepSeek/npm 临时 home、临时凭据副本、发布认证 transcript 与安装目录已删除（不可恢复，均为本轮临时产物）。
 - 遗留问题：桌面端首次启动引导、UDS 超长路径提示、Electron renderer 英文化未纳入本轮；sandbox/vector/remote/mobile 仍为非目标。
 
 ## 2026-08-13 11:20 CST — CLI 侧补齐配置引导入口（0.1.3 待发布）
