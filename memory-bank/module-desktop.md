@@ -19,6 +19,7 @@
 - `src/daemon/supervisor.ts`：桌面/TUI 共用；原子判定客户端拥有新 Daemon 还是复用现有实例，只关闭自己拥有的实例。`src/desktop/daemon-supervisor.ts` 仅保留兼容导出。
 - `src/settings/llm-settings*.ts`：GUI/TUI/CLI 共用严格设置 decoder/service；验证并原子持久化 Provider、模型、Base URL、自定义兼容 API 与私有 API Key 引用，保存前用 Pi `ModelRuntime` 验证模型可解析。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
+- `src/ui/shared/activity.ts`：与 TUI 共享的 cowork 活动归一、工具事件合并、语义摘要、结果/耗时与脱敏详情。
 - `security.ts`：BrowserWindow security flags、严格 CSP 与 exact local navigation 检查。
 - `smoke-fixture.ts`：只由显式 `--smoke-fixture` 使用的长内容、agent、run、MCP/resource 和审批视觉状态。
 - `scripts/copy-desktop-assets.mjs`：构建时复制 CJS preload、HTML 与 CSS。
@@ -52,6 +53,7 @@ preload 仅暴露：
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
 - renderer 通过语义色变量提供持久化深色/浅色主题；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
+- activity inspector 对 started/updated/completed 工具事件只保留一张持续更新的卡片，使用与 TUI 一致的 cowork label、状态点、目标、结果与脱敏详情；其他运行/系统活动保持可见。
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
 - API Key 保存到 `credentials/<provider>.api-key` 且 mode `0600`；`models.json` 只存私有文件读取引用。renderer 始终只看见 `hasApiKey`。

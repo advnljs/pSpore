@@ -8,16 +8,13 @@ import {
   selectProtocolSession,
   type ProtocolUiState,
 } from "../../ui/shared/protocol-state.js";
+import {
+  applyCoworkActivityEvent,
+  type CoworkActivity,
+} from "../../ui/shared/activity.js";
 import type { DesktopBootstrap, DesktopConnectionState, DesktopFrame } from "../ipc-contract.js";
 
-export interface DesktopActivity {
-  id: string;
-  type: string;
-  ts: string;
-  sessionId?: string;
-  summary: string;
-  detail?: string;
-}
+export type DesktopActivity = CoworkActivity;
 
 export interface DesktopStoreSnapshot {
   connection: DesktopConnectionState;
@@ -95,63 +92,13 @@ export class DesktopStore {
       this.#state = { ...this.#state, ...result.state, ...(result.state.gap ? { notice: gapNotice(result.state.gap) } : {}) };
       return;
     }
-    const activity = activityFrom(event);
+    const activities = applyCoworkActivityEvent(this.#state.activities, event);
     this.#state = {
       ...this.#state,
       ...result.state,
-      activities: activity ? [...this.#state.activities, activity].slice(-100) : this.#state.activities,
+      activities,
       ...(result.notificationNotice ? { notice: result.notificationNotice } : {}),
     };
-  }
-}
-
-function activityFrom(event: EventEnvelope): DesktopActivity | undefined {
-  const visible = new Set([
-    "run.started",
-    "run.settled",
-    "tool.started",
-    "tool.updated",
-    "tool.completed",
-    "compaction.started",
-    "compaction.completed",
-    "retry.started",
-    "retry.completed",
-    "runtime.error",
-    "automation.run",
-    "agent.updated",
-    "agent.message",
-    "mcp.health",
-    "resource.health",
-  ]);
-  if (!visible.has(event.type)) return undefined;
-  const payload = asRecord(event.payload);
-  const sessionId = typeof payload["sessionId"] === "string" ? payload["sessionId"] : undefined;
-  const summary = activitySummary(event.type, payload);
-  const detail = compactDetail(payload);
-  return {
-    id: event.id,
-    type: event.type,
-    ts: event.ts,
-    summary,
-    ...(sessionId === undefined ? {} : { sessionId }),
-    ...(detail ? { detail } : {}),
-  };
-}
-
-function activitySummary(type: string, payload: Record<string, unknown>): string {
-  const tool = typeof payload["toolName"] === "string" ? payload["toolName"] : typeof payload["name"] === "string" ? payload["name"] : undefined;
-  if (tool) return `${type}: ${tool}`;
-  const error = typeof payload["error"] === "string" ? payload["error"] : undefined;
-  if (error) return `${type}: ${error}`;
-  return type.replaceAll(".", " ");
-}
-
-function compactDetail(payload: Record<string, unknown>): string | undefined {
-  try {
-    const text = JSON.stringify(payload, null, 2);
-    return text.length > 16_000 ? `${text.slice(0, 16_000)}\n… output folded at 16 KB` : text;
-  } catch {
-    return undefined;
   }
 }
 
@@ -172,12 +119,4 @@ function gapNotice(gap: NonNullable<ProtocolUiState["gap"]>): string {
 function connectionNotice(connection: DesktopConnectionState): string {
   if (connection.phase === "connected") return "Connected to the local daemon";
   return connection.message ?? (connection.phase === "connecting" ? "Connecting to daemon…" : "Daemon disconnected");
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return isRecord(value) ? value : {};
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

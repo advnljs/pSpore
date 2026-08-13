@@ -221,11 +221,14 @@ export class PolicyEngine {
 export function classifyShellRisk(command: string): string[] {
   const risks: string[] = [];
   const normalized = command.replace(/\s+/g, " ").trim().toLowerCase();
+  // /dev/null is a conventional output sink, not a device mutation. Remove only
+  // exact redirections to it before evaluating writes to every other /dev target.
+  const deviceRiskInput = normalized.replace(/(^|[\s;&|])\d*>{1,2}\s*\/dev\/null\b/g, "$1");
   if (/(^|[;&|]\s*|\s)(sudo|doas|su)(\s|$)/.test(normalized)) risks.push("privilege escalation command");
   if (/\brm\s+[^\n]*(?:-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r|--recursive)/.test(normalized)) {
     risks.push("recursive or forced deletion");
   }
-  if (/\b(mkfs|fdisk|parted|dd)\b|>\s*\/dev\//.test(normalized)) risks.push("disk or device mutation");
+  if (/\b(mkfs|fdisk|parted|dd)\b|>\s*\/dev\//.test(deviceRiskInput)) risks.push("disk or device mutation");
   if (/\b(systemctl|service|mount|umount|shutdown|reboot)\b/.test(normalized)) risks.push("system service or host state mutation");
   if (/\b(curl|wget)\b[^|\n]*\|\s*(?:ba)?sh\b/.test(normalized)) risks.push("downloaded content piped to a shell");
   if (/\bgit\s+(push|tag)|\bnpm\s+publish\b|\bgh\s+release\b/.test(normalized)) risks.push("publishing or remote repository mutation");

@@ -40,6 +40,11 @@
 - TUI/CLI 与桌面版必须基于相同 Kernel、Daemon、协议状态、会话路由和模型设置内核，功能面覆盖 prompt、main/child、审批、自动化、MCP、资源与设置；平台渲染组件可以独立。
 - CLI/TUI 必须可以从 npm 直接安装使用；npm CLI 包不应把 Electron 作为生产依赖。如需发布认证，使用 npm 浏览器认证，不读取或粘贴 token。
 - 用户明确选定公开 npm 包名 `p-spore`；安装后的全局 CLI 命令保持为 `pspore`。
+- 基于真实 `deepseek/deepseek-v4-flash` 执行多种本地桌面文件、系统检查与长期记忆任务，记录优化前后的工具次数、失败、审批、耗时与重启召回结果。
+- TUI 的工具调用必须可见且有运行中动效，使用样式/色彩区分用户、pSpore、运行中、成功、失败和记忆操作；并遵循 `NO_COLOR`/`TERM=dumb`。
+- 可参考 OpenCode、Codex CLI 与 Claude Code 的公开交互方式，不使用泄露或非公开源码。pSpore 定位是 cowork agent：能力可与 coding agent 对齐，展示应围绕任务、文件、记忆、自动化和集成等工作语义，而非只呈现编码事件。
+- TUI 优化的事件归一、语义标签、状态、结果、耗时和脱敏逻辑必须对 GUI 同时生效；平台只允许在渲染层有差异。
+- 本轮完成、验证和记录后必须发布新 npm 版本。
 
 ## 设计验收标准
 
@@ -56,6 +61,7 @@
 - 响应式桌面验收在 `1920×1080` 主基准通过后，补测 `1440×900` 与 `1180×720`；三档均不得产生 document overflow，composer 必须完整可见，窄窗口检查器以受控抽屉呈现。
 - 设置弹层必须留在 viewport 内、锁定背景焦点、API Key input 保持 password，read API 只返回 `hasApiKey` 状态。
 - TUI 主基准 `160×45` 必须保持简洁双栏、完整输入和可访问命令；补测 `96×30` 单栏，不要求手机端。完整命令经 `/help` 展示，不用常驻高密度底栏。
+- TUI 在真实模型运行中必须显示可变思考/输出/工具状态，工具完成后在同一步上显示成功或失败、简要结果和耗时；`/work [STEP_ID]` 可回看历史与经脱敏/限长的技术详情。
 - npm tarball 只能包含运行需要的 README、`dist` 与 package metadata；全新 prefix 安装后 bin 必须可执行，并能从仓库外启动 TUI、自动管理 Daemon。
 - 全局安装后必须存在与包名一致的 `p-spore` 命令；`pspore` 作为等价短命令保留，两者指向同一入口。
 - npm 展示页（根 `README.md`）必须为英文，且面向 p-spore CLI 自身功能与用法，不放项目记忆、开发流程或阶段进度；中文项目文档放在 `docs/project-overview.md`。

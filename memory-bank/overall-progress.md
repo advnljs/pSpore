@@ -338,6 +338,28 @@
 - 当前状态：首启动引导已在 registry 上可用并验证。无常驻服务，本阶段无前端视觉改动。
 - 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。
 
+## 2026-08-13 16:20 CST — Cowork TUI 活动体验与 DeepSeek 桌面/记忆验证（0.1.4）
+
+- 阶段目标：以真实 `deepseek/deepseek-v4-flash` 执行桌面文件、系统诊断与长期记忆任务，记录基线后优化 TUI 的 cowork 表现，并确保活动核心同步用于 Electron GUI。
+- 优化前真实基线：
+  - 行程计划文件创建：1 次 `edit`，5.581 s，正确生成总额 `¥1180`。跨文件摘要正确，但多执行 1 次不必要的 `shell ls`。
+  - 系统检查中 `node --version 2>/dev/null` 被误判为 device mutation，需要 1 次人工审批；批准后生成正确 `system-check.md`。
+  - 长期偏好保存：14 次工具、8 次 `memory_curate` 参数失败、25.899 s；根因为工具实现要求 `session:/run:/file:` source，但 model-facing schema 未公开格式。最终用 `session:main` 成功，Daemon 重启后 1.941 s 可无工具召回。
+- 完成内容：
+  - 新增 `src/ui/shared/activity.ts`，将 tool started/updated/completed 按 `toolCallId` 合并成一个 `CoworkActivity`，统一 cowork 语义 label、target、running/succeeded/failed、result、duration 与 8 KB 脱敏详情；同时保留 run/compaction/retry/error/automation/agent/integration 活动。
+  - TUI 区分 user 蓝、pSpore 绿、working 琥珀、success 绿、failure 红、memory 紫，并尊重 `NO_COLOR`/`TERM=dumb`；顶栏会以 120 ms spinner 在 Thinking / Writing response / 当前工作步骤间切换。
+  - 会话不再重复显示 raw tool message，改为 `WORK STEPS` 卡片；`/work` 查看历史，`/work <ID-prefix>` 查看脱敏详情。配置 wizard 增加进度和步骤说明，顶栏在无 session 时回退显示已保存 model。
+  - Electron renderer store 消费同一 `CoworkActivity` reducer，工具卡在原位更新状态点、语义 label、目标和结果，技术详情保持可折叠，其他活动不回退。
+  - `memory_curate` schema 补齐 exact hash 与 source 格式；Shell risk 仅从 device 写入检测中排除精确 `/dev/null` 重定向，其他 `/dev/*` 仍需审批。
+- 优化后真实 DeepSeek 结果：
+  - 系统检查：4 次 `shell` + `edit` + `read`，8.487 s，0 失败、0 审批，正确生成 `system-check.md`。
+  - 长期记忆：1 次 `read` + 1 次 `memory_curate`，6.690 s，0 失败，仅新增 1 条。Daemon 重启后 3.629 s 无工具正确召回“中文、开头决策、随后负责人与截止日期”。
+  - 真实 TUI 文件任务：`edit` 从 `Updating file` spinner 原位变为 `Updated file`，显示 `92 B written · 14 ms`；生成的 `tui-brief.md` 内容精确，`/work` 历史与详情面板均正常。
+- 验证方式与当前结果：针对性 typecheck 与 20 项 TUI/desktop/memory/policy 测试通过；`npm run check` 通过严格 typecheck、94 项测试和 production build；真 TTY 在 `160×45` 和 `96×30` 验证配色、动画、换行、工作历史与详情无溢出；`npm run test:electron` 通过 `1920×1080`、`1440×900`、`1180×720`、双主题、设置、owned/external Daemon、重连与 IPC allowlist。
+- npm 发布门禁：`npm pack` 生成 265 entries、282293 bytes，SHA-1 `29939fc938e4e879c825ab24dcaf26508d11787f`，顶层只有 README/`dist`/`package.json`；全新 cache + prefix 安装后 `p-spore`/`pspore --version` 均为 0.1.4，从仓库外运行 help 成功，临时产物已清理。
+- 当前状态：源码已升到 `0.1.4`，最新 `dist/` 已构建，测试 Daemon/TUI/Electron 进程已停止；待完成 Git 提交/push 和 registry 发布后更新本记录。
+- 遗留问题：桌面端首次启动引导、UDS 超长路径提示、Electron renderer 英文化未纳入本轮；sandbox/vector/remote/mobile 仍为非目标。
+
 ## 2026-08-13 11:20 CST — CLI 侧补齐配置引导入口（0.1.3 待发布）
 
 - 阶段目标：用户反馈裸跑 `p-spore` 只看到帮助、看不到配置引导入口；把引导补到 CLI 本身，而不只在 TUI 内。

@@ -16,6 +16,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - `Subagent Router`：session actor tree、mailbox、budget、权限继承和双工消息。
 - `Extension Host`：Pi skills/extensions、pSpore plugins 和 MCP adapter。
 - `Shared Client Core`：GUI/TUI 共用 protocol state reducer、presentation model、会话输入路由、Daemon supervisor 与 LLM settings service；DOM/terminal widget 各自渲染。
+- `Cowork Activity`：将 tool/run/retry/compaction/error/automation/agent/integration 事件归一为共享的语义活动模型；TUI 用动态工作步骤表现，Electron 用可折叠活动卡表现。
 - `Storage`：atomic JSON、append-only JSONL、lock、schema migration 和 recovery。
 
 ## 数据流
@@ -48,6 +49,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 20. 模型设置由 GUI/TUI/CLI 共用 `LlmSettingsService` 与严格 decoder，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，GUI/TUI 状态只获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被客户端擅自中断。
 21. 用户级 Provider 只暴露 `deepseek`、`openai`、`custom-openai`；前两者使用受控默认 endpoint/API，只有自定义 OpenAI 可写 Base URL 并选择 Chat Completions/Responses。TUI 同时提供无副作用预览/确认的 wizard 与可脚本化配置命令。
 22. `DaemonSupervisor` 是桌面和 TUI 的共享生命周期 owner；通过单实例锁区分 `owned/external`，只停止自己拥有的 Daemon，解决独立 AppImage/TUI 启动时缺失 socket 的问题。
+23. GUI/TUI 不再各自解释原始 tool event；`CoworkActivity` 在共享 reducer 中按 `toolCallId` 合并 started/updated/completed，生成 cowork 语义标签、目标、状态、结果与耗时。技术详情在共享层统一脱敏、限深和限制为 8 KB，平台层仅决定视觉表现。
 
 ## 重要约束
 
@@ -73,3 +75,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-11：Desktop 增加 Daemon ownership supervisor，修复 AppImage 独立启动 `daemon.sock` ENOENT；原生 renderer 建立双主题语义色/字号基线，smoke 扩展到 owned/external Daemon、双主题和 computed typography。
 - 2026-08-11：Desktop 改为会话常驻、检查器按需展开的响应式 PC 工作台；新增严格模型设置 IPC 与私有 key-file storage，smoke 覆盖 1920×1080、1440×900、1180×720 和设置弹层。
 - 2026-08-11：GUI/TUI/CLI 抽出共享 protocol reducer、presentation/input routing、Daemon supervisor 与 LLM settings core；TUI 补齐响应式双栏、完整状态面板和 wizard/命令双配置入口，npm CLI 包可独立安装运行。
+- 2026-08-13：增加 GUI/TUI 共享 `CoworkActivity` reducer，TUI 升级为有角色语义色、动态思考/工具状态、工作历史和脱敏详情的 cowork 工作台；Electron 活动卡同步消费该模型。

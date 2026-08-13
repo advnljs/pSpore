@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { describe, test } from "node:test";
 
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
 import type { AgentSnapshot } from "../../src/domain/runtime.js";
 import { initialKernelState } from "../../src/kernel/state.js";
@@ -84,23 +84,61 @@ describe("TUI 160x45 snapshot", () => {
     store.applyHello(hello());
     store.setNotice("Ready for verification");
     assert.equal(store.selectSession("child-1"), "agent:child-1");
-    const lines = renderTuiSnapshot(store.snapshot(), 160, 45, "inspect workspace");
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "tool-start",
+      streamId: "kernel",
+      seq: 1,
+      ts: "2026-08-09T00:00:03.000Z",
+      durable: false,
+      type: "tool.started",
+      payload: {
+        sessionId: "agent:child-1",
+        toolCallId: "tool-search-1",
+        toolName: "search",
+        input: { query: "public API", path: "/workspace" },
+      },
+    });
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "tool-end",
+      streamId: "kernel",
+      seq: 2,
+      ts: "2026-08-09T00:00:03.125Z",
+      durable: true,
+      type: "tool.completed",
+      payload: {
+        sessionId: "agent:child-1",
+        toolCallId: "tool-search-1",
+        toolName: "search",
+        isError: false,
+        result: { content: [{ type: "text", text: "2 matches" }], details: { hits: [{}, {}] } },
+      },
+    });
+    const lines = renderTuiSnapshot(store.snapshot(), 160, 45, "inspect workspace", { animationFrame: 0 });
     assert.equal(lines.length, 45);
     assert.ok(lines.every((line) => visibleWidth(line) === 160));
     const screen = lines.join("\n");
+    const plain = stripTerminalSequences(screen);
     if (process.env["PSPORE_PRINT_TUI_SNAPSHOT"] === "1") process.stderr.write(`\n${screen}\n`);
-    assert.match(screen, /pSpore  LOCAL AGENT/);
-    assert.match(screen, /deepseek\/deepseek-v4-flash/);
-    assert.match(screen, /CONVERSATION  agent:child-1/);
-    assert.match(screen, /pSpore  child result in progress/);
-    assert.match(screen, /child-1  running/);
-    assert.match(screen, /mcp\s+1\/1/);
-    assert.match(screen, /resources\s+1\/1/);
-    assert.match(screen, /! APPROVAL approval-1/);
-    assert.match(screen, /\/help commands/);
-    assert.match(screen, /\/config wizard/);
-    assert.match(screen, /to child-1 › inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "5821d827b8541ec55871712737e827e843771c7e6a8af3afb14d5975dbb2f0da");
+    assert.match(screen, /\u001b\[38;5;75m/);
+    assert.match(screen, /\u001b\[38;5;114m/);
+    assert.match(plain, /pSpore  LOCAL COWORK AGENT/);
+    assert.match(plain, /deepseek\/deepseek-v4-flash/);
+    assert.match(plain, /CONVERSATION  agent:child-1/);
+    assert.match(plain, /pSpore  child result in progress/);
+    assert.match(plain, /WORK STEPS/);
+    assert.match(plain, /✓ Searched workspace · “public API” in \/workspace · 2 matches/);
+    assert.match(plain, /child-1  running/);
+    assert.match(plain, /mcp\s+1\/1/);
+    assert.match(plain, /resources\s+1\/1/);
+    assert.match(plain, /! APPROVAL approval-1/);
+    assert.match(plain, /\/help commands/);
+    assert.match(plain, /\/config setup/);
+    assert.match(plain, /to child-1 › inspect workspace/);
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "4ca7aafebb96b24f7b4b65d70032360ba21e2dcb1897f20c2784cd9255c3ca3c");
   });
 
   test("opens the complete command palette and adapts to a compact terminal", () => {
@@ -126,6 +164,14 @@ describe("TUI 160x45 snapshot", () => {
     const masked = maskSecretInput(secret, 12);
     assert.doesNotMatch(masked, /secret/);
     assert.equal(visibleWidth(masked), 12);
+  });
+
+  test("shows the saved model before a conversation session exists", () => {
+    const store = new TuiStore();
+    store.setConfiguredModel({ provider: "deepseek", model: "deepseek-v4-flash" });
+    const screen = renderTuiSnapshot(store.snapshot(), 96, 30, "", { color: false }).join("\n");
+    assert.match(screen, /deepseek\/deepseek-v4-flash/);
+    assert.doesNotMatch(screen, /model not configured/);
   });
 });
 

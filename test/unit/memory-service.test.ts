@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 
 import { MemoryService } from "../../src/memory/memory-service.js";
+import { createMemoryTools } from "../../src/memory/memory-tools.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(async (root) => rm(root, { recursive: true, force: true }))));
@@ -46,5 +47,20 @@ describe("memory service", () => {
       /Duplicate curated/,
     );
     await assert.rejects(memory.curate(expected, [{ fact: "new fact", sources: ["session:main"] }]), /Memory conflict/);
+  });
+
+  test("publishes the strict source-reference contract in the model-facing tool schema", () => {
+    const memory = new MemoryService({ workspaceRoot: "/workspace" });
+    const curate = createMemoryTools("main", memory).find((tool) => tool.name === "memory_curate");
+    assert.ok(curate);
+    const contract = JSON.stringify({
+      description: curate.description,
+      promptGuidelines: curate.promptGuidelines,
+      parameters: curate.parameters,
+    });
+    assert.match(contract, /session:ID/);
+    assert.match(contract, /run:ID/);
+    assert.match(contract, /file:workspace\/path\.md/);
+    assert.match(contract, /\^\(\?:session\|run\|file\)/);
   });
 });

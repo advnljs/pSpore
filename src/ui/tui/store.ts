@@ -1,5 +1,7 @@
+import type { ModelRef } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
+import { applyCoworkActivityEvent, type CoworkActivity } from "../shared/activity.js";
 import {
   applyProtocolEvent,
   initialProtocolUiState,
@@ -16,6 +18,8 @@ export interface TuiStoreSnapshot {
   cursors: Readonly<Record<string, number>>;
   gap?: { streamId: string; expected: number; received: number };
   streamingText: Readonly<Record<string, string>>;
+  activities: readonly CoworkActivity[];
+  configuredModel?: ModelRef;
   notice: string;
   panel?: { title: string; lines: readonly string[] };
 }
@@ -24,6 +28,7 @@ export class TuiStore {
   #state: TuiStoreSnapshot = {
     connected: false,
     ...initialProtocolUiState(),
+    activities: [],
     notice: "Connecting to daemon…",
   };
 
@@ -33,9 +38,11 @@ export class TuiStore {
 
   applyHello(hello: ServerHelloFrame): void {
     const cursors = { ...this.#state.cursors, [hello.streamId]: hello.latestSeq };
+    const activities = this.#state.instanceId && this.#state.instanceId !== hello.instanceId ? [] : this.#state.activities;
     this.#state = {
       ...this.#state,
       ...replaceProtocolSnapshot(protocolState(this.#state), hello.snapshot, cursors),
+      activities,
       connected: true,
       instanceId: hello.instanceId,
       notice: "Connected",
@@ -49,6 +56,15 @@ export class TuiStore {
 
   setNotice(notice: string): void {
     this.#state = { ...this.#state, notice };
+  }
+
+  setConfiguredModel(model: ModelRef | undefined): void {
+    if (model) this.#state = { ...this.#state, configuredModel: { ...model } };
+    else {
+      const next = { ...this.#state };
+      delete next.configuredModel;
+      this.#state = next;
+    }
   }
 
   setPanel(title: string, lines: readonly string[]): void {
@@ -70,9 +86,13 @@ export class TuiStore {
 
   applyEvent(event: EventEnvelope): void {
     const result = applyProtocolEvent(protocolState(this.#state), event);
+    const activities = result.applied
+      ? applyCoworkActivityEvent(this.#state.activities, event)
+      : this.#state.activities;
     this.#state = {
       ...this.#state,
       ...result.state,
+      activities,
       ...(result.notificationNotice ? { notice: result.notificationNotice } : {}),
       ...(result.state.gap ? { notice: `Event gap detected on ${result.state.gap.streamId}; reconnecting for a snapshot` } : {}),
     };

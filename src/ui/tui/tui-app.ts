@@ -19,6 +19,7 @@ import {
 import { TuiStore } from "./store.js";
 import { TUI_HELP_LINES } from "./commands.js";
 import { PsporeTuiView } from "./view.js";
+import { activityDetailLines } from "../shared/activity.js";
 import { conversationIntent, selectedAgent } from "../shared/presentation.js";
 
 export interface TuiSettingsPort {
@@ -85,6 +86,7 @@ export class PsporeTuiApp {
     this.#tui.setFocus(view);
     this.#tui.start();
     void this.#connect();
+    void this.#refreshConfiguredModel();
     void this.#offerModelSetup();
     try {
       await new Promise<void>((resolve) => {
@@ -94,6 +96,7 @@ export class PsporeTuiApp {
       this.#stopping = true;
       if (this.#retryTimer) clearTimeout(this.#retryTimer);
       await this.#client?.close().catch(() => undefined);
+      this.#view?.dispose();
       this.#tui.stop();
       this.#view = undefined;
       await this.#terminal.drainInput(250, 25);
@@ -157,6 +160,10 @@ export class PsporeTuiApp {
       }
       if (input === "/help") {
         this.#store.setPanel("Command palette", TUI_HELP_LINES);
+        return;
+      }
+      if (input === "/work" || input.startsWith("/work ")) {
+        this.#showWork(input.slice(5).trim());
         return;
       }
       if (input === "/back") {
@@ -536,26 +543,31 @@ export class PsporeTuiApp {
     const view = this.#view;
     if (!settingsPort || !view) throw new Error("Settings wizard is unavailable");
     const current = await settingsPort.get();
-    this.#store.setPanel("Model setup wizard", [
-      "1  Provider — DeepSeek, OpenAI, or custom OpenAI",
-      "2  Model",
-      "3  Endpoint/API when custom",
-      "4  Thinking level",
-      "5  API key action",
-      "6  Review and apply",
-      "",
-      "Press Esc at any prompt to cancel without saving.",
+    this.#showWizardStep(1, "Choose a provider", [
+      `1  DeepSeek      ${current.provider === "deepseek" ? "← current" : ""}`,
+      `2  OpenAI        ${current.provider === "openai" ? "← current" : ""}`,
+      `3  Custom OpenAI ${current.provider === "custom-openai" ? "← current" : ""}`,
     ]);
     const providerValue = await view.requestValue(`1/6 provider [${current.provider}] (1 deepseek · 2 openai · 3 custom)`);
     if (providerValue === undefined) return this.#cancelWizard();
     const provider = providerValue.trim() ? parseProvider(providerValue) : current.provider;
     const suggestedModel = provider === current.provider ? current.model : defaultModelFor(provider);
+    this.#showWizardStep(2, "Choose a model", [
+      `Provider   ${provider}`,
+      `Suggested  ${suggestedModel}`,
+      "Press Enter to accept the suggestion, or type another model ID.",
+    ]);
     const modelValue = await view.requestValue(`2/6 model [${suggestedModel}]`);
     if (modelValue === undefined) return this.#cancelWizard();
     const model = modelValue.trim() || suggestedModel;
     let baseUrl = "";
     let api: ModelApi = "provider-default";
     if (provider === "custom-openai") {
+      this.#showWizardStep(3, "Connect an OpenAI-compatible endpoint", [
+        `Current URL  ${current.provider === provider ? current.baseUrl || "not set" : "not set"}`,
+        "The URL must use HTTP(S) and cannot contain credentials.",
+        "API compatibility can be Chat Completions or Responses.",
+      ]);
       const baseUrlValue = await view.requestValue(`3/6 Base URL [${current.provider === provider ? current.baseUrl : "required"}]`);
       if (baseUrlValue === undefined) return this.#cancelWizard();
       baseUrl = baseUrlValue.trim() || (current.provider === provider ? current.baseUrl : "");
@@ -564,9 +576,20 @@ export class PsporeTuiApp {
       if (apiValue === undefined) return this.#cancelWizard();
       api = parseOpenAiApi(apiValue.trim() || (current.provider === provider ? current.api : "chat"));
     }
+    this.#showWizardStep(4, "Choose thinking effort", [
+      `Current   ${current.thinking}`,
+      `Options   ${THINKING_LEVELS.join(" · ")}`,
+      "Higher effort can increase latency and token use when the provider supports it.",
+    ]);
     const thinkingValue = await view.requestValue(`4/6 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")})`);
     if (thinkingValue === undefined) return this.#cancelWizard();
     const thinking = parseThinking(thinkingValue.trim() || current.thinking);
+    this.#showWizardStep(5, "Manage the API key", [
+      `Status   ${current.hasApiKey ? "configured (hidden)" : "not configured"}`,
+      "keep    Leave the managed key unchanged",
+      "set     Enter a new key through hidden input",
+      "clear   Remove the managed key",
+    ]);
     const keyActionValue = await view.requestValue(`5/6 key [keep] (keep · set · clear)`);
     if (keyActionValue === undefined) return this.#cancelWizard();
     const keyAction = keyActionValue.trim().toLowerCase() || "keep";
@@ -579,7 +602,7 @@ export class PsporeTuiApp {
       if (apiKey === undefined) return this.#cancelWizard();
       if (!apiKey) throw new Error("API key cannot be empty");
     }
-    this.#store.setPanel("Review model settings", [
+    this.#showWizardStep(6, "Review and apply", [
       `Provider   ${provider}`,
       `Model      ${model}`,
       `Base URL   ${baseUrl || "provider default"}`,
@@ -608,6 +631,7 @@ export class PsporeTuiApp {
     if (!settingsPort) throw new Error("Model settings are unavailable");
     this.#store.setNotice("Validating model settings…");
     const saved = await settingsPort.save(decodeLlmSettingsUpdate(update, "TUI LLM settings"));
+    this.#store.setConfiguredModel({ provider: saved.provider, model: saved.model });
     const applied = await this.#options.onSettingsSaved?.();
     this.#showSettings(saved, applied?.message ?? "Settings saved; restart the daemon to apply them");
   }
@@ -615,6 +639,55 @@ export class PsporeTuiApp {
   #showSettings(settings: LlmSettings, message = "Model settings"): void {
     this.#store.setPanel("Model settings", settingsLines(settings));
     this.#store.setNotice(message);
+  }
+
+  #showWizardStep(step: number, title: string, lines: readonly string[]): void {
+    const progress = Array.from({ length: 6 }, (_, index) => index + 1 < step ? "●" : index + 1 === step ? "◉" : "○").join("─");
+    this.#store.setPanel(`Model setup · ${step}/6`, [
+      `${progress}  ${title}`,
+      "",
+      ...lines,
+      "",
+      "Esc cancels without saving.",
+    ]);
+  }
+
+  #showWork(query: string): void {
+    const activities = this.#store.snapshot().activities;
+    if (!query) {
+      this.#store.setPanel("Work history", activities.length === 0
+        ? ["No work steps have been recorded in this daemon session yet."]
+        : activities.slice(-30).map((activity) => {
+            const status = activity.status === "running" ? "RUN" : activity.status === "failed" ? "FAIL" : "DONE";
+            const result = activity.resultSummary ? ` · ${activity.resultSummary}` : "";
+            return `${status.padEnd(4)} ${activity.id.slice(0, 8)} · ${activity.label} · ${activity.summary}${result}`;
+          }));
+      return;
+    }
+    const matches = activities.filter((activity) => activity.id === query || activity.id.startsWith(query));
+    if (matches.length === 0) throw new Error(`No work step matches ${query}`);
+    if (matches.length > 1) throw new Error(`Work step ID is ambiguous: ${query}`);
+    const activity = matches[0];
+    if (!activity) throw new Error(`No work step matches ${query}`);
+    this.#store.setPanel(`Work step ${activity.id.slice(0, 8)}`, activityDetailLines(activity));
+  }
+
+  async #refreshConfiguredModel(): Promise<void> {
+    const settings = this.#options.settings;
+    if (!settings) return;
+    try {
+      const configured = settings.isModelConfigured ? await settings.isModelConfigured() : true;
+      if (!configured || this.#stopping) {
+        this.#store.setConfiguredModel(undefined);
+        return;
+      }
+      const value = await settings.get();
+      if (!this.#stopping) this.#store.setConfiguredModel({ provider: value.provider, model: value.model });
+    } catch {
+      // The settings panel reports actionable errors on demand; header refresh stays non-blocking.
+    } finally {
+      if (!this.#stopping) this.#tui.requestRender();
+    }
   }
 
   #cancelWizard(): void {

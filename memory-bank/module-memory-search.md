@@ -37,6 +37,7 @@ storage atomic writer、token estimator、path policy、artifact reader。
 - `MEMORY.md` 修改会影响 KV prefix，应低频、受控、可追踪。
 - pinned loader 固定 `AGENTS/SOUL/USER → 其他 → MEMORY` 顺序；缺失只诊断，path/symlink 逃逸、敏感路径、单文件大小和总 token 超限 fail closed。
 - `memory_append` 写带 session/run 来源的当日日志并过滤 credential/base64；`memory_curate` 使用 expected SHA-256、来源引用、去重 marker 与原子替换。
+- `memory_curate` 的 model-facing schema 必须明示 sources 仅接受 `session:ID` / `run:ID` / `file:path`，并要求调用前立即读取 `MEMORY.md` 取得 exact SHA-256；真实 DeepSeek 验证表明该 schema 能消除重试循环。
 - 搜索 cache 为 `cache/search/index.json`，按 canonical path/size/mtime/hash 增量解析；secret/vendor/cache/symlink/binary 默认排除。
 - 搜索 hit 返回 path、line、heading、score、mtime、snippet、content hash 与 source ref；`read.expectedSha256` 可验证检索后源内容未变化。
 

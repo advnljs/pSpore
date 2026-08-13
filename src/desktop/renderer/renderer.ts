@@ -658,19 +658,20 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
   elements.activityCount.textContent = String(activities.length);
   const cards = activities.slice(-12).reverse().map((activity) => {
     const card = element("article", "activity-card");
+    card.dataset["status"] = activity.status;
     const header = element("header");
     const title = element("b");
-    title.textContent = activity.summary;
+    const state = element("span", `state-dot ${activity.status}`);
+    state.setAttribute("aria-label", activity.status);
+    title.append(state, text(activity.label));
     const time = element("time") as HTMLTimeElement;
     time.textContent = clockTime(activity.ts);
     time.dateTime = activity.ts;
     header.append(title, time);
     card.append(header);
-    if (activity.sessionId) {
-      const session = element("p");
-      session.textContent = `session ${shortId(activity.sessionId)}`;
-      card.append(session);
-    }
+    const summary = element("p");
+    summary.textContent = `${activity.summary}${activity.resultSummary ? ` · ${activity.resultSummary}` : ""}${activity.sessionId ? ` · session ${shortId(activity.sessionId)}` : ""}`;
+    card.append(summary);
     if (activity.detail) {
       const details = element("details");
       const summary = element("summary");

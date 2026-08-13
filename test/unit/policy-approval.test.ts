@@ -37,6 +37,21 @@ describe("policy", () => {
     });
     assert.equal(sudo.decision, "ask");
     assert.ok(sudo.riskReasons.some((reason) => reason.includes("privilege")));
+    const readonlyDiagnostics = await risky.evaluate({
+      sessionId: "s",
+      toolCallId: "diagnostics",
+      toolName: "shell",
+      input: { command: "node --version 2>/dev/null; df -h .", cwd: root },
+    });
+    assert.equal(readonlyDiagnostics.decision, "allow");
+    const deviceWrite = await risky.evaluate({
+      sessionId: "s",
+      toolCallId: "device-write",
+      toolName: "shell",
+      input: { command: "printf data >/dev/sdb", cwd: root },
+    });
+    assert.equal(deviceWrite.decision, "ask");
+    assert.ok(deviceWrite.riskReasons.includes("disk or device mutation"));
     assert.equal(
       (
         await risky.evaluate({

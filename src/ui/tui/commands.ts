@@ -4,6 +4,7 @@ export const TUI_HELP_LINES = [
   "  /steer TEXT                  Interrupt with guidance",
   "  /follow TEXT                 Queue after current turn",
   "  /abort  /compact  /select ID",
+  "  /work [STEP_ID]              Work history or step details",
   "",
   "MODEL SETTINGS",
   "  /config                      Show current settings",
