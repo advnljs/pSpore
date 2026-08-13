@@ -354,5 +354,5 @@
   - PTY 真机验证（注意 `script` 必须带 `-f` 才会实时刷新日志，否则轮询读不到输出）：裸跑弹出 `[Y/n]`，回车后依次走完 1/5→5/5，`config.json` 写入 `{"provider":"deepseek","model":"deepseek-v4-flash","thinking":"off"}`，并正确提示尚未配置 API key。
   - 已配置后裸跑不再出现指引横幅；`--help` 可见 `setup` 与 `config wizard`；非 TTY 下 `setup` 明确报错并指向 `config set`。
   - 临时 home 已清理。
-- 当前状态：版本已升至 `0.1.3` 并通过全量验证，尚未发布到 npm。
+- 当前状态：`p-spore@0.1.3` 已于 2026-08-13 11:26 CST 发布，`latest` 指向 0.1.3；全新 cache/prefix 从 registry 安装后，裸跑即出现引导、完整走完 5 步并写入 `config.model`、配置后引导消失，均已验证。
 - 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。
