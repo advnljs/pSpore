@@ -303,3 +303,20 @@
   - 临时 cache/prefix/home 已全部删除。
 - 当前状态：用户报告的“安装后命令不存在”问题已在 registry 上修复并验证。当前无常驻服务，本阶段无前端视觉改动，不需要 viewport 验收。
 - 遗留问题：当 `PSPORE_HOME` 导致 UDS 路径超过 108 字节时，daemon 只报 `listen EINVAL: invalid argument`，错误信息不明确；已记入 todo。Electron renderer 中文文案仍未英文化。
+
+## 2026-08-13 10:30 CST — 首次启动 TUI 推荐进入模型配置 wizard
+
+- 阶段目标：用户首次启动、尚无模型配置时，主动推荐进入配置 wizard，并由用户 y/n 确认，不强制。
+- 完成内容：
+  - `LlmSettingsService.isModelConfigured()`：以 `config.model !== null` 为判定，与 Daemon 触发 `model_not_configured` 的门槛完全一致；通过 config.json + 环境变量凭据配好的用户不会被反复打扰。
+  - `TuiSettingsPort` 增加可选 `isModelConfigured()`；TUI `run()` 启动后调用 `#offerModelSetup()`。
+  - 未配置时展示 `Model setup recommended` 面板并询问 `Run the model setup wizard now? [Y/n]`；直接回车或 y/yes 进入既有 6 步 wizard，n/no 或 Esc 跳过并提示 `/config wizard`。
+  - 决策逻辑抽为纯函数 `acceptsModelSetupOffer` 与常量 `MODEL_SETUP_OFFER_PROMPT/LINES`，可单元测试。
+  - 真机验证时发现并修复一个自写缺陷：`#offerModelSetup` 从 `run()` 以 `void` 调用，不经过 `#submit` 的 `finally { requestRender() }`，导致拒绝路径改了 store 却不重绘，界面仍停在推荐面板；已按既有模式补 `finally` 重绘。
+- 修改文件：`src/settings/llm-settings-service.ts`、`src/ui/tui/tui-app.ts`、`test/unit/cli-config.test.ts`、`test/unit/tui-store-view.test.ts`。
+- 验证方式与结果：
+  - `npm run check` 通过：typecheck、92 项测试（新增 3 项）、build 全绿。
+  - 真实 TUI 在 PTY 下端到端验证（注意 raw 模式回车是 `\r` 而非 `\n`）：全新 home 弹出推荐面板；回车进入 `1/6 provider`；`n` 与 Esc 均显示 `Skipped model setup…` 并退回会话；完整走完 6 步后 `config.json` 写入 `{"provider":"deepseek","model":"deepseek-v4-flash","thinking":"off"}`；用已配置 home 再次启动不再提示。
+  - 临时 home 与日志已清理。
+- 当前状态：首启动引导已可用，未改变既有 `/config wizard` 行为与 CLI `config` 语义。TUI 主基准 `160×45` 未改布局，本次仅新增面板与问句。
+- 遗留问题：TUI 顶栏在尚无会话时恒显示 `model not configured`（读的是 `selected?.model` 而非配置），属既有显示问题，已记入 todo；桌面端未加同样引导。

@@ -38,6 +38,15 @@ export class LlmSettingsService {
     this.#paths = paths;
   }
 
+  /**
+   * Mirrors the daemon's own gate: without a persisted model it answers every prompt
+   * with `model_not_configured`, so this is what "not configured yet" means to a client.
+   */
+  async isModelConfigured(): Promise<boolean> {
+    const config = await loadConfig(this.#home);
+    return config.model !== null;
+  }
+
   async get(): Promise<LlmSettings> {
     const config = await loadConfig(this.#home);
     const provider = providerOption(config.model?.provider ?? DEFAULT_PROVIDER);

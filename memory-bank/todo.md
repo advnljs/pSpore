@@ -17,6 +17,8 @@
 | P3 | 实现 MCP lazy adapter | Done | 无 | 已用官方 SDK fake stdio server 与真实 UDS/CLI 验证 discover/activation/policy/abort/health/idle reconnect/backoff |
 | P3 | 实现 plugin trust/staging 与 skills reload | Done | 无 | 已覆盖 exact digest、symlink/tamper、capability grant、restart lifecycle 与 Pi progressive disclosure |
 | P0 | 发布 `p-spore@0.1.1` 修复全局安装后 `p-spore` 命令不存在 | Done | 无 | 已发布且 `latest=0.1.1`；全新 cache/prefix registry 安装、两个 bin、daemon 启停均已验证 |
+| P2 | TUI 顶栏未开会话时恒显示 `model not configured` | Pending | 无 | `src/ui/tui/view.ts:164` 读 `selected?.model`；应在无会话时回退到已保存的 `config.model` |
+| P3 | 桌面端首次启动同样推荐模型配置 | Pending | 本次只做 TUI | 可复用 `LlmSettingsService.isModelConfigured()` |
 | P3 | daemon 在 UDS 路径超长时给出可理解的错误 | Pending | 无 | 现在只报 `listen EINVAL: invalid argument`；应在 `listen` 前检查 socket 路径长度（sun_path 上限 108 字节）并提示改用更短的 `PSPORE_HOME` |
 | P2 | Electron 桌面 renderer 文案英文化 | Pending | 本次只要求 CLI 英文 | `src/desktop/renderer/index.html`、`renderer.ts`、`main.ts`、`smoke-fixture.ts` 仍为中文，需确认是否统一英文 |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |

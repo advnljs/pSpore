@@ -92,6 +92,22 @@ test("npm package installs both the package name and the short pspore command", 
   });
 });
 
+test("a fresh home reports no configured model until settings are saved", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-first-run-"));
+  try {
+    // The TUI always initializes the home before asking, so mirror that order here.
+    await captureStdout(() => runCli(["--home", home, "init"]));
+    const service = new LlmSettingsService(home, psporePaths(home));
+    // Matches the daemon gate that answers prompts with model_not_configured.
+    assert.equal(await service.isModelConfigured(), false);
+
+    await captureStdout(() => runCli(["--home", home, "config", "set", "deepseek", "deepseek-v4-flash", "off"]));
+    assert.equal(await service.isModelConfigured(), true);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 // Importing the module cannot catch initialization-order faults that only surface when the
 // file is executed directly, the way both npm bin symlinks execute it.
 test("running the CLI as an entrypoint renders help without initialization errors", async () => {

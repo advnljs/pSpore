@@ -24,6 +24,25 @@ import { conversationIntent, selectedAgent } from "../shared/presentation.js";
 export interface TuiSettingsPort {
   get(): Promise<LlmSettings>;
   save(update: LlmSettingsUpdate): Promise<LlmSettings>;
+  isModelConfigured?(): Promise<boolean>;
+}
+
+export const MODEL_SETUP_OFFER_PROMPT = "Run the model setup wizard now? [Y/n]";
+
+export const MODEL_SETUP_OFFER_LINES = [
+  "No model is configured yet, so prompts would fail with model_not_configured.",
+  "",
+  "The wizard walks through provider, model, thinking level and API key.",
+  "The key is stored in a private 0600 file and is never shown in the TUI.",
+  "",
+  "Answer n to skip; you can run /config wizard at any time.",
+];
+
+/** Empty input accepts the recommendation; only an explicit no declines. */
+export function acceptsModelSetupOffer(answer: string | undefined): boolean {
+  if (answer === undefined) return false;
+  const normalized = answer.trim().toLowerCase();
+  return normalized === "" || normalized === "y" || normalized === "yes";
 }
 
 export interface TuiAppOptions {
@@ -66,6 +85,7 @@ export class PsporeTuiApp {
     this.#tui.setFocus(view);
     this.#tui.start();
     void this.#connect();
+    void this.#offerModelSetup();
     try {
       await new Promise<void>((resolve) => {
         this.#resolveExit = resolve;
@@ -481,6 +501,34 @@ export class PsporeTuiApp {
       return;
     }
     throw new Error("Unknown config action; use /config, /config wizard, or /help");
+  }
+
+  /**
+   * First-run recommendation: offer the wizard when no model is configured, but never
+   * force it — declining leaves the session usable for status, jobs and resource commands.
+   */
+  async #offerModelSetup(): Promise<void> {
+    const settingsPort = this.#options.settings;
+    const view = this.#view;
+    if (!settingsPort?.isModelConfigured || !view) return;
+    try {
+      if (await settingsPort.isModelConfigured()) return;
+      if (this.#stopping) return;
+      this.#store.setPanel("Model setup recommended", [...MODEL_SETUP_OFFER_LINES]);
+      const answer = await view.requestValue(MODEL_SETUP_OFFER_PROMPT);
+      if (!acceptsModelSetupOffer(answer)) {
+        this.#store.clearPanel();
+        this.#store.setNotice("Skipped model setup; run /config wizard when you are ready");
+        return;
+      }
+      await this.#settingsWizard();
+    } catch (error) {
+      this.#store.clearPanel();
+      this.#store.setNotice(`Model setup unavailable: ${toError(error).message}`);
+    } finally {
+      // Nothing else drives a repaint here: this runs from run(), not from #submit.
+      this.#tui.requestRender();
+    }
   }
 
   async #settingsWizard(): Promise<void> {

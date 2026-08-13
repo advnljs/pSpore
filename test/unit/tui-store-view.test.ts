@@ -10,6 +10,11 @@ import type { ServerHelloFrame } from "../../src/protocol/schema.js";
 import { conversationIntent } from "../../src/ui/shared/presentation.js";
 import { TUI_HELP_LINES } from "../../src/ui/tui/commands.js";
 import { TuiStore } from "../../src/ui/tui/store.js";
+import {
+  acceptsModelSetupOffer,
+  MODEL_SETUP_OFFER_LINES,
+  MODEL_SETUP_OFFER_PROMPT,
+} from "../../src/ui/tui/tui-app.js";
 import { maskSecretInput, renderTuiSnapshot } from "../../src/ui/tui/view.js";
 
 describe("TUI protocol store", () => {
@@ -121,6 +126,28 @@ describe("TUI 160x45 snapshot", () => {
     const masked = maskSecretInput(secret, 12);
     assert.doesNotMatch(masked, /secret/);
     assert.equal(visibleWidth(masked), 12);
+  });
+});
+
+describe("first-run model setup offer", () => {
+  test("recommends the wizard by default but honours an explicit decline", () => {
+    // Enter alone accepts, because the offer is phrased [Y/n].
+    assert.equal(acceptsModelSetupOffer(""), true);
+    assert.equal(acceptsModelSetupOffer("  "), true);
+    assert.equal(acceptsModelSetupOffer("y"), true);
+    assert.equal(acceptsModelSetupOffer("Yes"), true);
+
+    assert.equal(acceptsModelSetupOffer("n"), false);
+    assert.equal(acceptsModelSetupOffer("no"), false);
+    // Esc resolves to undefined and must never start the wizard.
+    assert.equal(acceptsModelSetupOffer(undefined), false);
+  });
+
+  test("explains why setup is offered without promising the key is displayed", () => {
+    const text = MODEL_SETUP_OFFER_LINES.join("\n");
+    assert.match(text, /model_not_configured/);
+    assert.match(text, /\/config wizard/);
+    assert.match(MODEL_SETUP_OFFER_PROMPT, /\[Y\/n\]/);
   });
 });
 
