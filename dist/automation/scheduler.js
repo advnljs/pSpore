@@ -1,0 +1,300 @@
+import { Cron } from "croner";
+export class Scheduler {
+    #options;
+    #jobs = new Map();
+    #crons = new Map();
+    #active = new Map();
+    #initialized = false;
+    #started = false;
+    #stopping = false;
+    constructor(options) {
+        this.#options = options;
+    }
+    async initialize() {
+        if (this.#initialized)
+            return;
+        const recovery = await this.#options.ledger.initialize();
+        for (const run of recovery.recoveredUnknown) {
+            this.#publish(run);
+            await this.#deliver(run);
+        }
+        const jobs = await this.#options.jobs.loadAll();
+        for (const job of jobs) {
+            if (this.#jobs.has(job.id))
+                throw new Error(`Duplicate job id: ${job.id}`);
+            this.#jobs.set(job.id, job);
+        }
+        this.#initialized = true;
+    }
+    async start() {
+        await this.initialize();
+        if (this.#started)
+            return;
+        this.#started = true;
+        for (const queued of this.#options.ledger.list().filter((run) => run.status === "queued")) {
+            void this.#launch(queued).catch((error) => this.#error(error));
+        }
+        for (const job of this.#jobs.values()) {
+            this.#scheduleJob(job);
+        }
+        void this.applyMisfires(this.#clock()).catch((error) => this.#error(error));
+    }
+    async applyMisfires(now) {
+        for (const job of this.#jobs.values()) {
+            if (!job.enabled)
+                continue;
+            const latest = this.#options.ledger.latestForJob(job.id);
+            if (!latest)
+                continue;
+            const cron = new Cron(job.schedule.cron, {
+                timezone: job.schedule.timezone,
+                mode: "5-part",
+                paused: true,
+            });
+            let previous;
+            try {
+                previous = cron.previousRuns(1, now)[0];
+            }
+            finally {
+                cron.stop();
+            }
+            if (!previous || previous.toISOString() <= latest.scheduledFor || previous.getTime() >= now.getTime())
+                continue;
+            if (job.misfire === "run_once") {
+                await this.triggerJob(job.id, previous, "recovery");
+            }
+            else {
+                const claim = await this.#options.ledger.claim(toTrigger(job, previous, now, "recovery"));
+                if (claim.claimed) {
+                    this.#publish(claim.record);
+                    const skipped = await this.#options.ledger.transition(claim.record.id, {
+                        status: "skipped",
+                        finishedAt: now.toISOString(),
+                        reason: "misfire policy is skip",
+                    });
+                    this.#publish(skipped);
+                    await this.#deliver(skipped);
+                }
+            }
+        }
+    }
+    async triggerJob(jobId, scheduledFor, source = "cron") {
+        const job = this.#jobs.get(jobId);
+        if (!job)
+            throw new Error(`Unknown job: ${jobId}`);
+        return this.trigger(toTrigger(job, scheduledFor, this.#clock(), source));
+    }
+    async trigger(spec) {
+        if (!this.#initialized)
+            throw new Error("Scheduler is not initialized");
+        if (this.#stopping)
+            throw new Error("Scheduler is stopping");
+        const claim = await this.#options.ledger.claim(spec);
+        if (!claim.claimed)
+            return claim.record;
+        this.#publish(claim.record);
+        return this.#launch(claim.record);
+    }
+    async cancel(runId, reason = "cancelled by user") {
+        const active = this.#active.get(runId);
+        if (active) {
+            active.controller.abort(new Error(reason));
+            return active.completion;
+        }
+        const record = this.#options.ledger.get(runId);
+        if (!record)
+            throw new Error(`Unknown run: ${runId}`);
+        if (record.status !== "queued")
+            return record;
+        const cancelled = await this.#options.ledger.transition(runId, {
+            status: "cancelled",
+            finishedAt: this.#clock().toISOString(),
+            reason,
+        });
+        this.#publish(cancelled);
+        await this.#deliver(cancelled);
+        return cancelled;
+    }
+    listRuns() {
+        return this.#options.ledger.list();
+    }
+    listJobs() {
+        return [...this.#jobs.values()].map((job) => structuredClone(job));
+    }
+    async putJob(value, expectedSha256) {
+        if (!this.#initialized)
+            throw new Error("Scheduler is not initialized");
+        if (this.#stopping)
+            throw new Error("Scheduler is stopping");
+        const job = await this.#options.jobs.put(value, expectedSha256);
+        this.#jobs.set(job.id, job);
+        this.#crons.get(job.id)?.stop();
+        this.#crons.delete(job.id);
+        if (this.#started)
+            this.#scheduleJob(job);
+        return structuredClone(job);
+    }
+    async stop() {
+        if (this.#stopping) {
+            await Promise.allSettled([...this.#active.values()].map((active) => active.completion));
+            return;
+        }
+        this.#stopping = true;
+        for (const cron of this.#crons.values())
+            cron.stop();
+        this.#crons.clear();
+        for (const active of this.#active.values())
+            active.controller.abort(new Error("scheduler shutdown"));
+        await Promise.allSettled([...this.#active.values()].map((active) => active.completion));
+    }
+    async #launch(record) {
+        const jobKey = record.jobId ?? record.slotKey;
+        const sameJob = [...this.#active.values()].filter((active) => (active.record.jobId ?? active.record.slotKey) === jobKey);
+        if (record.concurrency === "forbid" && sameJob.length > 0) {
+            return this.#skip(record, "concurrency policy forbid: another run is active");
+        }
+        if (record.concurrency === "replace" && sameJob.length > 0) {
+            for (const active of sameJob)
+                active.controller.abort(new Error(`replaced by run ${record.id}`));
+            const settled = await settlesWithin(Promise.allSettled(sameJob.map((active) => active.completion)), this.#options.replaceGraceMs ?? 5_000);
+            if (!settled)
+                return this.#skip(record, "replace cancellation did not settle before grace deadline");
+        }
+        if (this.#active.size >= this.#options.maxConcurrentRuns) {
+            return this.#skip(record, "global scheduler concurrency budget exhausted");
+        }
+        const running = await this.#options.ledger.transition(record.id, {
+            status: "running",
+            startedAt: this.#clock().toISOString(),
+        });
+        this.#publish(running);
+        const controller = new AbortController();
+        let timedOut = false;
+        const timer = setTimeout(() => {
+            timedOut = true;
+            controller.abort(new Error(`run timeout after ${running.timeoutMs}ms`));
+        }, running.timeoutMs);
+        let completion;
+        completion = this.#execute(running, controller.signal, () => timedOut).finally(() => {
+            clearTimeout(timer);
+            const current = this.#active.get(running.id);
+            if (current?.completion === completion)
+                this.#active.delete(running.id);
+        });
+        this.#active.set(running.id, { record: running, controller, completion });
+        return completion;
+    }
+    async #execute(running, signal, timedOut) {
+        let status;
+        let reason;
+        let errorMessage;
+        try {
+            const result = await this.#options.executor.execute(running, signal);
+            status = result.status;
+            reason = result.reason;
+        }
+        catch (error) {
+            const normalized = toError(error);
+            if (signal.aborted) {
+                status = timedOut() ? "budget_exhausted" : "cancelled";
+                reason = normalized.message;
+            }
+            else {
+                status = "failed";
+                errorMessage = normalized.message;
+            }
+        }
+        const finished = await this.#options.ledger.transition(running.id, {
+            status,
+            finishedAt: this.#clock().toISOString(),
+            ...(reason === undefined ? {} : { reason }),
+            ...(errorMessage === undefined ? {} : { error: errorMessage }),
+        });
+        this.#publish(finished);
+        await this.#deliver(finished);
+        return finished;
+    }
+    async #skip(record, reason) {
+        const skipped = await this.#options.ledger.transition(record.id, {
+            status: "skipped",
+            finishedAt: this.#clock().toISOString(),
+            reason,
+        });
+        this.#publish(skipped);
+        await this.#deliver(skipped);
+        return skipped;
+    }
+    #publish(run) {
+        try {
+            this.#options.onRun?.(structuredClone(run));
+        }
+        catch {
+            // Observability cannot change run execution or ledger state.
+        }
+    }
+    #scheduleJob(job) {
+        if (!job.enabled)
+            return;
+        const cron = new Cron(job.schedule.cron, {
+            timezone: job.schedule.timezone,
+            mode: "5-part",
+            unref: true,
+            catch: (error) => this.#error(error),
+        }, async (self) => {
+            const scheduledFor = self.currentRun() ?? this.#clock();
+            await this.triggerJob(job.id, scheduledFor, "cron");
+        });
+        this.#crons.set(job.id, cron);
+    }
+    #error(error) {
+        try {
+            this.#options.onError?.(toError(error));
+        }
+        catch {
+            // Cron callback errors are already isolated from scheduling.
+        }
+    }
+    async #deliver(run) {
+        try {
+            await this.#options.deliverRun?.(structuredClone(run));
+        }
+        catch (error) {
+            this.#error(error);
+        }
+    }
+    #clock() {
+        return (this.#options.clock ?? (() => new Date()))();
+    }
+}
+function toTrigger(job, scheduledFor, receivedAt, source) {
+    const scheduled = scheduledFor.toISOString();
+    return {
+        slotKey: `${source === "user" ? "user" : "cron"}:${job.id}:${scheduled}`,
+        source,
+        jobId: job.id,
+        scheduledFor: scheduled,
+        receivedAt: receivedAt.toISOString(),
+        objective: job.activity.kind === "agent" ? job.activity.prompt : `Run scheduled command for job ${job.id}`,
+        activity: structuredClone(job.activity),
+        policyRef: job.policyRef,
+        concurrency: job.concurrency,
+        timeoutMs: job.timeoutMs,
+        budget: structuredClone(job.budget),
+        delivery: structuredClone(job.delivery),
+    };
+}
+async function settlesWithin(task, timeoutMs) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+        timer.unref();
+    });
+    const result = await Promise.race([task.then(() => true), timeout]);
+    if (timer)
+        clearTimeout(timer);
+    return result;
+}
+function toError(error) {
+    return error instanceof Error ? error : new Error(String(error));
+}
+//# sourceMappingURL=scheduler.js.map

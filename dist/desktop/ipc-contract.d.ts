@@ -1,0 +1,153 @@
+import type { KernelState } from "../kernel/state.js";
+import type { EventEnvelope } from "../protocol/schema.js";
+import { type LlmSettings, type LlmSettingsUpdate, type ModelApi, type ThinkingLevel } from "../settings/llm-settings.js";
+export declare const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
+export declare const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
+export declare const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
+export declare const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
+export declare const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+export type DesktopConnectionPhase = "connecting" | "connected" | "disconnected";
+export interface DesktopConnectionState {
+    phase: DesktopConnectionPhase;
+    attempt: number;
+    message?: string;
+    instanceId?: string;
+}
+export interface DesktopVersions {
+    pspore: string;
+    pi: string;
+    electron: string;
+    node: string;
+}
+export interface DesktopBootstrap {
+    version: 1;
+    connection: DesktopConnectionState;
+    snapshot: KernelState | null;
+    cursors: Record<string, number>;
+    versions: DesktopVersions;
+}
+export type DesktopFrame = {
+    version: 1;
+    kind: "connection";
+    connection: DesktopConnectionState;
+} | {
+    version: 1;
+    kind: "snapshot";
+    snapshot: KernelState;
+    cursors: Record<string, number>;
+} | {
+    version: 1;
+    kind: "event";
+    event: EventEnvelope;
+} | {
+    version: 1;
+    kind: "delta";
+    streamId: string;
+    fromSeq: number;
+    seq: number;
+    sessionId: string;
+    text: string;
+};
+export type DesktopCommand = {
+    action: "prompt";
+    text: string;
+} | {
+    action: "steer";
+    text: string;
+} | {
+    action: "follow_up";
+    text: string;
+} | {
+    action: "abort";
+} | {
+    action: "compact";
+} | {
+    action: "approval.resolve";
+    approvalId: string;
+    approved: boolean;
+    scope: "once" | "session" | "job";
+} | {
+    action: "jobs.list";
+} | {
+    action: "runs.list";
+} | {
+    action: "notifications.list";
+} | {
+    action: "job.run";
+    jobId: string;
+} | {
+    action: "run.cancel";
+    runId: string;
+} | {
+    action: "agents.list";
+} | {
+    action: "agent.spawn";
+    objective: string;
+} | {
+    action: "agent.send";
+    agentId: string;
+    message: string;
+    mode: "steer" | "follow_up" | "next";
+} | {
+    action: "agent.join";
+    agentIds: string[];
+} | {
+    action: "agent.cancel";
+    agentId: string;
+} | {
+    action: "mcp.servers";
+} | {
+    action: "mcp.tools";
+} | {
+    action: "mcp.discover";
+    serverId: string;
+} | {
+    action: "mcp.ping";
+    serverId: string;
+} | {
+    action: "resources.list";
+} | {
+    action: "skills.list";
+} | {
+    action: "plugins.list";
+} | {
+    action: "resources.inspect";
+    stagingName: string;
+} | {
+    action: "resources.install";
+    stagingName: string;
+    expectedDigest: string;
+} | {
+    action: "resources.disable";
+    kind: "skill" | "host-plugin";
+    name: string;
+    expectedDigest: string;
+};
+export interface DesktopProtocolInvocation {
+    type: string;
+    payload: Record<string, unknown>;
+    sessionId?: string;
+}
+export interface DesktopApi {
+    bootstrap(): Promise<DesktopBootstrap>;
+    dispatch(command: DesktopCommand): Promise<unknown>;
+    getSettings(): Promise<DesktopLlmSettings>;
+    saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;
+    subscribe(listener: (frame: DesktopFrame) => void): () => void;
+}
+export type DesktopModelApi = ModelApi;
+export type DesktopThinkingLevel = ThinkingLevel;
+export type DesktopLlmSettings = LlmSettings;
+export type DesktopLlmSettingsUpdate = LlmSettingsUpdate;
+export interface DesktopSettingsSaveResult {
+    settings: DesktopLlmSettings;
+    applied: boolean;
+    restartRequired: boolean;
+    message: string;
+}
+export declare function decodeDesktopLlmSettingsUpdate(value: unknown): DesktopLlmSettingsUpdate;
+export declare function decodeDesktopCommand(value: unknown): DesktopCommand;
+export declare function toProtocolInvocation(command: DesktopCommand, paths: {
+    stagingPath(name: string): string;
+}): DesktopProtocolInvocation;
+//# sourceMappingURL=ipc-contract.d.ts.map

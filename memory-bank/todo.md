@@ -21,6 +21,7 @@
 | P3 | 桌面端首次启动同样推荐模型配置 | Pending | 本次只做 TUI | 可复用 `LlmSettingsService.isModelConfigured()` |
 | P3 | daemon 在 UDS 路径超长时给出可理解的错误 | Pending | 无 | 现在只报 `listen EINVAL: invalid argument`；应在 `listen` 前检查 socket 路径长度（sun_path 上限 108 字节）并提示改用更短的 `PSPORE_HOME` |
 | P3 | GUI 内共享 cowork 活动文案为英文 | Pending | TUI/CLI 必须英文，两端共用 `src/ui/shared/activity.ts` | 2026-08-17 起 GUI 其余文案已统一中文；若要彻底消除混排，需要给 activity label/summary 加平台级 i18n 映射，而不是改共享层 |
+| P2 | `dist/` 已纳入 Git，需防止与源码不同步 | Pending | 无 | 用户 2026-08-17 明确要求提交打包产物；建议加 pre-commit 或 CI 步骤执行 `npm run build` 后校验 `git diff --exit-code dist`，避免只提交源码导致产物过期 |
 | P3 | transcript 每次渲染整树重建 | Pending | 无 | `renderConversation` 每帧 `replaceChildren` 所有消息；长会话下建议改为按 message id 增量渲染或虚拟化，同时可去掉 `role="log"` 的重复播报风险 |
 | P3 | 为 AppImage 补齐产品图标与 WM_CLASS/desktopName | Pending | 不影响当前启动与功能 | 增加受控图标资产，并在 electron-builder 配置中设置 `desktopName` / `linux.syncDesktopName` |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |

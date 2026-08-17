@@ -36,7 +36,8 @@
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
-| `.gitignore` | 未来 Node 产物、环境文件、私钥与本地 pSpore 数据排除 |
+| `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |
+| `.gitignore` | 环境文件、私钥、`release-dist/` 与本地 pSpore 数据排除；`dist/` 已不再忽略 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
 | `memory-bank/architecture.md` | 架构摘要、边界、决策与历史 |
 | `memory-bank/todo.md` | 尚未实施的阶段和风险 |
