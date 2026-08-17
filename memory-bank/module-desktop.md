@@ -53,6 +53,10 @@ preload 仅暴露：
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
 - renderer 通过语义色变量提供持久化深色/浅色主题；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
+- 视觉语言为 "spore print"：深色是暖腐殖土底 `#141310` + 骨白文字，浅色是暖纸 `#ede9dc` + 墨字；`--accent` 是骨白/墨（仅用于主操作、焦点环、选中文本），`--live` moss 表示存活/成功、`--honey` 表示等待与审批、`--rust` 表示失败、`--lichen` 表示用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。
+- 会话正文测量宽度固定 `820px`，长代码块在自身容器内横向滚动；消息 meta 用 mono 小写标签加细线分隔；左栏用缩进 + `└` 型连接线呈现 agent 树（`--session-depth`），右侧标记显示会话状态。
+- 三栏在 `>=1600px` 默认全开；`1321–1599px` 只开会话+对话；`<=1320px` 检查器为覆盖抽屉；`<=1160px` 会话栏也转为抽屉。左栏底部常驻 `工作区` 摘要（运行/MCP/资源/待批准），与 TUI 的 WORKSPACE 块保持同一组指标。
+- GUI 文案统一中文（含 notice、错误与空状态）；只有 `src/ui/shared/activity.ts` 的 cowork label/summary 保持英文，因为 TUI/CLI 要求英文且两端共用同一归一层。
 - activity inspector 对 started/updated/completed 工具事件只保留一张持续更新的卡片，使用与 TUI 一致的 cowork label、状态点、目标、结果与脱敏详情；其他运行/系统活动保持可见。
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。

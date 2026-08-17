@@ -44,8 +44,9 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - Electron bridge 保存 cursor、检测 gap、指数退避重连，并在不改变 seq 语义的前提下合并连续同 session delta；renderer 只保留可丢弃 store。
 - renderer 不能指定任意 IPC channel 或路径；resource UI 只提交单层 staging name，main 才解析为配置 workspace 下的 staging 路径，Daemon 再执行 canonical containment。
 - TUI >=104 cells 使用会话+内容双栏，较窄终端使用单内容区；`/help` 打开完整命令面板，`/config wizard` 与 `/config` 子命令使用同一 settings service。
+- TUI 版式：header 左侧 `∴ pSpore` 品牌、右侧 ONLINE + model；context 行左侧 session/活动、右侧 context/rev/approvals；会话内容自输入行向上生长（`anchorBottom`），左栏 SESSIONS 置顶、WORKSPACE 指标贴底（`composeColumn`）；子 agent 用 `└─` 分枝表示树层级；footer 去掉多余分隔线，只保留 notice/help/prompt 三行。
 - `activity.ts` 将 tool 三段事件按 `toolCallId` 合并，并对 run/compaction/retry/error/automation/agent/integration 事件保持语义化活动；TUI 和 Electron 共用 label/summary/status/result/duration/detail redaction。
-- TUI 角色色彩为 user 蓝、pSpore 绿、working 琥珀、success 绿、failure 红、memory 紫；动画只在选中 session 运行或存在运行中活动时以 120 ms 刷新，并尊重 `NO_COLOR`/dumb terminal。
+- TUI 与桌面共用同一套语义色：brand/bone `187`、live moss `108`、agent `151`、lichen（用户/会话 id）`109`、honey（等待/审批）`179`、rust（失败）`174`、memory `182`、muted `245`、faint `242`、border `240`；动画只在选中 session 运行或存在运行中活动时以 120 ms 刷新，并尊重 `NO_COLOR`/dumb terminal。
 - `/work` 展示最近 30 个工作步骤，`/work <ID-prefix>` 展示一步的脱敏、限深、8 KB 限长详情；会话区不再重复渲染 raw tool result 消息。
 - 普通输入、steer、follow-up 根据共享 `conversationIntent` 路由到当前选中的 main/child，避免 child 输入误发给 main。
 - npm 分发包名为 `p-spore`，全局可执行命令为 `pspore`；纯 npm 包不包含 Electron 生产依赖，桌面端由 AppImage 分发。

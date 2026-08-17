@@ -391,3 +391,29 @@
   - 临时 home 已清理。
 - 当前状态：`p-spore@0.1.3` 已于 2026-08-13 11:26 CST 发布，`latest` 指向 0.1.3；全新 cache/prefix 从 registry 安装后，裸跑即出现引导、完整走完 5 步并写入 `config.model`、配置后引导消失，均已验证。
 - 遗留问题：TUI 顶栏无会话时恒显示 `model not configured`；桌面端未加同样引导；Electron renderer 中文文案未英文化。
+
+## 2026-08-17 21:34 CST — GUI/TUI 全面视觉与可用性优化（spore print 设计语言）
+
+- 阶段目标：用统一的视觉识别重做 Electron 桌面端与 TUI 的呈现层，修掉主基准下的空区、层级失衡与文案不一致，信息架构与全部功能保持不变。
+- 设计方向：确立 "spore print" 设计语言。深色为暖腐殖土底 `#141310` + 骨白文字，浅色为暖纸 `#ede9dc` + 墨字；`--accent`（骨白/墨）只用于主操作、焦点环与选中文本，饱和色留给状态语义：`--live` moss=存活/成功、`--honey`=等待/审批、`--rust`=失败、`--lichen`=用户消息。标识符（session id、会话标题、指标、状态、代码）统一 mono，人类语句用 sans。
+- 桌面端完成内容：
+  - 重写 `styles.css` 全量 token 与组件层；圆角 13/9/6、去掉发光与重阴影，`select` 用自绘 chevron，禁用态可见，`.composer:focus-within` 有明确焦点环。
+  - 会话正文测量宽度收敛到 `820px`（原 980px），长代码块恢复容器内横向滚动；message meta 改为 mono 标签 + 细线分隔；代码块前后多余空行由 `appendRichText` 修剪。
+  - 左栏用 `--session-depth` + `└` 型连接线呈现 agent 树，右侧标记从无意义的 `ROOT/L1` 改为真实会话状态；底部常驻 `工作区` 摘要（运行/MCP/资源/待批准），与 TUI WORKSPACE 同源指标，填掉长期空区。
+  - `>=1600px` 默认打开检查器（此前 1920×1080 主基准右侧长期空白）；`1321–1599` 会话+对话双栏、`<=1320` 检查器抽屉、`<=1160` 会话栏抽屉，行为不变。
+  - 审批弹层重新分配视觉权重：`拒绝` 为中性实心默认焦点，允许类操作改为 honey 描边（不再把“允许”做成最亮按钮）。
+  - 设置弹层去掉装饰性 `01/02/03` 编号；全局删除 8 处装饰性 eyebrow，只保留 `ACTIVE SESSION` 与 `PERMISSION REQUIRED` 两个真正在标注内容的标签。
+  - 空会话状态改为可点击的三条真实本地任务示例，点击填入输入框而不直接发送。
+  - GUI 文案统一中文（notice、错误、空状态、工具输出摘要）；浅色主题 `--faint` 提到 `#746d5c` 以满足 4.5:1 小字对比度，并新增 `prefers-contrast: more` 兜底。
+- TUI 完成内容：
+  - 配色与桌面语义对齐（brand/bone 187、live 108、agent 151、lichen 109、honey 179、rust 174、memory 182、muted 245、faint 242）。
+  - header/context 行改为左右分栏（`sideBySide`），会话内容自输入行向上生长（`anchorBottom`），左栏 SESSIONS 置顶、WORKSPACE 贴底（`composeColumn`）；子 agent 用 `└─` 分枝。
+  - 消息角色改为固定 8 列 gutter 对齐；footer 去掉多余分隔线，节省一行正文空间；help 行的命令 token 用 bone 高亮；空会话给出三条英文示例任务。
+- 修改文件：`src/desktop/renderer/styles.css`、`index.html`、`renderer.ts`、`store.ts`、`src/ui/tui/view.ts`、`test/unit/tui-store-view.test.ts`、`memory-bank/module-desktop.md`、`memory-bank/module-interface-protocol.md`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、94 项测试、production build 全绿。
+  - `npm run test:electron` 通过：1920×1080 主基准 + 1440×900 + 1180×720，双主题、设置、审批、owned/external Daemon、重连、字号下限与 IPC allowlist 断言全部通过；逐张人工检查深色/浅色/设置/审批/响应式截图。
+  - 修复前基线 smoke 实际是失败的（`long code did not exercise contained horizontal scrolling`：980px 测量宽度下 fixture 长代码不再溢出）；收敛测量宽度后该断言恢复真实覆盖。
+  - TUI `160×45` golden snapshot 哈希更新为 `95a5f403…1db57a9c`，并新增两条结构断言（对话贴近输入行、WORKSPACE 位于 SESSIONS 之下）；`96×30` 单栏渲染同步核对。
+- 当前状态：最新代码已构建到 `dist/`，桌面 smoke 与全量测试均基于当前工作树；本轮验收用的 Daemon/Electron 进程已随 smoke 结束退出，临时 home 与截图位于系统临时目录，未进入仓库。
+- 遗留问题：`src/ui/shared/activity.ts` 的 cowork label/summary 仍是英文（TUI/CLI 要求英文且两端共用），中文 GUI 内呈现为混排；transcript 每次渲染整树重建，长会话下有性能风险，均已记入 `todo.md`。

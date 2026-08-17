@@ -183,34 +183,46 @@ export function renderTuiSnapshot(
   const color = options.color ?? true;
   const animationFrame = options.animationFrame ?? 0;
   const approvals = Object.values(state.kernel.approvals);
-  const bodyRows = Math.max(1, safeHeight - (approvals.length > 0 ? 11 : 10));
+  const bodyRows = Math.max(1, safeHeight - (approvals.length > 0 ? 10 : 9));
   const metrics = kernelMetrics(state.kernel);
   const selected = state.kernel.sessions[state.selectedSessionId];
   const configuredModel = selected?.model ?? state.configuredModel;
   const model = configuredModel ? `${configuredModel.provider}/${configuredModel.model}` : "model not configured";
   const top = paint(`┌${"─".repeat(innerWidth)}┐`, "border", color);
-  const connection = paint(state.connected ? "● ONLINE" : "○ OFFLINE", state.connected ? "success" : "muted", color);
-  const header = fullRow(
-    ` ${paint("pSpore", "brand", color)}  ${paint("LOCAL COWORK AGENT", "muted", color)}   ${connection}   ${paint(model, "model", color)}`,
+  const header = fullRow(sideBySide(
+    ` ${paint("∴", "brand", color)} ${paint("pSpore", "brand", color)}  ${paint("LOCAL COWORK AGENT", "faint", color)}`,
+    `${paint(state.connected ? "● ONLINE" : "○ OFFLINE", state.connected ? "live" : "muted", color)}   ${paint(model, "model", color)} `,
     innerWidth,
-  );
+  ), innerWidth);
   const activeState = activeWorkLabel(state, animationFrame);
-  const context = fullRow(
-    ` target ${paint(shortId(state.selectedSessionId), "user", color)} · ${paint(activeState, selected?.status === "running" ? "working" : "muted", color)}   context ${formatTokens(selected?.usage.total ?? 0)}   rev ${state.kernel.revision}   approvals ${metrics.pendingApprovals}`,
+  const context = fullRow(sideBySide(
+    ` ${paint("session", "faint", color)} ${paint(shortId(state.selectedSessionId), "lichen", color)}   ${paint(activeState, selected?.status === "running" ? "honey" : "muted", color)}`,
+    `${stat("context", formatTokens(selected?.usage.total ?? 0), color)}   ${stat("rev", String(state.kernel.revision), color)}   ${stat("approvals", String(metrics.pendingApprovals), color)} `,
     innerWidth,
-  );
-  const content = state.panel
-    ? renderPanel(state.panel.title, state.panel.lines, wide ? contentWidth(innerWidth) : innerWidth - 2, color)
-    : renderTranscript(state, wide ? contentWidth(innerWidth) : innerWidth - 2, color, animationFrame);
+  ), innerWidth);
   const offset = options.scrollOffset ?? 0;
-  const main = state.panel ? content.slice(offset, offset + bodyRows) : windowLines(content, bodyRows, offset);
+  const mainWidth = wide ? contentWidth(innerWidth) : innerWidth - 2;
+  let main: string[];
+  if (state.panel) {
+    main = renderPanel(state.panel.title, state.panel.lines, mainWidth, color).slice(offset, offset + bodyRows);
+  } else {
+    // The conversation label stays pinned at the top while messages grow upward from the prompt.
+    const rows = Math.max(1, bodyRows - 1);
+    const heading = `${paint("CONVERSATION", "section", color)}  ${paint(shortId(state.selectedSessionId), "lichen", color)}`;
+    const content = renderTranscript(state, mainWidth, color, animationFrame);
+    main = [heading, ...anchorBottom(windowLines(content, rows, offset), rows)];
+  }
   let body: string[];
   let bodyTop: string;
   let bodyBottom: string;
   if (wide) {
     const leftWidth = Math.min(31, Math.max(25, Math.floor(innerWidth * 0.2)));
     const rightWidth = innerWidth - leftWidth - 1;
-    const left = windowLines(renderSidebar(state, leftWidth - 2, color), bodyRows, 0, true);
+    const left = composeColumn(
+      renderSessionList(state, leftWidth - 2, color),
+      renderWorkspaceSummary(state, leftWidth - 2, color),
+      bodyRows,
+    );
     bodyTop = paint(`├${"─".repeat(leftWidth)}┬${"─".repeat(rightWidth)}┤`, "border", color);
     bodyBottom = paint(`├${"─".repeat(leftWidth)}┴${"─".repeat(rightWidth)}┤`, "border", color);
     body = Array.from({ length: bodyRows }, (_, index) => (
@@ -222,19 +234,18 @@ export function renderTuiSnapshot(
     body = Array.from({ length: bodyRows }, (_, index) => `│ ${cell(main[index] ?? "", innerWidth - 2)} │`);
   }
   const approval = approvals[0]
-    ? fullRow(paint(` ! APPROVAL ${shortId(approvals[0].id)} · ${approvals[0].display.summary} · /approve or /deny`, "danger", color), innerWidth)
+    ? fullRow(paint(` ! APPROVAL ${shortId(approvals[0].id)} · ${approvals[0].display.summary} · /approve or /deny`, "alert", color), innerWidth)
     : undefined;
   const noticeText = state.gap
     ? ` EVENT GAP ${state.gap.streamId}: expected ${state.gap.expected}, received ${state.gap.received}`
     : ` ${state.notice}`;
-  const divider = paint(`├${"─".repeat(innerWidth)}┤`, "border", color);
-  const help = fullRow(paint(" /help commands   /work details   /config setup   PgUp/PgDn history   Ctrl+C abort/exit", "muted", color), innerWidth);
+  const help = fullRow(` ${HELP_HINTS.map(([key, hint]) => `${paint(key, "bone", color)} ${paint(hint, "faint", color)}`).join("   ")}`, innerWidth);
   const target = shortId(state.selectedSessionId === "main"
     ? "main"
     : Object.values(state.kernel.agents).find((agent) => agent.sessionId === state.selectedSessionId)?.id ?? state.selectedSessionId);
   const label = options.promptLabel ?? `to ${target}`;
   const promptLabel = options.secretInput ? `secret ${label}` : label;
-  const prompt = fullRow(` ${paint(promptLabel, options.secretInput ? "danger" : "user", color)} ${paint("›", "brand", color)} ${input}`, innerWidth);
+  const prompt = fullRow(` ${paint(promptLabel, options.secretInput ? "rust" : "faint", color)} ${paint("›", "brand", color)} ${input}`, innerWidth);
   return [
     top,
     header,
@@ -243,8 +254,7 @@ export function renderTuiSnapshot(
     ...body,
     bodyBottom,
     ...(approval ? [approval] : []),
-    fullRow(paint(noticeText, state.gap ? "danger" : "muted", color), innerWidth),
-    divider,
+    fullRow(paint(noticeText, state.gap ? "rust" : "muted", color), innerWidth),
     help,
     prompt,
     paint(`└${"─".repeat(innerWidth)}┘`, "border", color),
@@ -263,36 +273,52 @@ function contentWidth(innerWidth: number): number {
   return innerWidth - leftWidth - 3;
 }
 
-function renderSidebar(state: TuiStoreSnapshot, width: number, color: boolean): string[] {
+function renderSessionList(state: TuiStoreSnapshot, width: number, color: boolean): string[] {
   const lines = [paint("SESSIONS", "section", color)];
   for (const item of presentSessions(state.kernel, state.selectedSessionId)) {
-    const marker = item.selected ? "●" : item.kind === "agent" ? "↳" : "○";
-    const tone = item.selected ? "brand" : item.status === "running" ? "working" : "muted";
-    lines.push(`${"  ".repeat(item.depth)}${paint(marker, tone, color)} ${paint(shortId(item.id), item.kind === "agent" ? "agent" : "user", color)}  ${item.status}`);
-    if (item.kind === "agent" && width >= 24) lines.push(paint(`${"  ".repeat(item.depth + 1)}${item.title}`, "muted", color));
+    // Child agents hang off main like hyphae, so the branch glyph carries the tree instead of a depth label.
+    const branch = item.kind === "agent" ? paint("└─", "border", color) : " ";
+    const marker = item.selected ? "●" : "○";
+    const tone = item.selected ? "brand" : item.status === "running" ? "live" : "muted";
+    lines.push(`${"  ".repeat(item.depth)}${branch}${paint(marker, tone, color)} ${paint(shortId(item.id), item.kind === "agent" ? "agent" : "lichen", color)}  ${paint(item.status, item.status === "running" ? "live" : "faint", color)}`);
+    if (item.kind === "agent" && width >= 24) lines.push(paint(`${"  ".repeat(item.depth + 1)}  ${item.title}`, "faint", color));
   }
-  const metrics = kernelMetrics(state.kernel);
-  lines.push(
-    "",
-    paint("WORKSPACE", "section", color),
-    `  runs       ${metrics.activeRuns}/${metrics.runs}`,
-    `  mcp        ${metrics.readyMcpServers}/${metrics.mcpServers}`,
-    `  resources  ${metrics.activeResources}/${metrics.resources}`,
-    `  approvals  ${metrics.pendingApprovals}`,
-  );
-  const notification = state.kernel.notifications.at(-1);
-  if (notification) lines.push("", paint("LATEST", "section", color), `  ${notification.level} · ${notification.title}`);
   return lines.map((line) => truncateToWidth(line, width));
+}
+
+function renderWorkspaceSummary(state: TuiStoreSnapshot, width: number, color: boolean): string[] {
+  const metrics = kernelMetrics(state.kernel);
+  const lines = [
+    paint("WORKSPACE", "section", color),
+    metric("runs", `${metrics.activeRuns}/${metrics.runs}`, color),
+    metric("mcp", `${metrics.readyMcpServers}/${metrics.mcpServers}`, color),
+    metric("resources", `${metrics.activeResources}/${metrics.resources}`, color),
+    metric("approvals", String(metrics.pendingApprovals), color),
+  ];
+  const notification = state.kernel.notifications.at(-1);
+  if (notification) {
+    lines.push(
+      "",
+      paint("LATEST", "section", color),
+      `  ${paint(notification.level, notification.level === "error" ? "rust" : notification.level === "warning" ? "honey" : "faint", color)} ${paint(notification.title, "muted", color)}`,
+    );
+  }
+  return lines.map((line) => truncateToWidth(line, width));
+}
+
+function metric(label: string, value: string, color: boolean): string {
+  return `  ${paint(label.padEnd(11), "faint", color)}${paint(value, "muted", color)}`;
 }
 
 function renderTranscript(state: TuiStoreSnapshot, width: number, color: boolean, animationFrame: number): string[] {
   const selected = state.kernel.sessions[state.selectedSessionId];
-  const lines = [
-    `${paint("CONVERSATION", "section", color)}  ${paint(shortId(state.selectedSessionId), "user", color)}`,
-    "",
-  ];
+  const lines: string[] = [];
   if (!selected || selected.messages.length === 0) {
-    lines.push(paint("Ready. Describe a task below, or use /help to open the command palette.", "muted", color));
+    lines.push(paint("Ready. Describe a task below, or run /help for the command palette.", "muted", color), "");
+    for (const example of EXAMPLE_TASKS) {
+      lines.push(...wrapTextWithAnsi(paint(`  ${example}`, "faint", color), Math.max(1, width)));
+    }
+    lines.push("");
   }
   for (const message of selected?.messages ?? []) {
     const rendered = renderMessage(message, width, color);
@@ -317,9 +343,10 @@ function renderMessage(message: RuntimeMessage, width: number, color: boolean): 
   if (normalizedRole.includes("tool")) return [];
   const agent = normalizedRole.includes("assistant");
   const role = agent ? "pSpore" : "you";
-  const tone = agent ? "agent" : "user";
-  const prefix = `${paint(role, tone, color)}  `;
-  const continuation = " ".repeat(Math.min(visibleWidth(prefix), width));
+  const tone = agent ? "agent" : "lichen";
+  // A fixed speaker gutter keeps every message body on the same left edge.
+  const prefix = paint(role.padEnd(ROLE_GUTTER), tone, color);
+  const continuation = " ".repeat(Math.min(ROLE_GUTTER, width));
   const text = cleanMessageText(message.text);
   if (!text) return [];
   const wrapped = wrapTextWithAnsi(text, Math.max(1, width - visibleWidth(prefix)));
@@ -338,21 +365,41 @@ function renderWorkSteps(
     const icon = running
       ? SPINNER_FRAMES[Math.abs(animationFrame) % SPINNER_FRAMES.length]
       : activity.status === "failed" ? "✕" : "✓";
-    const tone = running ? "working" : activity.status === "failed" ? "danger" : activity.toolName?.startsWith("memory_") ? "memory" : "success";
+    const tone = running ? "honey" : activity.status === "failed" ? "rust" : activity.toolName?.startsWith("memory_") ? "memory" : "live";
     const result = activity.resultSummary ? ` · ${activity.resultSummary}` : "";
     const duration = activity.durationMs === undefined ? "" : ` · ${formatDuration(activity.durationMs)}`;
-    const source = `${paint(icon ?? "·", tone, color)} ${paint(activity.label, tone, color)} · ${activity.summary}${result}${duration}`;
+    const source = `${paint(icon ?? "·", tone, color)} ${paint(activity.label, tone, color)} · ${paint(`${activity.summary}${result}${duration}`, "muted", color)}`;
     lines.push(...wrapTextWithAnsi(source, Math.max(1, width)));
   }
-  lines.push(paint("  /work for history and redacted technical details", "muted", color));
+  lines.push(paint("  /work for history and redacted technical details", "faint", color));
   return lines;
 }
 
-function windowLines(lines: readonly string[], rows: number, offset: number, fromStart = false): string[] {
-  if (fromStart) return lines.slice(0, rows);
+function windowLines(lines: readonly string[], rows: number, offset: number): string[] {
   const end = Math.max(0, lines.length - Math.max(0, offset));
   const start = Math.max(0, end - rows);
   return lines.slice(start, end);
+}
+
+function anchorBottom(lines: readonly string[], rows: number): string[] {
+  if (lines.length >= rows) return lines.slice(lines.length - rows);
+  return [...Array.from({ length: rows - lines.length }, () => ""), ...lines];
+}
+
+function composeColumn(top: readonly string[], bottom: readonly string[], rows: number): string[] {
+  if (bottom.length >= rows) return [...bottom].slice(0, rows);
+  const visibleTop = top.slice(0, Math.max(0, rows - bottom.length - 1));
+  const gap = rows - visibleTop.length - bottom.length;
+  return [...visibleTop, ...Array.from({ length: gap }, () => ""), ...bottom];
+}
+
+function sideBySide(left: string, right: string, width: number): string {
+  const spare = width - visibleWidth(left) - visibleWidth(right);
+  return spare < 1 ? `${left} ${right}` : `${left}${" ".repeat(spare)}${right}`;
+}
+
+function stat(label: string, value: string, color: boolean): string {
+  return `${paint(label, "faint", color)} ${paint(value, "muted", color)}`;
 }
 
 function bracketedPaste(data: string): string | undefined {
@@ -364,21 +411,54 @@ function bracketedPaste(data: string): string | undefined {
 }
 
 const SPINNER_FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"] as const;
+const ROLE_GUTTER = 8;
 
-type Tone = "agent" | "border" | "brand" | "danger" | "memory" | "model" | "muted" | "section" | "success" | "user" | "working";
+const EXAMPLE_TASKS = [
+  "organise ~/Downloads: archive last week's files by type, plan first",
+  "find the 10 largest directories on this machine",
+  "every day at 09:00, summarise yesterday's log errors into memory",
+] as const;
+
+const HELP_HINTS = [
+  ["/help", "commands"],
+  ["/work", "details"],
+  ["/config", "setup"],
+  ["PgUp/PgDn", "history"],
+  ["Ctrl+C", "abort/exit"],
+] as const;
+
+// The terminal palette mirrors the desktop tokens: bone brand, moss for live work, honey for waiting, rust for failure.
+type Tone =
+  | "agent"
+  | "alert"
+  | "bone"
+  | "border"
+  | "brand"
+  | "faint"
+  | "honey"
+  | "lichen"
+  | "live"
+  | "memory"
+  | "model"
+  | "muted"
+  | "rust"
+  | "section";
 
 const ANSI: Readonly<Record<Tone, string>> = {
-  agent: "\u001b[38;5;114m",
+  agent: "\u001b[38;5;151m",
+  alert: "\u001b[1;38;5;179m",
+  bone: "\u001b[38;5;187m",
   border: "\u001b[38;5;240m",
-  brand: "\u001b[1;38;5;141m",
-  danger: "\u001b[1;38;5;203m",
-  memory: "\u001b[38;5;177m",
-  model: "\u001b[38;5;109m",
-  muted: "\u001b[38;5;244m",
+  brand: "\u001b[1;38;5;187m",
+  faint: "\u001b[38;5;242m",
+  honey: "\u001b[38;5;179m",
+  lichen: "\u001b[38;5;109m",
+  live: "\u001b[38;5;108m",
+  memory: "\u001b[38;5;182m",
+  model: "\u001b[38;5;144m",
+  muted: "\u001b[38;5;245m",
+  rust: "\u001b[38;5;174m",
   section: "\u001b[1;38;5;250m",
-  success: "\u001b[38;5;78m",
-  user: "\u001b[38;5;75m",
-  working: "\u001b[38;5;214m",
 };
 
 function paint(value: string, tone: Tone, color: boolean): string {

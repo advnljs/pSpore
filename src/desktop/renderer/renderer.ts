@@ -10,6 +10,7 @@ import {
   conversationIntent,
   formatBytes,
   formatTokens,
+  kernelMetrics,
   presentSessions,
   selectedAgent as findSelectedAgent,
   shortId,
@@ -35,7 +36,7 @@ let activeApprovalId: string | undefined;
 let renderSequence = 0;
 let settingsOpen = false;
 let savingSettings = false;
-let responsiveMode: "wide" | "compact" | "narrow" | undefined;
+let responsiveMode: "expansive" | "wide" | "compact" | "narrow" | undefined;
 
 type Theme = "dark" | "light";
 type InspectorTab = "activity" | "automation" | "integrations" | "resources";
@@ -62,6 +63,10 @@ const elements = {
   connectionMessage: byId<HTMLElement>("connection-message"),
   sessionCount: byId<HTMLElement>("session-count"),
   sessionList: byId<HTMLElement>("session-list"),
+  railRuns: byId<HTMLElement>("rail-runs"),
+  railMcp: byId<HTMLElement>("rail-mcp"),
+  railResources: byId<HTMLElement>("rail-resources"),
+  railApprovals: byId<HTMLElement>("rail-approvals"),
   agentCompose: byId<HTMLElement>("agent-compose"),
   agentComposeToggle: byId<HTMLButtonElement>("agent-compose-toggle"),
   agentComposeClose: byId<HTMLButtonElement>("agent-compose-close"),
@@ -147,7 +152,7 @@ async function initialize(): Promise<void> {
     await refreshSideData();
   } catch (error) {
     initialized = true;
-    store.setNotice(`Desktop initialization failed: ${toError(error).message}`);
+    store.setNotice(`桌面初始化失败：${toError(error).message}`);
     render();
   } finally {
     document.documentElement.dataset["ready"] = "true";
@@ -223,7 +228,7 @@ function bindStaticActions(): void {
     event.preventDefault();
     const objective = elements.spawnObjective.value.trim();
     if (!objective) return;
-    void perform("Starting child agent", { action: "agent.spawn", objective }, () => {
+    void perform("启动子 Agent", { action: "agent.spawn", objective }, () => {
       elements.spawnObjective.value = "";
       setAgentCompose(false);
       return refreshSideData();
@@ -233,22 +238,22 @@ function bindStaticActions(): void {
     const snapshot = store.snapshot();
     const child = selectedAgent(snapshot);
     const command: DesktopCommand = child ? { action: "agent.cancel", agentId: child.id } : { action: "abort" };
-    void perform(child ? `Cancelling ${child.id}` : "Aborting main session", command);
+    void perform(child ? `取消 ${child.id}` : "中止主会话", command);
   });
-  elements.compact.addEventListener("click", () => void perform("Compacting main context", { action: "compact" }));
+  elements.compact.addEventListener("click", () => void perform("压缩主会话上下文", { action: "compact" }));
   elements.joinAgent.addEventListener("click", () => {
     const child = selectedAgent(store.snapshot());
-    if (child) void perform(`Waiting for ${child.id}`, { action: "agent.join", agentIds: [child.id] });
+    if (child) void perform(`等待 ${child.id} 完成`, { action: "agent.join", agentIds: [child.id] });
   });
   elements.cancelAgent.addEventListener("click", () => {
     const child = selectedAgent(store.snapshot());
-    if (child) void perform(`Cancelling ${child.id}`, { action: "agent.cancel", agentId: child.id });
+    if (child) void perform(`取消 ${child.id}`, { action: "agent.cancel", agentId: child.id });
   });
   elements.inspectForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const stagingName = elements.stagingName.value.trim();
     if (!stagingName) return;
-    void perform("Inspecting staged resource", { action: "resources.inspect", stagingName }, (result) => {
+    void perform("检查暂存资源", { action: "resources.inspect", stagingName }, (result) => {
       inspection = isInspection(result) ? result : undefined;
       renderInspection();
     });
@@ -263,11 +268,13 @@ function bindStaticActions(): void {
 }
 
 function syncResponsivePanels(force: boolean): void {
-  const nextMode = window.innerWidth <= 1_160 ? "narrow" : window.innerWidth <= 1_320 ? "compact" : "wide";
+  // Only a full desktop viewport has room for all three columns; narrower windows keep the conversation dominant.
+  const width = window.innerWidth;
+  const nextMode = width <= 1_160 ? "narrow" : width <= 1_320 ? "compact" : width < 1_600 ? "wide" : "expansive";
   if (!force && nextMode === responsiveMode) return;
   responsiveMode = nextMode;
   setPanelState("navigation", nextMode !== "narrow");
-  setPanelState("inspector", false);
+  setPanelState("inspector", nextMode === "expansive");
 }
 
 function setPanelState(panel: "navigation" | "inspector", open: boolean): void {
@@ -439,7 +446,7 @@ async function submitComposer(): Promise<void> {
   } else {
     command = { action: intent.mode, text: intent.text };
   }
-  await perform(`Sending to ${intent.target === "agent" ? intent.agentId : "main"}`, command, () => {
+  await perform(`发送到 ${intent.target === "agent" ? intent.agentId : "main"}`, command, () => {
     elements.composerInput.value = "";
     elements.composerInput.focus();
   });
@@ -450,14 +457,14 @@ async function perform(
   command: DesktopCommand,
   onSuccess?: (result: unknown) => void | Promise<void>,
 ): Promise<void> {
-  store.setNotice(`${pendingNotice}…`);
+  store.setNotice(`正在${pendingNotice}…`);
   render();
   try {
     const result = await window.pspore.dispatch(command);
-    store.setNotice(`${pendingNotice}: done`);
+    store.setNotice(`${pendingNotice}：完成`);
     await onSuccess?.(result);
   } catch (error) {
-    store.setNotice(`${pendingNotice}: ${toError(error).message}`);
+    store.setNotice(`${pendingNotice}失败：${toError(error).message}`);
   }
   render();
 }
@@ -465,11 +472,11 @@ async function perform(
 async function refreshSideData(): Promise<void> {
   const snapshot = store.snapshot();
   if (snapshot.connection.phase !== "connected") {
-    store.setNotice("Daemon is offline; lists will refresh after reconnect");
+    store.setNotice("守护进程离线；重连后会自动刷新列表");
     render();
     return;
   }
-  store.setNotice("Refreshing jobs and trusted resources…");
+  store.setNotice("正在刷新计划任务与受信资源…");
   render();
   const results = await Promise.allSettled([
     window.pspore.dispatch({ action: "jobs.list" }),
@@ -486,7 +493,7 @@ async function refreshSideData(): Promise<void> {
     resources = resourceResult.value.filter(isResourceEntry);
   }
   const failures = results.filter((result) => result.status === "rejected");
-  store.setNotice(failures.length ? `${failures.length} list refresh request(s) failed` : "Lists refreshed");
+  store.setNotice(failures.length ? `有 ${failures.length} 项列表刷新失败` : "列表已刷新");
   render();
 }
 
@@ -540,22 +547,31 @@ function renderSessions(snapshot: DesktopStoreSnapshot): void {
   elements.childControls.hidden = !child;
   elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
   elements.cancelAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
+
+  const metrics = kernelMetrics(snapshot.kernel);
+  elements.railRuns.textContent = `${metrics.activeRuns}/${metrics.runs}`;
+  elements.railMcp.textContent = `${metrics.readyMcpServers}/${metrics.mcpServers}`;
+  elements.railResources.textContent = `${metrics.activeResources}/${metrics.resources}`;
+  elements.railApprovals.textContent = String(metrics.pendingApprovals);
+  elements.railApprovals.classList.toggle("attention", metrics.pendingApprovals > 0);
 }
 
 function sessionButton(id: string, title: string, status: string, depth: number, selected: boolean, active: boolean): HTMLButtonElement {
   const button = element("button", `session-item ${status}${selected ? " selected" : ""}`) as HTMLButtonElement;
   button.type = "button";
   button.disabled = !active;
-  button.style.paddingLeft = `${10 + depth * 13}px`;
+  // The rail draws the agent tree as hyphae branching off main; depth feeds both the indent and the connector.
+  button.dataset["depth"] = String(depth);
+  button.style.setProperty("--session-depth", String(depth));
   const copy = element("span", "session-copy");
   const strong = element("strong");
   strong.textContent = id === "main" ? "main" : shortId(id);
   const small = element("small");
   small.textContent = title;
   copy.append(strong, small);
-  const depthMark = element("span", "depth-mark");
-  depthMark.textContent = depth ? `L${depth}` : "ROOT";
-  button.append(element("i", "node-dot"), copy, depthMark);
+  const statusMark = element("span", "session-status-mark");
+  statusMark.textContent = status;
+  button.append(element("i", "node-dot"), copy, statusMark);
   button.addEventListener("click", () => {
     try {
       store.selectSession(id);
@@ -590,19 +606,39 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   const content: HTMLElement[] = messages.map((message) => renderMessage(message));
   const streaming = snapshot.streamingText[snapshot.selectedSessionId];
   if (streaming) content.push(renderStreamingMessage(streaming));
-  if (content.length === 0) {
-    const empty = element("div", "empty-transcript");
-    const inner = element("div");
-    const heading = element("strong");
-    heading.textContent = child ? "子 Agent 尚未产生消息" : "本地会话已就绪";
-    const body = element("span");
-    body.textContent = child ? "可发送 next、steer 或 follow-up 消息。" : "输入任务，或从左侧委派一个有界子任务。";
-    inner.append(heading, body);
-    empty.append(inner);
-    content.push(empty);
-  }
+  if (content.length === 0) content.push(emptyTranscript(Boolean(child)));
   transcript.replaceChildren(...content);
   if (pinned) requestAnimationFrame(() => transcript.scrollTo({ top: transcript.scrollHeight }));
+}
+
+const MAIN_SESSION_EXAMPLES = [
+  "整理 ~/Downloads：按类型归档最近一周的文件，先给出计划",
+  "找出这台机器上占用磁盘最多的 10 个目录",
+  "每天 09:00 汇总昨天的系统日志异常，并写入长期记忆",
+] as const;
+
+function emptyTranscript(isChild: boolean): HTMLElement {
+  const empty = element("div", "empty-transcript");
+  const inner = element("div");
+  const heading = element("strong");
+  heading.textContent = isChild ? "子 Agent 尚未产生消息" : "在这台机器上开始一件事";
+  const body = element("span");
+  body.textContent = isChild
+    ? "可以继续发送消息推进它，或用 steer 调整方向、follow-up 补充信息。"
+    : "pSpore 在本地运行：读写文件、执行命令、安排定时任务；越界操作会先向你请求批准。";
+  inner.append(heading, body);
+  if (!isChild) {
+    const suggestions = element("div", "transcript-suggestions");
+    for (const example of MAIN_SESSION_EXAMPLES) {
+      suggestions.append(actionButton(example, "", () => {
+        elements.composerInput.value = example;
+        elements.composerInput.focus();
+      }));
+    }
+    inner.append(suggestions);
+  }
+  empty.append(inner);
+  return empty;
 }
 
 function renderMessage(message: RuntimeMessage): HTMLElement {
@@ -615,14 +651,14 @@ function renderMessage(message: RuntimeMessage): HTMLElement {
   if (role === "tool") {
     const details = element("details");
     const summary = element("summary");
-    summary.textContent = `Tool output · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · click to expand`;
+    summary.textContent = `工具输出 · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · 点击展开`;
     const pre = element("pre");
-    pre.textContent = message.text || "(empty output)";
+    pre.textContent = message.text || "（无输出）";
     details.append(summary, pre);
     article.append(meta, details);
   } else {
     const body = element("div", "message-body");
-    appendRichText(body, message.text || "(empty message)");
+    appendRichText(body, message.text || "（空消息）");
     article.append(meta, body);
   }
   return article;
@@ -645,13 +681,22 @@ function appendRichText(container: HTMLElement, value: string): void {
   let cursor = 0;
   for (const match of value.matchAll(expression)) {
     const index = match.index;
-    if (index > cursor) container.append(text(value.slice(cursor, index)));
+    // `white-space: pre-wrap` would otherwise turn the newlines around a fence into a double gap.
+    if (index > cursor) appendProse(container, value.slice(cursor, index));
     const pre = element("pre");
-    pre.textContent = match[1] ?? "";
+    pre.textContent = (match[1] ?? "").replace(/\n+$/, "");
     container.append(pre);
     cursor = index + match[0].length;
   }
-  if (cursor < value.length) container.append(text(value.slice(cursor)));
+  if (cursor < value.length) appendProse(container, value.slice(cursor));
+}
+
+function appendProse(container: HTMLElement, value: string): void {
+  const withoutTrailing = value.replace(/\s+$/, "");
+  const trimmed = container.childNodes.length === 0
+    ? withoutTrailing.replace(/^\s+/, "")
+    : withoutTrailing.replace(/^\n+/, "");
+  if (trimmed) container.append(text(trimmed));
 }
 
 function renderActivities(activities: readonly DesktopActivity[]): void {
@@ -670,7 +715,7 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
     header.append(title, time);
     card.append(header);
     const summary = element("p");
-    summary.textContent = `${activity.summary}${activity.resultSummary ? ` · ${activity.resultSummary}` : ""}${activity.sessionId ? ` · session ${shortId(activity.sessionId)}` : ""}`;
+    summary.textContent = `${activity.summary}${activity.resultSummary ? ` · ${activity.resultSummary}` : ""}${activity.sessionId ? ` · 会话 ${shortId(activity.sessionId)}` : ""}`;
     card.append(summary);
     if (activity.detail) {
       const details = element("details");
@@ -691,7 +736,7 @@ function renderJobs(snapshot: DesktopStoreSnapshot): void {
   const jobNodes = jobs.slice(0, 4).map((job) => {
     const item = denseItem(job.id, job.enabled ? `${job.schedule.cron} · ${job.schedule.timezone}` : "disabled", job.enabled ? "ready" : "disabled");
     const actions = element("div", "item-actions");
-    const run = actionButton("立即运行", "ghost-button", () => void perform(`Running ${job.id}`, { action: "job.run", jobId: job.id }));
+    const run = actionButton("立即运行", "ghost-button", () => void perform(`运行 ${job.id}`, { action: "job.run", jobId: job.id }));
     run.disabled = !connected || !job.enabled;
     actions.append(run);
     item.append(actions);
@@ -706,7 +751,7 @@ function renderJobs(snapshot: DesktopStoreSnapshot): void {
     const item = denseItem(run.jobId ?? shortId(run.id), `${run.status} · ${clockTime(run.receivedAt)}`, run.status);
     if (run.status === "queued" || run.status === "running") {
       const actions = element("div", "item-actions");
-      const cancel = actionButton("取消运行", "danger-ghost-button", () => void perform(`Cancelling ${run.id}`, { action: "run.cancel", runId: run.id }));
+      const cancel = actionButton("取消运行", "danger-ghost-button", () => void perform(`取消运行 ${run.id}`, { action: "run.cancel", runId: run.id }));
       cancel.disabled = !connected;
       actions.append(cancel);
       item.append(actions);
@@ -722,8 +767,8 @@ function renderIntegrations(snapshot: DesktopStoreSnapshot): void {
   for (const health of Object.values(snapshot.kernel.mcpServers)) {
     const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
     const actions = element("div", "item-actions");
-    const discover = actionButton("发现工具", "ghost-button", () => void perform(`Discovering ${health.serverId}`, { action: "mcp.discover", serverId: health.serverId }));
-    const ping = actionButton("Ping", "ghost-button", () => void perform(`Pinging ${health.serverId}`, { action: "mcp.ping", serverId: health.serverId }));
+    const discover = actionButton("发现工具", "ghost-button", () => void perform(`发现 ${health.serverId} 工具`, { action: "mcp.discover", serverId: health.serverId }));
+    const ping = actionButton("Ping", "ghost-button", () => void perform(`Ping ${health.serverId}`, { action: "mcp.ping", serverId: health.serverId }));
     discover.disabled = !connected || health.status === "disabled" || health.status === "untrusted";
     ping.disabled = discover.disabled;
     actions.append(discover, ping);
@@ -736,7 +781,7 @@ function renderIntegrations(snapshot: DesktopStoreSnapshot): void {
     const catalog = catalogByKey.get(`${health.kind}:${health.name}`);
     if (catalog?.record.trusted) {
       const actions = element("div", "item-actions");
-      const disable = actionButton("撤销信任", "danger-ghost-button", () => void perform(`Disabling ${health.name}`, {
+      const disable = actionButton("撤销信任", "danger-ghost-button", () => void perform(`撤销 ${health.name} 信任`, {
         action: "resources.disable",
         kind: health.kind,
         name: health.name,
@@ -803,7 +848,7 @@ function approvalButton(
   approved: boolean,
   scope: "once" | "session" | "job",
 ): HTMLButtonElement {
-  return actionButton(label, className, () => void perform(`${approved ? "Approving" : "Denying"} ${request.id}`, {
+  return actionButton(label, className, () => void perform(`${approved ? "批准" : "拒绝"} ${request.id}`, {
     action: "approval.resolve",
     approvalId: request.id,
     approved,
@@ -823,10 +868,10 @@ function renderInspection(): void {
   const digest = element("code");
   digest.textContent = result.digest;
   const summary = element("p");
-  summary.textContent = `${result.files.length} files · ${formatBytes(result.totalBytes)}${result.diagnostics.length ? ` · ${result.diagnostics.join("; ")}` : ""}`;
+  summary.textContent = `${result.files.length} 个文件 · ${formatBytes(result.totalBytes)}${result.diagnostics.length ? ` · ${result.diagnostics.join("；")}` : ""}`;
   const install = actionButton(result.installable ? "信任并安装精确内容" : "不可安装", "secondary-button", () => {
     const stagingName = elements.stagingName.value.trim();
-    if (stagingName) void perform(`Installing ${result.name}`, { action: "resources.install", stagingName, expectedDigest: result.digest }, async () => {
+    if (stagingName) void perform(`安装 ${result.name}`, { action: "resources.install", stagingName, expectedDigest: result.digest }, async () => {
       inspection = undefined;
       await refreshSideData();
     });
@@ -918,7 +963,7 @@ function applyTheme(theme: Theme): void {
   const nextLabel = theme === "dark" ? "切换到浅色模式" : "切换到深色模式";
   elements.themeToggle.setAttribute("aria-label", nextLabel);
   elements.themeToggle.title = nextLabel;
-  elements.themeColor.content = theme === "dark" ? "#0d100e" : "#f2f2ec";
+  elements.themeColor.content = theme === "dark" ? "#141310" : "#ede9dc";
 }
 
 function friendlyConnectionMessage(message: string | undefined, phase: string): string {

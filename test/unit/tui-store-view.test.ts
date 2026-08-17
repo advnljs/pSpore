@@ -123,22 +123,26 @@ describe("TUI 160x45 snapshot", () => {
     const screen = lines.join("\n");
     const plain = stripTerminalSequences(screen);
     if (process.env["PSPORE_PRINT_TUI_SNAPSHOT"] === "1") process.stderr.write(`\n${screen}\n`);
-    assert.match(screen, /\u001b\[38;5;75m/);
-    assert.match(screen, /\u001b\[38;5;114m/);
+    assert.match(screen, /\u001b\[38;5;109m/);
+    assert.match(screen, /\u001b\[38;5;151m/);
     assert.match(plain, /pSpore  LOCAL COWORK AGENT/);
     assert.match(plain, /deepseek\/deepseek-v4-flash/);
     assert.match(plain, /CONVERSATION  agent:child-1/);
     assert.match(plain, /pSpore  child result in progress/);
     assert.match(plain, /WORK STEPS/);
     assert.match(plain, /✓ Searched workspace · “public API” in \/workspace · 2 matches/);
-    assert.match(plain, /child-1  running/);
+    assert.match(plain, /└─● child-1  running/);
+    // The conversation grows upward from the prompt and the workspace summary stays pinned below the session list.
+    const rowOf = (needle: string) => lines.findIndex((line) => stripTerminalSequences(line).includes(needle));
+    assert.ok(rowOf("you     inspect the public API") > 30, "conversation is not anchored to the prompt");
+    assert.ok(rowOf("WORKSPACE") > rowOf("SESSIONS"), "workspace summary is not pinned below the session list");
     assert.match(plain, /mcp\s+1\/1/);
     assert.match(plain, /resources\s+1\/1/);
     assert.match(plain, /! APPROVAL approval-1/);
     assert.match(plain, /\/help commands/);
     assert.match(plain, /\/config setup/);
     assert.match(plain, /to child-1 › inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "4ca7aafebb96b24f7b4b65d70032360ba21e2dcb1897f20c2784cd9255c3ca3c");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "95a5f40323ed7b6903ab0d88dfd070ce9d2aef64497b7cbcf345b0031db57a9c");
   });
 
   test("opens the complete command palette and adapts to a compact terminal", () => {
@@ -153,6 +157,7 @@ describe("TUI 160x45 snapshot", () => {
 
     store.clearPanel();
     const compact = renderTuiSnapshot(store.snapshot(), 96, 30);
+    if (process.env["PSPORE_PRINT_TUI_SNAPSHOT"] === "1") process.stderr.write(`\n${compact.join("\n")}\n`);
     assert.equal(compact.length, 30);
     assert.ok(compact.every((line) => visibleWidth(line) === 96));
     assert.ok(compact.every((line) => !line.includes("┬")));

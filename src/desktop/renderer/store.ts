@@ -32,7 +32,7 @@ export class DesktopStore {
     connection: { phase: "disconnected", attempt: 0, message: "Desktop is starting" },
     ...initialProtocolUiState(),
     activities: [],
-    notice: "Starting pSpore…",
+    notice: "正在启动 pSpore…",
   };
 
   snapshot(): DesktopStoreSnapshot {
@@ -65,7 +65,7 @@ export class DesktopStore {
       this.#state = {
         ...this.#state,
         ...replaceProtocolSnapshot(protocolState(this.#state), frame.snapshot, frame.cursors),
-        notice: "Authoritative daemon snapshot loaded",
+        notice: "已加载守护进程权威快照",
       };
       delete this.#state.gap;
       return;
@@ -79,7 +79,7 @@ export class DesktopStore {
   }
 
   selectSession(id: string): void {
-    this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: `Selected ${id}` };
+    this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: `已切换到 ${id}` };
   }
 
   setNotice(notice: string): void {
@@ -113,10 +113,10 @@ function protocolState(state: DesktopStoreSnapshot): ProtocolUiState {
 }
 
 function gapNotice(gap: NonNullable<ProtocolUiState["gap"]>): string {
-  return `Event gap detected on ${gap.streamId}; expected ${gap.expected}, received ${gap.received}; waiting for a fresh snapshot`;
+  return `事件流 ${gap.streamId} 出现缺口：期望 ${gap.expected}，收到 ${gap.received}；正在等待新的权威快照`;
 }
 
 function connectionNotice(connection: DesktopConnectionState): string {
-  if (connection.phase === "connected") return "Connected to the local daemon";
-  return connection.message ?? (connection.phase === "connecting" ? "Connecting to daemon…" : "Daemon disconnected");
+  if (connection.phase === "connected") return "已连接本地守护进程";
+  return connection.message ?? (connection.phase === "connecting" ? "正在连接守护进程…" : "守护进程已断开");
 }

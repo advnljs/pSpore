@@ -7,7 +7,7 @@
       content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta id="theme-color" name="theme-color" content="#0d100e" />
+    <meta id="theme-color" name="theme-color" content="#141310" />
     <title>pSpore</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
@@ -23,7 +23,7 @@
             <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
             <div>
               <h1>pSpore</h1>
-              <span>LOCAL AGENT</span>
+              <span>LOCAL COWORK AGENT</span>
             </div>
           </div>
         </div>
@@ -62,13 +62,23 @@
         <aside id="navigation-panel" class="left-rail panel" aria-label="会话与 Agent">
           <header class="panel-header navigation-header">
             <div class="section-heading">
-              <div><span class="eyebrow">CONTEXT</span><h2>会话</h2></div>
+              <div><h2>会话</h2></div>
               <span id="session-count" class="count-pill">0</span>
             </div>
             <p>主会话与有界子任务共享同一上下文视图。</p>
           </header>
           <section class="sessions-section">
             <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
+          </section>
+
+          <section class="rail-summary" aria-label="工作区状态">
+            <div class="subsection-heading"><span>工作区</span></div>
+            <dl class="rail-metrics">
+              <div><dt>运行中任务</dt><dd id="rail-runs">0/0</dd></div>
+              <div><dt>MCP 就绪</dt><dd id="rail-mcp">0/0</dd></div>
+              <div><dt>受信资源</dt><dd id="rail-resources">0/0</dd></div>
+              <div><dt>待批准</dt><dd id="rail-approvals">0</dd></div>
+            </dl>
           </section>
 
           <div class="navigation-actions">
@@ -78,7 +88,7 @@
             </button>
             <section id="agent-compose" class="inline-editor" hidden>
               <div class="inline-editor-heading">
-                <div><span class="eyebrow">DELEGATE</span><h3>委派一个有界任务</h3></div>
+                <div><h3>委派一个有界任务</h3></div>
                 <button id="agent-compose-close" class="quiet-icon-button" type="button" aria-label="关闭新建子 Agent">×</button>
               </div>
               <form id="spawn-form" class="compact-form" autocomplete="off">
@@ -111,7 +121,7 @@
             </div>
           </header>
 
-          <div id="transcript" class="transcript" tabindex="0" aria-live="polite"></div>
+          <div id="transcript" class="transcript" tabindex="0" role="log" aria-label="会话记录"></div>
 
           <div class="composer-wrap">
             <div id="notice-line" class="notice-line" role="status">正在启动…</div>
@@ -137,7 +147,7 @@
 
         <aside id="inspector-panel" class="right-rail panel" aria-label="上下文检查器">
           <header class="inspector-header">
-            <div><span class="eyebrow">WORKSPACE</span><h2>检查器</h2></div>
+            <div><h2>检查器</h2></div>
             <button id="inspector-close" class="quiet-icon-button" type="button" aria-label="关闭检查器">×</button>
           </header>
           <nav class="inspector-tabs" role="tablist" aria-label="检查器分类">
@@ -149,7 +159,7 @@
           <div class="inspector-content">
             <section id="panel-activity" class="inspector-view" role="tabpanel" aria-labelledby="tab-activity" data-inspector-panel="activity">
               <div class="section-heading">
-                <div><span class="eyebrow">LIVE TRACE</span><h2>最近活动</h2></div>
+                <div><h2>最近活动</h2></div>
                 <span id="activity-count" class="count-pill">0</span>
               </div>
               <div id="activity-list" class="activity-list"></div>
@@ -158,7 +168,7 @@
             </section>
 
             <section id="panel-automation" class="inspector-view" role="tabpanel" aria-labelledby="tab-automation" data-inspector-panel="automation" hidden>
-              <div class="section-heading"><div><span class="eyebrow">AUTOMATION</span><h2>计划与运行</h2></div></div>
+              <div class="section-heading"><div><h2>计划与运行</h2></div></div>
               <div class="subsection-heading"><span>计划任务</span></div>
               <div id="job-list" class="dense-list"></div>
               <div class="subsection-heading"><span>运行记录</span></div>
@@ -166,12 +176,12 @@
             </section>
 
             <section id="panel-integrations" class="inspector-view" role="tabpanel" aria-labelledby="tab-integrations" data-inspector-panel="integrations" hidden>
-              <div class="section-heading"><div><span class="eyebrow">EXTENSIONS</span><h2>集成状态</h2></div></div>
+              <div class="section-heading"><div><h2>集成状态</h2></div></div>
               <div id="integration-list" class="dense-list"></div>
             </section>
 
             <section id="panel-resources" class="inspector-view" role="tabpanel" aria-labelledby="tab-resources" data-inspector-panel="resources" hidden>
-              <div class="section-heading"><div><span class="eyebrow">TRUST GATE</span><h2>资源与信任</h2></div></div>
+              <div class="section-heading"><div><h2>资源与信任</h2></div></div>
               <p class="section-description">只检查 <code>workspace/staging</code> 下的单层资源，安装时锁定精确摘要。</p>
               <form id="inspect-form" class="compact-form inline-form" autocomplete="off">
                 <label for="staging-name">暂存资源名称</label>
@@ -191,7 +201,7 @@
       <section class="settings-dialog" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-description">
         <header class="settings-header">
           <div>
-            <span class="eyebrow">PREFERENCES</span>
+            
             <h2 id="settings-title">模型设置</h2>
             <p id="settings-description">配置本地 Daemon 使用的模型、接口与凭据。</p>
           </div>
@@ -199,7 +209,7 @@
         </header>
         <form id="settings-form" class="settings-form" autocomplete="off">
           <section class="settings-section">
-            <div class="settings-section-title"><span>01</span><div><h3>模型</h3><p>选择当前主会话使用的 provider 与 model。</p></div></div>
+            <div class="settings-section-title"><h3>模型</h3><p>选择当前主会话使用的 provider 与 model。</p></div>
             <div class="field-grid two-columns">
               <label><span>Provider</span>
                 <select id="settings-provider" name="provider">
@@ -214,7 +224,7 @@
           </section>
 
           <section class="settings-section">
-            <div class="settings-section-title"><span>02</span><div><h3>接口</h3><p>Base URL 留空时使用 provider 默认地址。</p></div></div>
+            <div class="settings-section-title"><h3>接口</h3><p>Base URL 留空时使用 provider 默认地址。</p></div>
             <label><span>Base URL</span><input id="settings-base-url" name="baseUrl" type="url" maxlength="2048" placeholder="输入完整 API 服务地址" spellcheck="false" /></label>
             <div class="field-grid two-columns">
               <label><span>API 兼容类型</span>
@@ -239,7 +249,7 @@
           </section>
 
           <section class="settings-section">
-            <div class="settings-section-title"><span>03</span><div><h3>凭据</h3><p>Key 只保存到当前用户私有目录，不进入聊天、日志或仓库。</p></div></div>
+            <div class="settings-section-title"><h3>凭据</h3><p>Key 只保存到当前用户私有目录，不进入聊天、日志或仓库。</p></div>
             <label><span>API Key</span>
               <div class="secret-input">
                 <input id="settings-api-key" name="apiKey" type="password" maxlength="16384" placeholder="未配置" autocomplete="new-password" spellcheck="false" />
