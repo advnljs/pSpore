@@ -63,6 +63,7 @@ preload 仅暴露：
 - API Key 保存到 `credentials/<provider>.api-key` 且 mode `0600`；`models.json` 只存私有文件读取引用。renderer 始终只看见 `hasApiKey`。
 - smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；报告自动断言外部/拥有 Daemon、双主题、设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
 - GitHub GUI 发行产物使用 `pspore-desktop-<version>-linux-x64.AppImage`，版本与 npm/package 对齐；发布前必须直接从 AppImage 运行 `--smoke-dir/--smoke-fixture`，不得只验证源码 Electron。
+- 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml`）。GitHub Actions `Release desktop` 在推送到 `main` 或 `v*` tag 时构建该 AppImage，并直接上传到 `v<version>` GitHub Release（已有 Release 则覆盖同名资产）。
 
 ## 常见修改点
 

@@ -27,6 +27,7 @@
   },
   "scripts": {
     "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.build.json && node scripts/copy-desktop-assets.mjs",
+    "package:desktop": "bash scripts/package-desktop.sh",
     "desktop": "npm run build && electron dist/desktop/main.js",
     "dev": "tsx src/cli/main.ts",
     "start": "node dist/cli/main.js",

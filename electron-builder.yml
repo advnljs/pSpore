@@ -1,0 +1,19 @@
+appId: com.pspore.desktop
+productName: pSpore
+directories:
+  output: release-dist/electron-out
+files:
+  - dist/**/*
+  - package.json
+extraMetadata:
+  main: dist/desktop/main.js
+asar: true
+linux:
+  category: Utility
+  executableName: pspore-desktop
+  target:
+    - target: AppImage
+      arch:
+        - x64
+appImage:
+  artifactName: pspore-desktop-${version}-linux-x64.AppImage
