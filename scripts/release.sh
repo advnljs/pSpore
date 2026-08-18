@@ -123,36 +123,46 @@ APPIMAGE_NAME="pspore-desktop-${VERSION}-linux-x64.AppImage"
 APPIMAGE_PATH=""
 if [[ -d "dist/desktop" ]]; then
   echo "--- Building Electron AppImage"
-  cat > "$DIST_DIR/electron-builder.json" <<BUILDCFG
-{
-  "appId": "com.pspore.desktop",
-  "productName": "pSpore",
-  "directories": { "output": "$DIST_DIR/electron-out" },
-  "files": ["dist/**/*", "package.json"],
-  "extraMetadata": { "main": "dist/desktop/main.js", "version": "$VERSION" },
-  "asar": true,
-  "linux": { "target": ["AppImage"], "category": "Utility", "executableName": "pspore-desktop" },
-  "appImage": { "artifactName": "pspore-desktop-\${version}-linux-x64.AppImage" }
-}
-BUILDCFG
-
-  npx --yes electron-builder --linux AppImage --config "$DIST_DIR/electron-builder.json" || {
-    echo "Warning: electron-builder failed, skipping desktop AppImage"
-  }
-
-  if [[ -f "$DIST_DIR/electron-out/$APPIMAGE_NAME" ]]; then
-    mv "$DIST_DIR/electron-out/$APPIMAGE_NAME" "$DIST_DIR/$APPIMAGE_NAME"
+  bash "$REPO_ROOT/scripts/package-desktop.sh" "$VERSION"
+  if [[ -f "$DIST_DIR/$APPIMAGE_NAME" ]]; then
     APPIMAGE_PATH="$DIST_DIR/$APPIMAGE_NAME"
-    echo "--- AppImage verified: $APPIMAGE_NAME ($(du -h "$APPIMAGE_PATH" | cut -f1))"
   fi
 fi
 
 # ─── Tag & Release ────────────────────────────────────────────────
-echo "--- Tagging ${TAG}"
-git tag -a "$TAG" -m "Release ${TAG}"
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+  echo "--- Tag ${TAG} already exists"
+else
+  echo "--- Tagging ${TAG}"
+  git tag -a "$TAG" -m "Release ${TAG}"
+fi
 git push origin "$TAG"
 
+UPLOAD_FILES=("$DIST_DIR/$BINARY_NAME")
+if [[ -n "$APPIMAGE_PATH" ]]; then
+  UPLOAD_FILES+=("$APPIMAGE_PATH")
+fi
+if [[ -n "$APPIMAGE_PATH" && -f "$APPIMAGE_PATH.sha256" ]]; then
+  UPLOAD_FILES+=("$APPIMAGE_PATH.sha256")
+fi
+
 echo "--- Creating GitHub release"
+if gh release view "$TAG" >/dev/null 2>&1; then
+  echo "Release ${TAG} already exists; uploading artifacts"
+  gh release upload "$TAG" "${UPLOAD_FILES[@]}" --clobber
+  rm -f "$DIST_DIR/pspore-bundle.cjs" "$DIST_DIR/pspore.blob" "$DIST_DIR/sea-config.json"
+  echo ""
+  echo "==> Release ${TAG} updated!"
+  echo "    Artifacts:"
+  echo "      - $BINARY_NAME (standalone CLI)"
+  if [[ -n "$APPIMAGE_PATH" ]]; then
+    echo "      - $APPIMAGE_NAME (desktop AppImage)"
+  fi
+  echo "    View: gh release view ${TAG}"
+  echo "==> Done."
+  exit 0
+fi
+
 RELEASE_NOTES="## pSpore ${TAG}
 
 ### Downloads
@@ -195,16 +205,10 @@ if [[ "$PRERELEASE" == "--prerelease" ]]; then
   GH_ARGS+=(--prerelease)
 fi
 
-UPLOAD_FILES=("$DIST_DIR/$BINARY_NAME")
-if [[ -n "$APPIMAGE_PATH" ]]; then
-  UPLOAD_FILES+=("$APPIMAGE_PATH")
-fi
-
 gh release create "${GH_ARGS[@]}" "${UPLOAD_FILES[@]}"
 
 # ─── Cleanup intermediates ────────────────────────────────────────
 rm -f "$DIST_DIR/pspore-bundle.cjs" "$DIST_DIR/pspore.blob" "$DIST_DIR/sea-config.json"
-rm -f "$DIST_DIR/electron-builder.json"
 rm -rf "$DIST_DIR/electron-out"
 
 echo ""

@@ -417,3 +417,16 @@
   - TUI `160×45` golden snapshot 哈希更新为 `95a5f403…1db57a9c`，并新增两条结构断言（对话贴近输入行、WORKSPACE 位于 SESSIONS 之下）；`96×30` 单栏渲染同步核对。
 - 当前状态：最新代码已构建到 `dist/`，桌面 smoke 与全量测试均基于当前工作树；本轮验收用的 Daemon/Electron 进程已随 smoke 结束退出，临时 home 与截图位于系统临时目录，未进入仓库。
 - 遗留问题：`src/ui/shared/activity.ts` 的 cowork label/summary 仍是英文（TUI/CLI 要求英文且两端共用），中文 GUI 内呈现为混排；transcript 每次渲染整树重建，长会话下有性能风险，均已记入 `todo.md`。
+
+## 2026-08-18 — GitHub Actions 自动构建 GUI 并发布到 Release
+
+- 阶段目标：增加 GitHub CI，在推送版本 tag 时自动构建 Linux Electron GUI AppImage 并放到 GitHub Release。
+- 完成内容：
+  - 抽出共享打包配置 `electron-builder.yml` 与脚本 `scripts/package-desktop.sh`，产物仍为 `pspore-desktop-<version>-linux-x64.AppImage` 及 SHA-256。
+  - `package.json` 增加 `package:desktop`；本地 `scripts/release.sh` 改为调用同一打包脚本，并在 Release 已存在时上传而不是失败。
+  - `.github/workflows/ci.yml`：PR 与 `main` 上运行 `npm run check`，并校验提交的 `dist/` 与当前构建一致。
+  - `.github/workflows/release.yml`：推送与 `package.json` 版本一致的 `v*` tag 时构建 AppImage，创建或更新 GitHub Release；`workflow_dispatch` 可只上传 workflow artifact。
+- 修改文件：`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`electron-builder.yml`、`scripts/package-desktop.sh`、`scripts/release.sh`、`package.json`、`memory-bank/*.md`。
+- 验证方式与结果：工作流 YAML 与打包脚本已提交；本阶段不新增运行时服务或前端视觉改动。完整 AppImage 构建由 GitHub Actions runner 在 tag/手动触发时执行。
+- 当前状态：CI 与 Release 工作流已加入仓库；尚未因本阶段创建新的 GitHub Release。
+- 遗留问题：electron-builder 默认图标与 WM_CLASS 仍待补齐；AppImage 本体视觉 smoke 仍需在发行前按既有约束从包本身跑 `--smoke-dir/--smoke-fixture`。
