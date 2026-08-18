@@ -37,8 +37,13 @@ if ! command -v gh &>/dev/null; then
   exit 1
 fi
 
-if ! command -v node &>/dev/null || [[ "$(node -e 'process.stdout.write(String(+process.versions.node.split(".")[0]>=24))')" != "1" ]]; then
+if ! command -v node >/dev/null; then
   echo "Error: node >= 24 is required"
+  exit 1
+fi
+NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
+if [[ "$NODE_MAJOR" -lt 24 ]]; then
+  echo "Error: node >= 24 is required (found $(node -v))"
   exit 1
 fi
 

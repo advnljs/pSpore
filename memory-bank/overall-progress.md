@@ -427,6 +427,9 @@
   - `.github/workflows/ci.yml`：PR 与 `main` 上运行 `npm run check`，并校验提交的 `dist/` 与当前构建一致。
   - `.github/workflows/release.yml`：推送与 `package.json` 版本一致的 `v*` tag 时构建 AppImage，创建或更新 GitHub Release；`workflow_dispatch` 可只上传 workflow artifact。
 - 修改文件：`.github/workflows/ci.yml`、`.github/workflows/release.yml`、`electron-builder.yml`、`scripts/package-desktop.sh`、`scripts/release.sh`、`package.json`、`memory-bank/*.md`。
-- 验证方式与结果：工作流 YAML 与打包脚本已提交；本阶段不新增运行时服务或前端视觉改动。完整 AppImage 构建由 GitHub Actions runner 在 tag/手动触发时执行。
-- 当前状态：CI 与 Release 工作流已加入仓库；尚未因本阶段创建新的 GitHub Release。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、94 项测试、production build 全绿；`git diff --exit-code -- dist` 无差异。
+  - 本环境用 Node `v24.19.0` 执行 `bash scripts/package-desktop.sh 0.1.4`：electron-builder `26.15.3` 产出 `release-dist/pspore-desktop-0.1.4-linux-x64.AppImage`（约 150M，mode `0755`，ELF x86-64），SHA-256 `8bebd70eff1ffceb88245637081b8ee2250ad09321b0650f58c1541c14c072f4`。本地产物在 ignored `release-dist/`，未提交。
+  - 顺带修复 `scripts/release.sh` / `package-desktop.sh` 的 Node 主版本检查（原先把 JS `true` 误当成 `"1"`，会在 Node 24 上误报不合格）。
+- 当前状态：CI 与 Release 工作流已加入仓库并完成本地打包验证；尚未因本阶段创建新的 GitHub Release。
 - 遗留问题：electron-builder 默认图标与 WM_CLASS 仍待补齐；AppImage 本体视觉 smoke 仍需在发行前按既有约束从包本身跑 `--smoke-dir/--smoke-fixture`。
