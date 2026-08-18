@@ -13,7 +13,7 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux x86_64 Electron AppImage 打包配置 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | `v*` tag 时构建 GUI AppImage 并上传到 GitHub Release |
+| `.github/workflows/release.yml` | `main` 或 `v*` tag 时构建 GUI AppImage 并直接上传到 GitHub Release |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -85,7 +85,7 @@
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key`。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
-- GUI AppImage：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.AppImage`。推送匹配 `package.json` 版本的 `v*` tag 后，GitHub Actions 会构建同一产物并发布到 GitHub Release。
+- GUI AppImage：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.AppImage`。推送到 `main` 或匹配 `package.json` 的 `v*` tag 后，GitHub Actions 会构建同一产物并直接上传到 `v<version>` GitHub Release。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

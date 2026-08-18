@@ -2,6 +2,8 @@ name: Release desktop
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -67,37 +69,41 @@ jobs:
       - name: Package desktop AppImage
         run: bash scripts/package-desktop.sh "${{ steps.version.outputs.version }}"
 
-      - name: Upload workflow artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ steps.version.outputs.appimage }}
-          path: |
-            release-dist/${{ steps.version.outputs.appimage }}
-            release-dist/${{ steps.version.outputs.appimage }}.sha256
-          if-no-files-found: error
-
       - name: Publish GitHub Release
-        if: github.ref_type == 'tag'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}
-          name: pSpore ${{ github.ref_name }}
-          draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            release-dist/${{ steps.version.outputs.appimage }}
-            release-dist/${{ steps.version.outputs.appimage }}.sha256
-          body: |
-            ## Desktop
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          APPIMAGE: ${{ steps.version.outputs.appimage }}
+        run: |
+          set -euo pipefail
+          TAG="v${VERSION}"
+          APPIMAGE_PATH="release-dist/${APPIMAGE}"
+          CHECKSUM_PATH="release-dist/${APPIMAGE}.sha256"
+          test -f "$APPIMAGE_PATH"
+          test -f "$CHECKSUM_PATH"
 
-            Linux x86_64 AppImage: `${{ steps.version.outputs.appimage }}`
+          NOTES="$(printf '%s\n' \
+            "Linux x86_64 AppImage: ${APPIMAGE}" \
+            "" \
+            "chmod +x ${APPIMAGE}" \
+            "./${APPIMAGE}" \
+            "" \
+            "SHA-256: ${APPIMAGE}.sha256" \
+            "" \
+            "The npm CLI remains p-spore; this release asset is the Electron desktop client.")"
 
-            ```bash
-            chmod +x ${{ steps.version.outputs.appimage }}
-            ./${{ steps.version.outputs.appimage }}
-            ```
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Updating existing GitHub Release ${TAG}"
+            gh release upload "$TAG" "$APPIMAGE_PATH" "$CHECKSUM_PATH" --clobber
+          else
+            echo "Creating GitHub Release ${TAG}"
+            gh release create "$TAG" \
+              --title "pSpore ${TAG}" \
+              --notes "$NOTES" \
+              --generate-notes \
+              "$APPIMAGE_PATH" \
+              "$CHECKSUM_PATH"
+          fi
 
-            SHA-256 checksum: `${{ steps.version.outputs.appimage }}.sha256`
-
-            The npm CLI remains `p-spore`; this release asset is the Electron desktop client.
+          gh release view "$TAG"

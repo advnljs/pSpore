@@ -27,7 +27,7 @@
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
-| P2 | GitHub CI 自动构建 GUI AppImage 并上传 Release | Done | 无 | 推送匹配 `package.json` 的 `v*` tag 即可；`workflow_dispatch` 只产物、不发 Release |
+| P2 | GitHub CI 自动构建 GUI AppImage 并上传 Release | Done | 无 | 推送 `main` 或匹配 `package.json` 的 `v*` tag 后，产物直接上传到 GitHub Release |
 
 ## 已知风险
 
