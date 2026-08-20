@@ -17,11 +17,10 @@ concurrency:
 
 jobs:
   package-desktop:
-    name: Build Linux AppImage
+    name: Build Linux desktop zips
     runs-on: ubuntu-22.04
     timeout-minutes: 45
     env:
-      APPIMAGE_EXTRACT_AND_RUN: "1"
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - name: Checkout
@@ -32,11 +31,6 @@ jobs:
         with:
           node-version: 24
           cache: npm
-
-      - name: Install AppImage build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libfuse2
 
       - name: Cache Electron binaries
         uses: actions/cache@v4
@@ -57,7 +51,8 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "appimage=pspore-desktop-${VERSION}-linux-x64.AppImage" >> "$GITHUB_OUTPUT"
+          echo "full_zip=pspore-desktop-${VERSION}-linux-x64.zip" >> "$GITHUB_OUTPUT"
+          echo "overlay_zip=pspore-desktop-${VERSION}-linux-x64-overlay.zip" >> "$GITHUB_OUTPUT"
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             TAG_VERSION="${GITHUB_REF_NAME#v}"
             if [[ "$TAG_VERSION" != "$VERSION" ]]; then
@@ -66,7 +61,7 @@ jobs:
             fi
           fi
 
-      - name: Package desktop AppImage
+      - name: Package desktop zips
         run: bash scripts/package-desktop.sh "${{ steps.version.outputs.version }}"
 
       - name: Publish GitHub Release
@@ -74,36 +69,55 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ steps.version.outputs.version }}
-          APPIMAGE: ${{ steps.version.outputs.appimage }}
+          FULL_ZIP: ${{ steps.version.outputs.full_zip }}
+          OVERLAY_ZIP: ${{ steps.version.outputs.overlay_zip }}
         run: |
           set -euo pipefail
           TAG="v${VERSION}"
-          APPIMAGE_PATH="release-dist/${APPIMAGE}"
-          CHECKSUM_PATH="release-dist/${APPIMAGE}.sha256"
-          test -f "$APPIMAGE_PATH"
-          test -f "$CHECKSUM_PATH"
+          FULL_PATH="release-dist/${FULL_ZIP}"
+          OVERLAY_PATH="release-dist/${OVERLAY_ZIP}"
+          test -f "$FULL_PATH"
+          test -f "$FULL_PATH.sha256"
+          test -f "$OVERLAY_PATH"
+          test -f "$OVERLAY_PATH.sha256"
 
           NOTES="$(printf '%s\n' \
-            "Linux x86_64 AppImage: ${APPIMAGE}" \
+            "Linux x86_64 desktop packages for pSpore ${TAG}." \
             "" \
-            "chmod +x ${APPIMAGE}" \
-            "./${APPIMAGE}" \
+            "### Full install" \
             "" \
-            "SHA-256: ${APPIMAGE}.sha256" \
+            "\`${FULL_ZIP}\` contains the Electron runtime and a clickable \`创建桌面快捷方式.sh\`." \
             "" \
-            "The npm CLI remains p-spore; this release asset is the Electron desktop client.")"
+            "unzip ${FULL_ZIP}" \
+            "cd pspore-desktop-${VERSION}-linux-x64" \
+            "./创建桌面快捷方式.sh" \
+            "" \
+            "### Overlay upgrade" \
+            "" \
+            "\`${OVERLAY_ZIP}\` contains only \`resources/app.asar\` (no Chromium)." \
+            "Extract it into an existing install directory, or run \`覆盖升级.sh\`." \
+            "" \
+            "SHA-256 checksums: ${FULL_ZIP}.sha256 and ${OVERLAY_ZIP}.sha256" \
+            "" \
+            "The npm CLI remains p-spore; these release assets are the Electron desktop client.")"
+
+          ASSETS=(
+            "$FULL_PATH"
+            "$FULL_PATH.sha256"
+            "$OVERLAY_PATH"
+            "$OVERLAY_PATH.sha256"
+          )
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Updating existing GitHub Release ${TAG}"
-            gh release upload "$TAG" "$APPIMAGE_PATH" "$CHECKSUM_PATH" --clobber
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
           else
             echo "Creating GitHub Release ${TAG}"
             gh release create "$TAG" \
               --title "pSpore ${TAG}" \
               --notes "$NOTES" \
               --generate-notes \
-              "$APPIMAGE_PATH" \
-              "$CHECKSUM_PATH"
+              "${ASSETS[@]}"
           fi
 
           gh release view "$TAG"

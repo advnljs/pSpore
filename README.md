@@ -41,14 +41,17 @@ p-spore config set deepseek deepseek-v4-flash off
 p-spore config set openai gpt-5.6-terra low
 p-spore config set custom-openai my-model https://gateway.example.com/v1 responses off
 p-spore config key                 # hidden TTY input, or piped from stdin
+p-spore config cookie              # optional Cookie header for an LLM proxy
 p-spore config clear-key
+p-spore config clear-cookie
 ```
 
 Three provider kinds are supported: `deepseek`, `openai`, and `custom-openai` for any
-OpenAI-compatible endpoint (choose `chat` or `responses` compatibility). API keys are
-written to `~/.pspore/credentials/<provider>.api-key` with mode `0600` and are never
-stored in `config.json`, sessions, or logs. You can also supply credentials through the
-daemon's environment instead.
+OpenAI-compatible endpoint (choose `chat` or `responses` compatibility). API keys and
+optional proxy cookies are written to `~/.pspore/credentials/<provider>.api-key` and
+`<provider>.cookie` with mode `0600` and are never stored in `config.json`, sessions, or
+logs. The cookie is sent as an HTTP `Cookie` header when the model runtime calls the
+proxy. You can also supply credentials through the daemon's environment instead.
 
 ## Everyday commands
 
@@ -130,8 +133,10 @@ p-spore resource disable <skill|host-plugin> <name> <sha256>
 ## Desktop client
 
 This npm package is the CLI and does not bundle Electron. `p-spore desktop` works when
-Electron is available in a source checkout; otherwise use the AppImage from the project's
-releases.
+Electron is available in a source checkout; otherwise download the desktop zip from the
+project's GitHub Releases. The full zip includes Chromium and a clickable
+`创建桌面快捷方式.sh`. Later upgrades can use the smaller overlay zip, which replaces
+only `resources/app.asar` and does not include Chromium.
 
 ## Links
 

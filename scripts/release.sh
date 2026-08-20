@@ -123,14 +123,19 @@ echo "    --help: OK ($(echo "$HOUT" | wc -l) lines)"
 
 echo "--- Binary verified: $BINARY_NAME ($(du -h "$DIST_DIR/$BINARY_NAME" | cut -f1))"
 
-# ─── Electron Desktop AppImage ────────────────────────────────────
-APPIMAGE_NAME="pspore-desktop-${VERSION}-linux-x64.AppImage"
-APPIMAGE_PATH=""
+# ─── Electron Desktop zips ────────────────────────────────────────
+FULL_ZIP_NAME="pspore-desktop-${VERSION}-linux-x64.zip"
+OVERLAY_ZIP_NAME="pspore-desktop-${VERSION}-linux-x64-overlay.zip"
+FULL_ZIP_PATH=""
+OVERLAY_ZIP_PATH=""
 if [[ -d "dist/desktop" ]]; then
-  echo "--- Building Electron AppImage"
+  echo "--- Building Electron desktop zips"
   bash "$REPO_ROOT/scripts/package-desktop.sh" "$VERSION"
-  if [[ -f "$DIST_DIR/$APPIMAGE_NAME" ]]; then
-    APPIMAGE_PATH="$DIST_DIR/$APPIMAGE_NAME"
+  if [[ -f "$DIST_DIR/$FULL_ZIP_NAME" ]]; then
+    FULL_ZIP_PATH="$DIST_DIR/$FULL_ZIP_NAME"
+  fi
+  if [[ -f "$DIST_DIR/$OVERLAY_ZIP_NAME" ]]; then
+    OVERLAY_ZIP_PATH="$DIST_DIR/$OVERLAY_ZIP_NAME"
   fi
 fi
 
@@ -144,11 +149,17 @@ fi
 git push origin "$TAG"
 
 UPLOAD_FILES=("$DIST_DIR/$BINARY_NAME")
-if [[ -n "$APPIMAGE_PATH" ]]; then
-  UPLOAD_FILES+=("$APPIMAGE_PATH")
+if [[ -n "$FULL_ZIP_PATH" ]]; then
+  UPLOAD_FILES+=("$FULL_ZIP_PATH")
 fi
-if [[ -n "$APPIMAGE_PATH" && -f "$APPIMAGE_PATH.sha256" ]]; then
-  UPLOAD_FILES+=("$APPIMAGE_PATH.sha256")
+if [[ -n "$FULL_ZIP_PATH" && -f "$FULL_ZIP_PATH.sha256" ]]; then
+  UPLOAD_FILES+=("$FULL_ZIP_PATH.sha256")
+fi
+if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
+  UPLOAD_FILES+=("$OVERLAY_ZIP_PATH")
+fi
+if [[ -n "$OVERLAY_ZIP_PATH" && -f "$OVERLAY_ZIP_PATH.sha256" ]]; then
+  UPLOAD_FILES+=("$OVERLAY_ZIP_PATH.sha256")
 fi
 
 echo "--- Creating GitHub release"
@@ -160,8 +171,11 @@ if gh release view "$TAG" >/dev/null 2>&1; then
   echo "==> Release ${TAG} updated!"
   echo "    Artifacts:"
   echo "      - $BINARY_NAME (standalone CLI)"
-  if [[ -n "$APPIMAGE_PATH" ]]; then
-    echo "      - $APPIMAGE_NAME (desktop AppImage)"
+  if [[ -n "$FULL_ZIP_PATH" ]]; then
+    echo "      - $FULL_ZIP_NAME (desktop zip with shortcut script)"
+  fi
+  if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
+    echo "      - $OVERLAY_ZIP_NAME (overlay upgrade without Chromium)"
   fi
   echo "    View: gh release view ${TAG}"
   echo "==> Done."
@@ -175,7 +189,8 @@ RELEASE_NOTES="## pSpore ${TAG}
 | File | Description |
 |------|-------------|
 | \`${BINARY_NAME}\` | Standalone CLI binary (no Node.js required) |
-| \`${APPIMAGE_NAME}\` | Desktop GUI app (double-click to run) |
+| \`${FULL_ZIP_NAME}\` | Desktop GUI zip (includes Chromium; run 创建桌面快捷方式.sh) |
+| \`${OVERLAY_ZIP_NAME}\` | Overlay upgrade zip (app.asar only, no Chromium) |
 
 ### CLI Binary
 
@@ -186,14 +201,20 @@ sudo mv ${BINARY_NAME} /usr/local/bin/pspore
 pspore init && pspore doctor
 \`\`\`
 
-### Desktop App (AppImage)
+### Desktop App (full zip)
 
 \`\`\`bash
-chmod +x ${APPIMAGE_NAME}
-./${APPIMAGE_NAME}
+unzip ${FULL_ZIP_NAME}
+cd pspore-desktop-${VERSION}-linux-x64
+./创建桌面快捷方式.sh
 \`\`\`
 
-Or simply double-click in your file manager.
+### Overlay upgrade (no Chromium)
+
+\`\`\`bash
+unzip ${OVERLAY_ZIP_NAME} -d /path/to/pspore-desktop-${VERSION}-linux-x64
+# or: ./覆盖升级.sh /path/to/existing-install
+\`\`\`
 
 ### Platform
 
@@ -220,8 +241,11 @@ echo ""
 echo "==> Release ${TAG} published!"
 echo "    Artifacts:"
 echo "      - $BINARY_NAME (standalone CLI)"
-if [[ -n "$APPIMAGE_PATH" ]]; then
-  echo "      - $APPIMAGE_NAME (desktop AppImage)"
+if [[ -n "$FULL_ZIP_PATH" ]]; then
+  echo "      - $FULL_ZIP_NAME (desktop zip with shortcut script)"
+fi
+if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
+  echo "      - $OVERLAY_ZIP_NAME (overlay upgrade without Chromium)"
 fi
 echo "    View: gh release view ${TAG}"
 echo "==> Done."

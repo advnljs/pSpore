@@ -86,6 +86,9 @@ const elements = {
     settingsApiKey: byId("settings-api-key"),
     settingsKeyReveal: byId("settings-key-reveal"),
     settingsClearKey: byId("settings-clear-key"),
+    settingsCookie: byId("settings-cookie"),
+    settingsCookieReveal: byId("settings-cookie-reveal"),
+    settingsClearCookie: byId("settings-clear-cookie"),
     settingsStatus: byId("settings-status"),
     settingsSave: byId("settings-save"),
     approvalOverlay: byId("approval-overlay"),
@@ -167,19 +170,8 @@ function bindStaticActions() {
         void saveSettings();
     });
     elements.settingsProvider.addEventListener("change", () => configureProviderFields(true));
-    elements.settingsKeyReveal.addEventListener("click", () => {
-        const revealing = elements.settingsApiKey.type === "password";
-        elements.settingsApiKey.type = revealing ? "text" : "password";
-        elements.settingsKeyReveal.textContent = revealing ? "隐藏" : "显示";
-    });
-    elements.settingsApiKey.addEventListener("input", () => {
-        if (elements.settingsApiKey.value)
-            elements.settingsClearKey.checked = false;
-    });
-    elements.settingsClearKey.addEventListener("change", () => {
-        if (elements.settingsClearKey.checked)
-            elements.settingsApiKey.value = "";
-    });
+    bindSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey);
+    bindSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie);
     elements.settingsOverlay.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !savingSettings) {
             event.preventDefault();
@@ -292,9 +284,7 @@ async function openSettings() {
     try {
         const settings = await window.pspore.getSettings();
         populateSettings(settings);
-        elements.settingsStatus.textContent = settings.hasApiKey
-            ? "已检测到私有 Key；留空会保留当前值。"
-            : "尚未通过桌面设置保存 API Key。";
+        elements.settingsStatus.textContent = settingsStatus(settings);
         elements.settingsSave.disabled = false;
     }
     catch (error) {
@@ -308,11 +298,8 @@ function populateSettings(settings) {
     elements.settingsApi.value = settings.api;
     elements.settingsThinking.value = settings.thinking;
     configureProviderFields(false);
-    elements.settingsApiKey.value = "";
-    elements.settingsApiKey.type = "password";
-    elements.settingsApiKey.placeholder = settings.hasApiKey ? "已配置；留空将保留" : "输入 API Key";
-    elements.settingsKeyReveal.textContent = "显示";
-    elements.settingsClearKey.checked = false;
+    resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
+    resetSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie, settings.hasCookie, "Cookie");
 }
 async function saveSettings() {
     if (savingSettings)
@@ -325,7 +312,9 @@ async function saveSettings() {
         thinking: elements.settingsThinking.value,
         customModel: elements.settingsProvider.value === "custom-openai",
         ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
+        ...(elements.settingsCookie.value ? { cookie: elements.settingsCookie.value } : {}),
         clearApiKey: elements.settingsClearKey.checked,
+        clearCookie: elements.settingsClearCookie.checked,
     };
     savingSettings = true;
     elements.settingsSave.disabled = true;
@@ -377,6 +366,8 @@ function closeSettings(restoreFocus = true) {
     elements.settingsOverlay.hidden = true;
     elements.settingsApiKey.value = "";
     elements.settingsApiKey.type = "password";
+    elements.settingsCookie.value = "";
+    elements.settingsCookie.type = "password";
     updateAppInert();
     if (restoreFocus)
         requestAnimationFrame(() => elements.settingsButton.focus());
@@ -877,6 +868,33 @@ function byId(id) {
     if (!value)
         throw new Error(`Missing desktop element #${id}`);
     return value;
+}
+function bindSecretField(input, reveal, clear) {
+    reveal.addEventListener("click", () => {
+        const revealing = input.type === "password";
+        input.type = revealing ? "text" : "password";
+        reveal.textContent = revealing ? "隐藏" : "显示";
+    });
+    input.addEventListener("input", () => {
+        if (input.value)
+            clear.checked = false;
+    });
+    clear.addEventListener("change", () => {
+        if (clear.checked)
+            input.value = "";
+    });
+}
+function resetSecretField(input, reveal, clear, configured, label) {
+    input.value = "";
+    input.type = "password";
+    input.placeholder = configured ? "已配置；留空将保留" : `输入 ${label}`;
+    reveal.textContent = "显示";
+    clear.checked = false;
+}
+function settingsStatus(settings) {
+    const key = settings.hasApiKey ? "已检测到私有 Key" : "尚未保存 API Key";
+    const cookie = settings.hasCookie ? "已检测到 Cookie" : "尚未保存 Cookie";
+    return `${key}；${cookie}。留空会保留当前值。`;
 }
 function missingElement(selector) {
     throw new Error(`Missing desktop element ${selector}`);

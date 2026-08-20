@@ -47,6 +47,7 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     customModel: false,
     apiKey: "test-key",
     clearApiKey: false,
+    clearCookie: false,
   } as const;
   assert.deepEqual(decodeDesktopLlmSettingsUpdate(valid), valid);
   const custom = {
@@ -56,6 +57,7 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     baseUrl: "https://gateway.example.com/v1",
     api: "openai-completions",
     customModel: true,
+    cookie: "session=proxy",
   } as const;
   assert.deepEqual(decodeDesktopLlmSettingsUpdate(custom), custom);
   assert.throws(
@@ -67,7 +69,15 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     /cannot contain line breaks/,
   );
   assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, cookie: "line\nbreak" }),
+    /cannot contain line breaks/,
+  );
+  assert.throws(
     () => decodeDesktopLlmSettingsUpdate({ ...valid, clearApiKey: true }),
+    /set and clear/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...custom, clearCookie: true }),
     /set and clear/,
   );
   assert.throws(

@@ -15,6 +15,7 @@ export const TUI_HELP_LINES = [
     "  /config model MODEL  /config thinking LEVEL",
     "  /config endpoint BASE_URL [chat|responses]",
     "  /config key  /config clear-key",
+    "  /config cookie  /config clear-cookie",
     "",
     "AGENTS & AUTOMATION",
     "  /agents  /agent-spawn TEXT  /agent ID MESSAGE",

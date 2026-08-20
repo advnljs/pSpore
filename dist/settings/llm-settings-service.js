@@ -47,6 +47,7 @@ export class LlmSettingsService {
             thinking: config.model?.thinking ?? "off",
             customModel,
             hasApiKey: await this.#hasApiKey(provider, providerConfig),
+            hasCookie: await this.#hasCookie(provider, providerConfig),
         };
     }
     async save(update) {
@@ -55,7 +56,9 @@ export class LlmSettingsService {
         const models = await this.#readModels();
         const providerConfig = { ...(record(models.providers[update.provider]) ?? {}) };
         const credentialPath = this.#credentialPath(update.provider);
+        const cookiePath = this.#cookiePath(update.provider);
         const credentialExists = await exists(credentialPath);
+        const cookieExists = await exists(cookiePath);
         if (update.baseUrl)
             providerConfig["baseUrl"] = update.baseUrl;
         else
@@ -81,6 +84,17 @@ export class LlmSettingsService {
         else if (update.clearApiKey && isManagedCredentialCommand(providerConfig["apiKey"], credentialPath)) {
             delete providerConfig["apiKey"];
         }
+        const headers = { ...(record(providerConfig["headers"]) ?? {}) };
+        if (update.cookie || (cookieExists && !update.clearCookie)) {
+            headers["Cookie"] = credentialCommand(cookiePath);
+        }
+        else {
+            delete headers["Cookie"];
+        }
+        if (Object.keys(headers).length > 0)
+            providerConfig["headers"] = headers;
+        else
+            delete providerConfig["headers"];
         const nextModels = { ...models, providers: { ...models.providers } };
         if (Object.keys(providerConfig).length > 0)
             nextModels.providers[update.provider] = providerConfig;
@@ -91,14 +105,21 @@ export class LlmSettingsService {
             model: { provider: update.provider, model: update.model, thinking: update.thinking },
         }, this.#home);
         await this.#validateModel(nextModels, update.provider, update.model);
-        if (update.apiKey) {
+        if (update.apiKey || update.cookie) {
             await mkdir(this.#paths.credentials, { recursive: true, mode: 0o700 });
+        }
+        if (update.apiKey) {
             await atomicWriteFile(credentialPath, update.apiKey, 0o600);
+        }
+        if (update.cookie) {
+            await atomicWriteFile(cookiePath, update.cookie, 0o600);
         }
         await atomicWriteJson(join(this.#paths.agentDir, "models.json"), nextModels, 0o600);
         await atomicWriteJson(this.#paths.config, nextConfig, 0o600);
         if (update.clearApiKey)
             await unlink(credentialPath).catch(ignoreMissingFile);
+        if (update.clearCookie)
+            await unlink(cookiePath).catch(ignoreMissingFile);
         return this.get();
     }
     async #readModels() {
@@ -146,8 +167,17 @@ export class LlmSettingsService {
             return true;
         return typeof providerConfig?.["apiKey"] === "string" && providerConfig["apiKey"].length > 0;
     }
+    async #hasCookie(provider, providerConfig) {
+        if (await exists(this.#cookiePath(provider)))
+            return true;
+        const headers = record(providerConfig?.["headers"]);
+        return typeof headers?.["Cookie"] === "string" && headers["Cookie"].length > 0;
+    }
     #credentialPath(provider) {
         return join(this.#paths.credentials, `${provider}.api-key`);
+    }
+    #cookiePath(provider) {
+        return join(this.#paths.credentials, `${provider}.cookie`);
     }
 }
 function upsertCustomModel(value, model) {

@@ -248,7 +248,8 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       dialogContained: Boolean(dialogRect && dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight),
       backgroundInert: Boolean(document.querySelector('#app-shell')?.inert),
       apiKeyInputType: document.querySelector('#settings-api-key')?.type || '',
-      returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey'),
+      cookieInputType: document.querySelector('#settings-cookie')?.type || '',
+      returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey') || Object.prototype.hasOwnProperty.call(settings, 'cookie'),
       fieldFontSize: Number.parseFloat(getComputedStyle(provider).fontSize),
       providerOptions: Array.from(provider.options).map((option) => option.value),
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
@@ -414,8 +415,8 @@ function assertSmokeReport(report, fixture) {
         failures.push("non-allowlisted IPC was not rejected");
     if (!report.settings.dialogContained || !report.settings.backgroundInert)
         failures.push("settings dialog is not contained and modal");
-    if (report.settings.apiKeyInputType !== "password" || report.settings.returnedSecret)
-        failures.push("settings API exposed an API key");
+    if (report.settings.apiKeyInputType !== "password" || report.settings.cookieInputType !== "password" || report.settings.returnedSecret)
+        failures.push("settings API exposed an API key or cookie");
     if (report.settings.fieldFontSize < 14)
         failures.push("settings field font size is below 14px");
     if (report.settings.providerOptions.join(",") !== "deepseek,openai,custom-openai")

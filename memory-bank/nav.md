@@ -11,9 +11,9 @@
 | `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |
 | `docs/adr/0001-runtime-and-pi-baseline.md` | Node 24、Pi/Electron 锁定与 Phase 0 兼容决策 |
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
-| `electron-builder.yml` | Linux x86_64 Electron AppImage 打包配置 |
+| `electron-builder.yml` | Linux x86_64 Electron unpacked dir 打包配置 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | `main` 或 `v*` tag 时构建 GUI AppImage 并直接上传到 GitHub Release |
+| `.github/workflows/release.yml` | `main` 或 `v*` tag 时构建 GUI 全量 zip 与 overlay zip 并直接上传到 GitHub Release |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -37,7 +37,9 @@
 | `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
 | `scripts/clean-dist.mjs` | 构建前只清理仓库内精确 `dist/`，避免已删除模块混入 npm 包 |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
-| `scripts/package-desktop.sh` | 使用 electron-builder 生成 `pspore-desktop-<version>-linux-x64.AppImage` |
+| `scripts/package-desktop.sh` | 使用 electron-builder 生成全量 zip 与不含 Chromium 的 overlay zip |
+| `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内可点击的桌面快捷方式脚本 |
+| `scripts/linux/apply-overlay-upgrade.sh` | overlay zip 内覆盖 `resources/app.asar` 的升级脚本 |
 | `scripts/release.sh` | 本地发布辅助：CLI SEA 二进制 + 调用 `package-desktop.sh` 后上传 GitHub Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
 | `src/cli/main.ts` | init/daemon/status/doctor/tui/desktop/prompt/version 入口 |
@@ -82,10 +84,10 @@
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动拥有/复用 Daemon；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
-- 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key`。
+- 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key|cookie|clear-cookie`。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
-- GUI AppImage：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.AppImage`。推送到 `main` 或匹配 `package.json` 的 `v*` tag 后，GitHub Actions 会构建同一产物并直接上传到 `v<version>` GitHub Release。
+- GUI 桌面包：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.zip`（含创建桌面快捷方式脚本）与 `pspore-desktop-<version>-linux-x64-overlay.zip`（仅应用代码）。推送到 `main` 或匹配 `package.json` 的 `v*` tag 后，GitHub Actions 会构建同一产物并直接上传到 `v<version>` GitHub Release。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

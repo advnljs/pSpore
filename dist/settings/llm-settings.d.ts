@@ -10,6 +10,7 @@ export interface LlmSettings {
     thinking: ThinkingLevel;
     customModel: boolean;
     hasApiKey: boolean;
+    hasCookie: boolean;
 }
 export interface LlmSettingsUpdate {
     provider: ProviderOption;
@@ -19,7 +20,9 @@ export interface LlmSettingsUpdate {
     thinking: ThinkingLevel;
     customModel: boolean;
     apiKey?: string;
+    cookie?: string;
     clearApiKey: boolean;
+    clearCookie: boolean;
 }
 export declare const MODEL_APIS: readonly ModelApi[];
 export declare const THINKING_LEVELS: readonly ThinkingLevel[];

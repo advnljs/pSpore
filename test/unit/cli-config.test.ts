@@ -20,6 +20,7 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
     const initial = await captureStdout(() => runCli(["--home", home, "config", "show"]));
     assert.match(initial, /Provider: deepseek/);
     assert.match(initial, /API key: not configured/);
+    assert.match(initial, /Cookie: not configured/);
 
     await captureStdout(() => runCli(["--home", home, "config", "set", "openai", "gpt-5.6-terra", "low"]));
     const service = new LlmSettingsService(home, psporePaths(home));
@@ -32,6 +33,7 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
       thinking: "low",
       customModel: false,
       hasApiKey: false,
+      hasCookie: false,
     });
 
     await captureStdout(() => runCli([

@@ -29,7 +29,7 @@ npm install --global p-spore
 p-spore tui
 ```
 
-安装后同时提供 `p-spore` 和等价的短命令 `pspore`，两者指向同一入口，可以任选其一；帮助与提示信息会回显你实际使用的那个名字。也可以用 `npx p-spore --help` 临时运行。npm CLI 包不携带 Electron；桌面端请使用 release 中的 AppImage。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
+安装后同时提供 `p-spore` 和等价的短命令 `pspore`，两者指向同一入口，可以任选其一；帮助与提示信息会回显你实际使用的那个名字。也可以用 `npx p-spore --help` 临时运行。npm CLI 包不携带 Electron；桌面端请使用 GitHub Release 中的全量 zip（含 `创建桌面快捷方式.sh`），升级可使用不含 Chromium 的 overlay zip。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
 
 ```bash
 npm install
@@ -79,16 +79,18 @@ pspore config set deepseek deepseek-v4-flash off
 pspore config set openai gpt-5.6-terra low
 pspore config set custom-openai my-model https://gateway.example.com/v1 responses off
 pspore config key                 # TTY 中隐藏输入，也可从 stdin 安全读取
+pspore config cookie              # LLM 代理可选 Cookie 头，隐藏输入
 pspore config clear-key
+pspore config clear-cookie
 ```
 
-`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking 与 API Key；Key 独立保存到 `~/.pspore/credentials/<provider>.api-key`（`0600`），`models.json` 只保存对该私有文件的引用，不写入 `config.json`、会话或日志。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
+`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking、API Key 与代理 Cookie；Key 和 Cookie 独立保存到 `~/.pspore/credentials/<provider>.api-key` 与 `<provider>.cookie`（`0600`），`models.json` 只保存对该私有文件的引用（Cookie 写入 `headers.Cookie`），不写入 `config.json`、会话或日志。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
 
 用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。TUI 普通输入发送到当前选中的 main/child session，忙时必须显式使用 `/steer` 或 `/follow`；还可以用 `/agent-spawn`、`/select`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。输入 `/help` 打开完整命令面板，`/back` 或 Esc 返回对话。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。
 
 生成或复制来的 skill/host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
 
-源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。AppImage 双击启动时也会自动初始化/启动本地 Daemon；如已有同 home Daemon 则复用，退出时只关闭桌面自己拥有的实例。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/getSettings/saveSettings/subscribe` 五个固定 API；renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。桌面端采用会话常驻、检查器按需展开的对话优先布局，支持窗口缩放、主/子会话、流式消息、steer/follow-up/abort、审批、run、MCP、受信资源、模型设置与持久化深色/浅色主题切换。
+源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。解压 GitHub Release 全量 zip 后运行 `创建桌面快捷方式.sh` 即可从桌面启动；独立桌面客户端也会自动初始化/启动本地 Daemon；如已有同 home Daemon 则复用，退出时只关闭桌面自己拥有的实例。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/getSettings/saveSettings/subscribe` 五个固定 API；renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。桌面端采用会话常驻、检查器按需展开的对话优先布局，支持窗口缩放、主/子会话、流式消息、steer/follow-up/abort、审批、run、MCP、受信资源、模型设置与持久化深色/浅色主题切换。后续升级可解压 overlay zip 覆盖 `resources/app.asar`，不必重新下载 Chromium。
 
 `npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home，并以 `1920 × 1080` 为主基准、补充 `1440 × 900` 与 `1180 × 720` PC 窗口，自动验证外部/桌面拥有两种 Daemon 路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、计算后字号下限、响应式面板收纳、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留深色、浅色、设置、响应式与审批截图及 JSON 探针。
 

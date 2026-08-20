@@ -36,8 +36,8 @@
 ## 注意事项
 
 - DeepSeek/OpenAI preset 不接受自定义 Base URL 或 API 类型；`custom-openai` 必须提供无凭据、无 query/fragment 的 HTTP(S) Base URL，并只允许 OpenAI Chat Completions/Responses。
-- Key 不接受命令行 argv，不回读明文，不进入 renderer/TUI state、日志、会话或 memory；只写 `credentials/<provider>.api-key`（`0600`），`models.json` 使用 `!cat -- <path>` 引用。
-- TUI wizard 在最终确认前不写文件，Esc 可取消；`/config key` 使用遮罩输入。CLI `config key` 在 TTY 隐藏输入，也允许从 stdin 注入。
+- Key 与 Cookie 不接受命令行 argv，不回读明文，不进入 renderer/TUI state、日志、会话或 memory；Key 写 `credentials/<provider>.api-key`，Cookie 写 `credentials/<provider>.cookie`（均为 `0600`）。`models.json` 使用 `!cat -- <path>` 引用；Cookie 作为 `headers.Cookie` 在调用 LLM proxy API 时发送。
+- TUI wizard 在最终确认前不写文件，Esc 可取消；`/config key` 与 `/config cookie` 使用遮罩输入。CLI `config key` / `config cookie` 在 TTY 隐藏输入，也允许从 stdin 注入。
 - 保存到 owned Daemon 的客户端会安全重启并重连；external Daemon 只提示 restart-required。
 
 ## 常见修改点

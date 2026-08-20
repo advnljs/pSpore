@@ -1,6 +1,6 @@
 {
   "name": "p-spore",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Linux-first local proactive agent built on Pi",
   "keywords": ["ai", "agent", "cli", "tui", "automation", "mcp"],
   "homepage": "https://github.com/advnljs/pSpore#readme",

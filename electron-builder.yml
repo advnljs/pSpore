@@ -12,8 +12,6 @@ linux:
   category: Utility
   executableName: pspore-desktop
   target:
-    - target: AppImage
+    - target: dir
       arch:
         - x64
-appImage:
-  artifactName: pspore-desktop-${version}-linux-x64.AppImage

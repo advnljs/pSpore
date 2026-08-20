@@ -30,11 +30,11 @@
 - 用户已明确授权在其休息期间不等待新指令，在现有范围与安全边界内持续开发，直到 v1 完成。
 - 2026-08-11 桌面优化必须简洁大气，支持深色/浅色模式切换，并重点实际验证字号与可读性。
 - 本轮明确只做 PC Electron 桌面端，不做手机端或移动 viewport 验收。
-- AppImage 双击启动后不得因为缺失 `~/.pspore/run/daemon.sock` 无限等待；必须自动初始化/启动或安全复用 Daemon。
+- 独立桌面客户端启动后不得因为缺失 `~/.pspore/run/daemon.sock` 无限等待；必须自动初始化/启动或安全复用 Daemon。
 - 使用用户提供但不得提交/输出的 `ds_key.txt` 实际验证 `deepseek-v4-flash`。
 - 桌面界面重新设计前可用 image generation 比较多种风格；最终不要高信息密度，应简洁大气。所谓高利用率是修复侧栏长期占位、上下区块失衡和无意义空区，不是缩小字号或塞满信息。
 - PC Electron 主工作区必须配合窗口缩放响应式调整；不增加手机布局。辅助检查器应按需展开，会话与输入保持稳定可见。
-- 设置菜单至少支持 LLM provider、model、Base URL、API Key、API 兼容类型与 thinking；Key 不得回读明文、进入日志、会话、memory 或 Git。
+- 设置菜单至少支持 LLM provider、model、Base URL、API Key、Cookie（LLM 代理 HTTP Cookie 头）、API 兼容类型与 thinking；Key 与 Cookie 不得回读明文、进入日志、会话、memory 或 Git。
 - GUI 与 TUI 的 Provider 选择必须精确提供 `deepseek`、`openai`、`custom-openai`（中文显示“自定义 OpenAI”），不暴露其他 Provider。
 - TUI 模型配置必须同时支持 launch wizard 与命令方式；wizard 可取消且确认前不持久化，命令方式可直接设置同一共享配置。
 - TUI/CLI 与桌面版必须基于相同 Kernel、Daemon、协议状态、会话路由和模型设置内核，功能面覆盖 prompt、main/child、审批、自动化、MCP、资源与设置；平台渲染组件可以独立。
@@ -45,11 +45,11 @@
 - 可参考 OpenCode、Codex CLI 与 Claude Code 的公开交互方式，不使用泄露或非公开源码。pSpore 定位是 cowork agent：能力可与 coding agent 对齐，展示应围绕任务、文件、记忆、自动化和集成等工作语义，而非只呈现编码事件。
 - TUI 优化的事件归一、语义标签、状态、结果、耗时和脱敏逻辑必须对 GUI 同时生效；平台只允许在渲染层有差异。
 - 本轮完成、验证和记录后必须发布新 npm 版本。
-- npm 0.1.4 发布后，GUI 也必须以同版本重新构建 Linux x86_64 AppImage，通过发行包本身的启动/视觉/安全验收后发布新 GitHub Release。
+- 2026-08-20 桌面发行改为全量 zip（含可点击的创建桌面快捷方式脚本）与不含 Chromium 的 overlay 覆盖升级 zip；主工作区必须在初始加载时纵向铺满窗口。
 - 2026-08-17 界面优化：GUI 与 TUI 一起做；重塑视觉识别，但保留既有信息架构、功能面与验收基准（桌面 `1920×1080`，TUI `160×45`）。
 - 视觉识别统一为 "spore print"：暖土/暖纸底色，骨白（深色）或墨色（浅色）只用于主操作与焦点，饱和色仅承担状态语义（moss 存活/成功、honey 等待/审批、rust 失败、lichen 用户）；GUI 与 TUI 共用同一套语义色映射。
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
-- GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI AppImage（`pspore-desktop-<version>-linux-x64.AppImage`）并直接上传到 `v<version>` GitHub Release。
+- GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium）并直接上传到 `v<version>` GitHub Release。
 
 ## 设计验收标准
 
@@ -64,7 +64,7 @@
 - Electron 验收必须覆盖与 TUI 同时连接同一 Daemon、断线重连、streaming delta、长消息/代码 overflow、transcript scroll、工具输出折叠、固定 composer、审批 modal 与焦点。
 - 桌面 smoke 还必须覆盖 owned/external Daemon 两种启动路径、深色/浅色截图和计算后字号下限；本轮不扩展移动端矩阵。
 - 响应式桌面验收在 `1920×1080` 主基准通过后，补测 `1440×900` 与 `1180×720`；三档均不得产生 document overflow，composer 必须完整可见，窄窗口检查器以受控抽屉呈现。
-- 设置弹层必须留在 viewport 内、锁定背景焦点、API Key input 保持 password，read API 只返回 `hasApiKey` 状态。
+- 设置弹层必须留在 viewport 内、锁定背景焦点、API Key 与 Cookie input 保持 password，read API 只返回 `hasApiKey` / `hasCookie` 状态。
 - TUI 主基准 `160×45` 必须保持简洁双栏、完整输入和可访问命令；补测 `96×30` 单栏，不要求手机端。完整命令经 `/help` 展示，不用常驻高密度底栏。
 - TUI 在真实模型运行中必须显示可变思考/输出/工具状态，工具完成后在同一步上显示成功或失败、简要结果和耗时；`/work [STEP_ID]` 可回看历史与经脱敏/限长的技术详情。
 - npm tarball 只能包含运行需要的 README、`dist` 与 package metadata；全新 prefix 安装后 bin 必须可执行，并能从仓库外启动 TUI、自动管理 Daemon。
@@ -75,4 +75,4 @@
 - 裸跑 `p-spore` 且未配置模型时，必须直接给出配置引导入口并在 TTY 下 y/n 询问；引导必须是 CLI 原生命令（`setup`），不能只存在于 TUI 内，且必须出现在 `--help` 列表中。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
-- 推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 后，CI 必须构建 `pspore-desktop-<version>-linux-x64.AppImage` 并直接上传到 `v<version>` GitHub Release。
+- 推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 后，CI 必须构建 `pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并直接上传到 `v<version>` GitHub Release。

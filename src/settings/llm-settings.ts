@@ -17,6 +17,7 @@ export interface LlmSettings {
   thinking: ThinkingLevel;
   customModel: boolean;
   hasApiKey: boolean;
+  hasCookie: boolean;
 }
 
 export interface LlmSettingsUpdate {
@@ -27,7 +28,9 @@ export interface LlmSettingsUpdate {
   thinking: ThinkingLevel;
   customModel: boolean;
   apiKey?: string;
+  cookie?: string;
   clearApiKey: boolean;
+  clearCookie: boolean;
 }
 
 export const MODEL_APIS: readonly ModelApi[] = [
@@ -51,8 +54,8 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   const input = object(value, label);
   exactShape(
     input,
-    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "clearApiKey"],
-    ["apiKey"],
+    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "clearApiKey", "clearCookie"],
+    ["apiKey", "cookie"],
     label,
   );
   const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
@@ -71,15 +74,12 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   }
   if (customModel && !baseUrl) throw new Error(`${label}.baseUrl is required for a custom model`);
   if (customModel && api === "provider-default") throw new Error(`${label}.api must be selected for a custom model`);
-  const apiKeyValue = input["apiKey"];
-  let apiKey: string | undefined;
-  if (apiKeyValue !== undefined) {
-    apiKey = optionalString(apiKeyValue, `${label}.apiKey`, 16_384);
-    if (!apiKey) apiKey = undefined;
-    if (apiKey && /[\r\n\u0000]/.test(apiKey)) throw new Error(`${label}.apiKey cannot contain line breaks`);
-  }
+  const apiKey = optionalSecret(input["apiKey"], `${label}.apiKey`);
+  const cookie = optionalSecret(input["cookie"], `${label}.cookie`);
   const clearApiKey = booleanValue(input["clearApiKey"], `${label}.clearApiKey`);
+  const clearCookie = booleanValue(input["clearCookie"], `${label}.clearCookie`);
   if (apiKey && clearApiKey) throw new Error(`${label} cannot set and clear the API key together`);
+  if (cookie && clearCookie) throw new Error(`${label} cannot set and clear the cookie together`);
   return {
     provider,
     model,
@@ -88,7 +88,9 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
     thinking: enumeration(input["thinking"], THINKING_LEVELS, `${label}.thinking`),
     customModel,
     ...(apiKey ? { apiKey } : {}),
+    ...(cookie ? { cookie } : {}),
     clearApiKey,
+    clearCookie,
   };
 }
 
@@ -114,6 +116,14 @@ function optionalString(value: unknown, path: string, maximum: number): string {
     throw new Error(`${path} must be a string of at most ${maximum} characters`);
   }
   return value.trim();
+}
+
+function optionalSecret(value: unknown, path: string): string | undefined {
+  if (value === undefined) return undefined;
+  const secret = optionalString(value, path, 16_384);
+  if (!secret) return undefined;
+  if (/[\r\n\u0000]/.test(secret)) throw new Error(`${path} cannot contain line breaks`);
+  return secret;
 }
 
 function booleanValue(value: unknown, path: string): boolean {

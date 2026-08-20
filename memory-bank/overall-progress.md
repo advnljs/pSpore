@@ -433,3 +433,17 @@
   - 顺带修复 `scripts/release.sh` / `package-desktop.sh` 的 Node 主版本检查（原先把 JS `true` 误当成 `"1"`，会在 Node 24 上误报不合格）。
 - 当前状态：CI 与 Release 工作流已加入仓库并完成本地打包验证。合并到 `main` 后，Release 工作流会把 AppImage 直接上传到 `v<package.version>` GitHub Release。
 - 遗留问题：electron-builder 默认图标与 WM_CLASS 仍待补齐；AppImage 本体视觉 smoke 仍需在发行前按既有约束从包本身跑 `--smoke-dir/--smoke-fixture`。
+
+## 2026-08-20 — 桌面 zip 发行、纵向铺满与 LLM 代理 Cookie
+
+- 阶段目标：把 GUI 发行从 AppImage 改为可解压的压缩包（含一键创建桌面快捷方式），另提供不含 Chromium 的 overlay 覆盖升级包；修复主界面初始未纵向铺满；调用 LLM proxy API 时支持设置 Cookie。
+- 完成内容：
+  - 版本升到 `0.1.5`。
+  - `electron-builder.yml` 改为 linux `dir`；`scripts/package-desktop.sh` 产出全量 `pspore-desktop-<version>-linux-x64.zip`（含可执行 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（仅 `resources/app.asar` + `覆盖升级.sh`）。
+  - 共享 LLM settings 增加可选 Cookie：私有文件 `credentials/<provider>.cookie`（`0600`），`models.json` 通过 `headers.Cookie` 的 `!cat` 引用，GUI/TUI/CLI 同步，read API 只返回 `hasCookie`。
+  - 桌面 CSS 改为 `body` flex + `.app-shell`/`workspace-grid`/`panel` 纵向拉伸，去掉初始 `translateY` 动画，首屏铺满窗口高度。
+- 验证方式与结果：
+  - Node `v24.19.0`：`npm run check` 95 项测试、typecheck 与 production build 通过。
+  - `npm run test:electron`：1920×1080 / 1440×900 / 1180×720、双主题、设置 password（含 Cookie）、密钥不回读通过。
+  - 本地打包：全量 zip 147M，SHA-256 `c1e3531777361e57115d1cf29b5a97c42111d91affc07673272c9db32b6079b9`；overlay zip 21M，SHA-256 `813fab8e001eb4c7fd3a4fb4a4e5ba7ed09c4f64356de3ed37ebd8c42856868a`。
+- 当前状态：代码与 `dist/` 已更新；GitHub Release `v0.1.5` 上传全量 zip 与 overlay zip。

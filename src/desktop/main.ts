@@ -61,6 +61,7 @@ interface SmokeReport {
     dialogContained: boolean;
     backgroundInert: boolean;
     apiKeyInputType: string;
+    cookieInputType: string;
     returnedSecret: boolean;
     fieldFontSize: number;
     providerOptions: string[];
@@ -356,7 +357,8 @@ async function runSmoke(
       dialogContained: Boolean(dialogRect && dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight),
       backgroundInert: Boolean(document.querySelector('#app-shell')?.inert),
       apiKeyInputType: document.querySelector('#settings-api-key')?.type || '',
-      returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey'),
+      cookieInputType: document.querySelector('#settings-cookie')?.type || '',
+      returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey') || Object.prototype.hasOwnProperty.call(settings, 'cookie'),
       fieldFontSize: Number.parseFloat(getComputedStyle(provider).fontSize),
       providerOptions: Array.from(provider.options).map((option) => option.value),
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
@@ -508,7 +510,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   if (!report.ipcProbe.jobsArray) failures.push("allowlisted IPC round trip failed");
   if (!report.ipcProbe.rejected || !report.ipcProbe.rejectionMessage.includes("not allowlisted")) failures.push("non-allowlisted IPC was not rejected");
   if (!report.settings.dialogContained || !report.settings.backgroundInert) failures.push("settings dialog is not contained and modal");
-  if (report.settings.apiKeyInputType !== "password" || report.settings.returnedSecret) failures.push("settings API exposed an API key");
+  if (report.settings.apiKeyInputType !== "password" || report.settings.cookieInputType !== "password" || report.settings.returnedSecret) failures.push("settings API exposed an API key or cookie");
   if (report.settings.fieldFontSize < 14) failures.push("settings field font size is below 14px");
   if (report.settings.providerOptions.join(",") !== "deepseek,openai,custom-openai") failures.push("settings provider choices changed");
   if (!report.settings.customBaseUrlEnabled || !report.settings.customApiEnabled) failures.push("custom OpenAI controls are not enabled correctly");

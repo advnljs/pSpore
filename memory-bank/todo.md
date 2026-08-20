@@ -23,11 +23,11 @@
 | P3 | GUI 内共享 cowork 活动文案为英文 | Pending | TUI/CLI 必须英文，两端共用 `src/ui/shared/activity.ts` | 2026-08-17 起 GUI 其余文案已统一中文；若要彻底消除混排，需要给 activity label/summary 加平台级 i18n 映射，而不是改共享层 |
 | P2 | `dist/` 已纳入 Git，需防止与源码不同步 | Done | 无 | `ci.yml` 在 PR/`main` 上执行 `npm run check` 后 `git diff --exit-code -- dist` |
 | P3 | transcript 每次渲染整树重建 | Pending | 无 | `renderConversation` 每帧 `replaceChildren` 所有消息；长会话下建议改为按 message id 增量渲染或虚拟化，同时可去掉 `role="log"` 的重复播报风险 |
-| P3 | 为 AppImage 补齐产品图标与 WM_CLASS/desktopName | Pending | 不影响当前启动与功能 | 增加受控图标资产，并在 electron-builder 配置中设置 `desktopName` / `linux.syncDesktopName` |
+| P3 | 为桌面 zip 补齐产品图标与 WM_CLASS/desktopName | Pending | 不影响当前启动与功能 | 增加受控图标资产，并在 electron-builder 配置中设置 `desktopName` / `linux.syncDesktopName` |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
-| P2 | GitHub CI 自动构建 GUI AppImage 并上传 Release | Done | 无 | 推送 `main` 或匹配 `package.json` 的 `v*` tag 后，产物直接上传到 GitHub Release |
+| P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | 推送 `main` 或匹配 `package.json` 的 `v*` tag 后，全量 zip 与 overlay zip 直接上传到 GitHub Release |
 
 ## 已知风险
 
@@ -37,7 +37,7 @@
 - 外部副作用在崩溃边界不能普遍保证 exactly-once。
 - 当前 UDS replay 与 command cache 仅在进程内；重启靠 snapshot，durable event log/session mapping 尚未完成。
 - 当前模型未配置时 Daemon 可正常 ready，但 prompt 会返回 `model_not_configured`；`deepseek/deepseek-v4-flash` 已于 2026-08-11 使用临时 credential 完成真实 API 验证，不将付费调用纳入默认自动化。
-- npm 包要求 Node 24；`desktop` 命令在纯 npm 安装中不会下载 Electron，而是提示使用 AppImage。
+- npm 包要求 Node 24；`desktop` 命令在纯 npm 安装中不会下载 Electron，而是提示使用 GitHub Release 中的桌面 zip。
 - `p-spore@0.1.0` 只安装 `pspore` 命令；已由 `0.1.1` 修复，仍停留在 `0.1.0` 的用户需要升级才能使用 `p-spore` 命令。
 - 非 TTY 环境下 `npm publish` 会直接以 `EOTP` 失败并把 2FA URL 打码；后续发布需在真实终端或伪终端（`script`）中执行。
 - 发布后 `npm view` 可能仍显示旧版本（本地/CDN 缓存延迟）；用 `curl -s https://registry.npmjs.org/p-spore` 直连确认，不要据此判断发布失败。

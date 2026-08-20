@@ -11,8 +11,8 @@ export const MODEL_SETUP_OFFER_PROMPT = "Run the model setup wizard now? [Y/n]";
 export const MODEL_SETUP_OFFER_LINES = [
     "No model is configured yet, so prompts would fail with model_not_configured.",
     "",
-    "The wizard walks through provider, model, thinking level and API key.",
-    "The key is stored in a private 0600 file and is never shown in the TUI.",
+    "The wizard walks through provider, model, thinking, API key and optional proxy cookie.",
+    "The key and cookie are stored in private 0600 files and are never shown in the TUI.",
     "",
     "Answer n to skip; you can run /config wizard at any time.",
 ];
@@ -472,6 +472,25 @@ export class PsporeTuiApp {
             await this.#saveSettings(updateFrom(current, { clearApiKey: true }));
             return;
         }
+        if (action === "cookie") {
+            if (parts.length !== 2)
+                throw new Error("Cookies are never accepted as command arguments; use /config cookie");
+            const cookie = await this.#view?.requestValue("Cookie (hidden; Esc cancels)", { secret: true });
+            if (cookie === undefined) {
+                this.#store.setNotice("Cookie update cancelled");
+                return;
+            }
+            if (!cookie)
+                throw new Error("Cookie cannot be empty");
+            await this.#saveSettings(updateFrom(current, { cookie }));
+            return;
+        }
+        if (action === "clear-cookie") {
+            if (parts.length !== 2)
+                throw new Error("Usage: /config clear-cookie");
+            await this.#saveSettings(updateFrom(current, { clearCookie: true }));
+            return;
+        }
         throw new Error("Unknown config action; use /config, /config wizard, or /help");
     }
     /**
@@ -517,7 +536,7 @@ export class PsporeTuiApp {
             `2  OpenAI        ${current.provider === "openai" ? "← current" : ""}`,
             `3  Custom OpenAI ${current.provider === "custom-openai" ? "← current" : ""}`,
         ]);
-        const providerValue = await view.requestValue(`1/6 provider [${current.provider}] (1 deepseek · 2 openai · 3 custom)`);
+        const providerValue = await view.requestValue(`1/7 provider [${current.provider}] (1 deepseek · 2 openai · 3 custom)`);
         if (providerValue === undefined)
             return this.#cancelWizard();
         const provider = providerValue.trim() ? parseProvider(providerValue) : current.provider;
@@ -527,7 +546,7 @@ export class PsporeTuiApp {
             `Suggested  ${suggestedModel}`,
             "Press Enter to accept the suggestion, or type another model ID.",
         ]);
-        const modelValue = await view.requestValue(`2/6 model [${suggestedModel}]`);
+        const modelValue = await view.requestValue(`2/7 model [${suggestedModel}]`);
         if (modelValue === undefined)
             return this.#cancelWizard();
         const model = modelValue.trim() || suggestedModel;
@@ -539,13 +558,13 @@ export class PsporeTuiApp {
                 "The URL must use HTTP(S) and cannot contain credentials.",
                 "API compatibility can be Chat Completions or Responses.",
             ]);
-            const baseUrlValue = await view.requestValue(`3/6 Base URL [${current.provider === provider ? current.baseUrl : "required"}]`);
+            const baseUrlValue = await view.requestValue(`3/7 Base URL [${current.provider === provider ? current.baseUrl : "required"}]`);
             if (baseUrlValue === undefined)
                 return this.#cancelWizard();
             baseUrl = baseUrlValue.trim() || (current.provider === provider ? current.baseUrl : "");
             if (!baseUrl)
                 throw new Error("A Base URL is required for custom OpenAI");
-            const apiValue = await view.requestValue("3/6 API [chat] (chat · responses)");
+            const apiValue = await view.requestValue("3/7 API [chat] (chat · responses)");
             if (apiValue === undefined)
                 return this.#cancelWizard();
             api = parseOpenAiApi(apiValue.trim() || (current.provider === provider ? current.api : "chat"));
@@ -555,7 +574,7 @@ export class PsporeTuiApp {
             `Options   ${THINKING_LEVELS.join(" · ")}`,
             "Higher effort can increase latency and token use when the provider supports it.",
         ]);
-        const thinkingValue = await view.requestValue(`4/6 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")})`);
+        const thinkingValue = await view.requestValue(`4/7 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")})`);
         if (thinkingValue === undefined)
             return this.#cancelWizard();
         const thinking = parseThinking(thinkingValue.trim() || current.thinking);
@@ -565,7 +584,7 @@ export class PsporeTuiApp {
             "set     Enter a new key through hidden input",
             "clear   Remove the managed key",
         ]);
-        const keyActionValue = await view.requestValue(`5/6 key [keep] (keep · set · clear)`);
+        const keyActionValue = await view.requestValue(`5/7 key [keep] (keep · set · clear)`);
         if (keyActionValue === undefined)
             return this.#cancelWizard();
         const keyAction = keyActionValue.trim().toLowerCase() || "keep";
@@ -574,23 +593,45 @@ export class PsporeTuiApp {
         }
         let apiKey;
         if (keyAction === "set") {
-            apiKey = await view.requestValue("5/6 API key (hidden; Esc cancels)", { secret: true });
+            apiKey = await view.requestValue("5/7 API key (hidden; Esc cancels)", { secret: true });
             if (apiKey === undefined)
                 return this.#cancelWizard();
             if (!apiKey)
                 throw new Error("API key cannot be empty");
         }
-        this.#showWizardStep(6, "Review and apply", [
+        this.#showWizardStep(6, "Optional LLM proxy cookie", [
+            `Status   ${current.hasCookie ? "configured (hidden)" : "not configured"}`,
+            "keep    Leave the managed cookie unchanged",
+            "set     Enter a Cookie header through hidden input",
+            "clear   Remove the managed cookie",
+        ]);
+        const cookieActionValue = await view.requestValue(`6/7 cookie [keep] (keep · set · clear)`);
+        if (cookieActionValue === undefined)
+            return this.#cancelWizard();
+        const cookieAction = cookieActionValue.trim().toLowerCase() || "keep";
+        if (!["keep", "set", "clear"].includes(cookieAction)) {
+            throw new Error("Cookie action must be keep, set, or clear");
+        }
+        let cookie;
+        if (cookieAction === "set") {
+            cookie = await view.requestValue("6/7 Cookie (hidden; Esc cancels)", { secret: true });
+            if (cookie === undefined)
+                return this.#cancelWizard();
+            if (!cookie)
+                throw new Error("Cookie cannot be empty");
+        }
+        this.#showWizardStep(7, "Review and apply", [
             `Provider   ${provider}`,
             `Model      ${model}`,
             `Base URL   ${baseUrl || "provider default"}`,
             `API        ${api}`,
             `Thinking   ${thinking}`,
             `API key    ${keyAction === "keep" ? current.hasApiKey ? "keep configured key" : "not configured" : keyAction}`,
+            `Cookie     ${cookieAction === "keep" ? current.hasCookie ? "keep configured cookie" : "not configured" : cookieAction}`,
             "",
-            "The key value is never displayed or stored in the TUI state.",
+            "The key and cookie values are never displayed or stored in the TUI state.",
         ]);
-        const confirmation = await view.requestValue("6/6 save and apply? [y/N]");
+        const confirmation = await view.requestValue("7/7 save and apply? [y/N]");
         if (confirmation === undefined || !/^(y|yes)$/i.test(confirmation.trim()))
             return this.#cancelWizard();
         await this.#saveSettings(updateFrom(current, {
@@ -601,7 +642,9 @@ export class PsporeTuiApp {
             thinking,
             customModel: provider === "custom-openai",
             ...(apiKey ? { apiKey } : {}),
+            ...(cookie ? { cookie } : {}),
             clearApiKey: keyAction === "clear",
+            clearCookie: cookieAction === "clear",
         }));
     }
     async #saveSettings(update) {
@@ -619,8 +662,8 @@ export class PsporeTuiApp {
         this.#store.setNotice(message);
     }
     #showWizardStep(step, title, lines) {
-        const progress = Array.from({ length: 6 }, (_, index) => index + 1 < step ? "●" : index + 1 === step ? "◉" : "○").join("─");
-        this.#store.setPanel(`Model setup · ${step}/6`, [
+        const progress = Array.from({ length: 7 }, (_, index) => index + 1 < step ? "●" : index + 1 === step ? "◉" : "○").join("─");
+        this.#store.setPanel(`Model setup · ${step}/7`, [
             `${progress}  ${title}`,
             "",
             ...lines,
@@ -752,7 +795,9 @@ function updateFrom(settings, changes) {
         thinking: changes.thinking ?? settings.thinking,
         customModel: changes.customModel ?? settings.customModel,
         ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
+        ...(changes.cookie ? { cookie: changes.cookie } : {}),
         clearApiKey: changes.clearApiKey ?? false,
+        clearCookie: changes.clearCookie ?? false,
     };
 }
 function settingsLines(settings) {
@@ -763,6 +808,7 @@ function settingsLines(settings) {
         `API        ${settings.api}`,
         `Thinking   ${settings.thinking}`,
         `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
+        `Cookie     ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
         "",
         "Use /config wizard for guided setup, or /help for direct commands.",
     ];

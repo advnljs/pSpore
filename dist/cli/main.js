@@ -258,7 +258,7 @@ async function runDesktop(home) {
         electron = require("electron");
     }
     catch {
-        throw new CliError("Electron is not included in the npm CLI package; use the pSpore AppImage for the desktop client");
+        throw new CliError("Electron is not included in the npm CLI package; use the pSpore desktop zip from GitHub Releases");
     }
     if (typeof electron !== "string")
         throw new CliError("The local Electron executable could not be resolved");
@@ -314,34 +314,45 @@ async function runSetupWizard(home) {
     const service = new LlmSettingsService(home, paths);
     const current = await service.get();
     process.stdout.write("\nModel setup — press Enter to accept each default, Ctrl+C to abort.\n\n");
-    const providerAnswer = await readLineInput(`1/5 provider [${current.provider}] (deepseek · openai · custom-openai): `);
+    const providerAnswer = await readLineInput(`1/6 provider [${current.provider}] (deepseek · openai · custom-openai): `);
     const provider = providerAnswer.trim() ? parseConfigProvider(providerAnswer.trim()) : current.provider;
     const suggestedModel = provider === current.provider ? current.model : defaultModelFor(provider);
-    const modelAnswer = await readLineInput(`2/5 model [${suggestedModel}]: `);
+    const modelAnswer = await readLineInput(`2/6 model [${suggestedModel}]: `);
     const model = modelAnswer.trim() || suggestedModel;
     let baseUrl = "";
     let api = "provider-default";
     if (provider === "custom-openai") {
         const suggestedUrl = current.provider === provider ? current.baseUrl : "";
-        const urlAnswer = await readLineInput(`3/5 Base URL${suggestedUrl ? ` [${suggestedUrl}]` : " (required)"}: `);
+        const urlAnswer = await readLineInput(`3/6 Base URL${suggestedUrl ? ` [${suggestedUrl}]` : " (required)"}: `);
         baseUrl = urlAnswer.trim() || suggestedUrl;
         if (!baseUrl)
             throw new CliError("A Base URL is required for custom OpenAI");
-        const apiAnswer = await readLineInput("3/5 API [chat] (chat · responses): ");
+        const apiAnswer = await readLineInput("3/6 API [chat] (chat · responses): ");
         api = parseConfigApi(apiAnswer.trim() || "chat");
     }
-    const thinkingAnswer = await readLineInput(`4/5 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")}): `);
+    const thinkingAnswer = await readLineInput(`4/6 thinking [${current.thinking}] (${THINKING_LEVELS.join(" · ")}): `);
     const thinking = parseConfigThinking(thinkingAnswer.trim() || current.thinking);
     const keyDefault = current.hasApiKey ? "keep" : "set";
-    const keyAnswer = await readLineInput(`5/5 API key [${keyDefault}] (set · keep · clear): `);
+    const keyAnswer = await readLineInput(`5/6 API key [${keyDefault}] (set · keep · clear): `);
     const keyAction = (keyAnswer.trim().toLowerCase() || keyDefault);
     if (!["set", "keep", "clear"].includes(keyAction))
         throw new CliError("Key action must be set, keep, or clear");
     let apiKey;
     if (keyAction === "set") {
-        apiKey = await readSecretInput();
+        apiKey = await readSecretInput("API key");
         if (!apiKey)
             throw new CliError("API key cannot be empty");
+    }
+    const cookieDefault = current.hasCookie ? "keep" : "skip";
+    const cookieAnswer = await readLineInput(`6/6 Cookie [${cookieDefault}] (set · keep · clear · skip): `);
+    const cookieAction = (cookieAnswer.trim().toLowerCase() || cookieDefault);
+    if (!["set", "keep", "clear", "skip"].includes(cookieAction))
+        throw new CliError("Cookie action must be set, keep, clear, or skip");
+    let cookie;
+    if (cookieAction === "set") {
+        cookie = await readSecretInput("Cookie");
+        if (!cookie)
+            throw new CliError("Cookie cannot be empty");
     }
     const saved = await service.save(settingsUpdate(current, {
         provider,
@@ -351,7 +362,9 @@ async function runSetupWizard(home) {
         thinking,
         customModel: provider === "custom-openai",
         ...(apiKey ? { apiKey } : {}),
+        ...(cookie ? { cookie } : {}),
         clearApiKey: keyAction === "clear",
+        clearCookie: cookieAction === "clear",
     }));
     process.stdout.write("\n");
     printModelSettings(saved);
@@ -447,7 +460,7 @@ async function runConfigCommand(home, args) {
     else if (action === "key") {
         if (args.length !== 1)
             throw new CliError("API keys are never accepted as command arguments; use `config key` and enter it securely");
-        const apiKey = await readSecretInput();
+        const apiKey = await readSecretInput("API key");
         if (!apiKey)
             throw new CliError("API key cannot be empty");
         update = settingsUpdate(current, { apiKey });
@@ -457,8 +470,21 @@ async function runConfigCommand(home, args) {
             throw new CliError("config clear-key does not accept arguments");
         update = settingsUpdate(current, { clearApiKey: true });
     }
+    else if (action === "cookie") {
+        if (args.length !== 1)
+            throw new CliError("Cookies are never accepted as command arguments; use `config cookie` and enter it securely");
+        const cookie = await readSecretInput("Cookie");
+        if (!cookie)
+            throw new CliError("Cookie cannot be empty");
+        update = settingsUpdate(current, { cookie });
+    }
+    else if (action === "clear-cookie") {
+        if (args.length !== 1)
+            throw new CliError("config clear-cookie does not accept arguments");
+        update = settingsUpdate(current, { clearCookie: true });
+    }
     else {
-        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | key | clear-key");
+        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | key | clear-key | cookie | clear-cookie");
     }
     const saved = await service.save(update);
     printModelSettings(saved);
@@ -473,6 +499,7 @@ function printModelSettings(settings) {
         `API: ${settings.api}`,
         `Thinking: ${settings.thinking}`,
         `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
+        `Cookie: ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
     ].join("\n") + "\n");
 }
 /** Visible single-line prompt; secrets must go through readSecretInput instead. */
@@ -485,17 +512,17 @@ async function readLineInput(prompt) {
         rl.close();
     }
 }
-async function readSecretInput() {
+async function readSecretInput(label = "API key") {
     if (!process.stdin.isTTY) {
         let value = "";
         for await (const chunk of process.stdin) {
             value += String(chunk);
             if (value.length > 16_386)
-                throw new CliError("API key input exceeds 16384 characters");
+                throw new CliError(`${label} input exceeds 16384 characters`);
         }
         return value.replace(/\r?\n$/, "");
     }
-    process.stdout.write("API key (hidden): ");
+    process.stdout.write(`${label} (hidden): `);
     process.stdin.setRawMode(true);
     process.stdin.resume();
     return new Promise((resolve, reject) => {
@@ -513,7 +540,7 @@ async function readSecretInput() {
         const onData = (chunk) => {
             const data = String(chunk);
             if (data.includes("\u0003"))
-                return finish(new CliError("API key input cancelled"));
+                return finish(new CliError(`${label} input cancelled`));
             if (data.includes("\r") || data.includes("\n"))
                 return finish();
             if (data === "\u007f" || data === "\b") {
@@ -525,7 +552,7 @@ async function readSecretInput() {
                 : data;
             const printable = [...pasted].filter((character) => character >= " " && character <= "~").join("");
             if (value.length + printable.length > 16_384)
-                return finish(new CliError("API key input exceeds 16384 characters"));
+                return finish(new CliError(`${label} input exceeds 16384 characters`));
             value += printable;
         };
         process.stdin.on("data", onData);
@@ -562,7 +589,9 @@ function settingsUpdate(settings, changes) {
         thinking: changes.thinking ?? settings.thinking,
         customModel: changes.customModel ?? settings.customModel,
         ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
+        ...(changes.cookie ? { cookie: changes.cookie } : {}),
         clearApiKey: changes.clearApiKey ?? false,
+        clearCookie: changes.clearCookie ?? false,
     };
 }
 async function runPrompt(home, text) {
@@ -846,7 +875,7 @@ function requireNoArgs(args, command) {
         throw new CliError(`${command} does not accept positional arguments`);
 }
 function helpText() {
-    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 class CliError extends Error {
     constructor(message) {

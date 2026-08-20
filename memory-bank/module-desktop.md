@@ -31,7 +31,7 @@ preload 仅暴露：
 
 - `bootstrap()`：读取 connection、authoritative snapshot、cursor 与版本。
 - `dispatch(command)`：发送严格 allowlisted action；不接受 channel 名或协议 type。
-- `getSettings()`：只返回模型设置和 `hasApiKey` 布尔状态，不返回 secret。
+- `getSettings()`：只返回模型设置和 `hasApiKey` / `hasCookie` 布尔状态，不返回 secret。
 - `saveSettings(settings)`：发送严格解码的模型设置；owned Daemon 自动重启应用，external Daemon 只保存并提示用户重启。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
 
@@ -60,10 +60,11 @@ preload 仅暴露：
 - activity inspector 对 started/updated/completed 工具事件只保留一张持续更新的卡片，使用与 TUI 一致的 cowork label、状态点、目标、结果与脱敏详情；其他运行/系统活动保持可见。
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
-- API Key 保存到 `credentials/<provider>.api-key` 且 mode `0600`；`models.json` 只存私有文件读取引用。renderer 始终只看见 `hasApiKey`。
+- API Key 与 Cookie 保存到 `credentials/<provider>.api-key` 与 `<provider>.cookie` 且 mode `0600`；`models.json` 只存私有文件读取引用，Cookie 写入 `headers.Cookie`。renderer 始终只看见 `hasApiKey` / `hasCookie`。
 - smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；报告自动断言外部/拥有 Daemon、双主题、设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
-- GitHub GUI 发行产物使用 `pspore-desktop-<version>-linux-x64.AppImage`，版本与 npm/package 对齐；发布前必须直接从 AppImage 运行 `--smoke-dir/--smoke-fixture`，不得只验证源码 Electron。
-- 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml`）。GitHub Actions `Release desktop` 在推送到 `main` 或 `v*` tag 时构建该 AppImage，并直接上传到 `v<version>` GitHub Release（已有 Release 则覆盖同名资产）。
+- GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（仅 `resources/app.asar`，不含 Chromium）；版本与 npm/package 对齐。
+- 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir）。GitHub Actions `Release desktop` 在推送到 `main` 或 `v*` tag 时构建这两个 zip，并直接上传到 `v<version>` GitHub Release（已有 Release 则覆盖同名资产）。
+- 主工作区使用 `body` flex + `.app-shell` 纵向拉伸，初始加载即铺满窗口高度。
 
 ## 常见修改点
 
