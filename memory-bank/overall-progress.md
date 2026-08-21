@@ -464,5 +464,5 @@
   - `npm run test:electron` 通过：1920×1080 主基准与 1440×900、1180×720 补测，双主题、设置、字号、owned/external Daemon、重连、IPC allowlist，以及新增的铺满与 bypass 告警断言。
   - Xvfb 实测窗口尺寸：1920×1080 屏由原先 content bottom 1111（越界 31px）收敛为 1079；1366×768 与 2560×1440 下 `app-shell` 高度均等于 viewport，workspace 底部仅剩 10px 设计留白。
   - Markdown 解析器 16 项单测覆盖标题/围栏/未闭合围栏/列表切换/任务项/表格/行内标记/危险链接协议/深度上限。
-- 当前状态：源码与 `dist/` 已同步重建。
-- 遗留问题：Markdown 链接仍不可点击跳转（主进程按安全基线禁止外部导航）；`allow_all` 只是策略放开，不构成沙箱。
+- 当前状态：版本升到 `0.1.6`，源码与 `dist/` 已同步重建并推送到 `main`（commit `98888cb`）。GitHub Actions `CI` 与 `Release desktop` 均 success，已发布 https://github.com/advnljs/pSpore/releases/tag/v0.1.6 ，含 `pspore-desktop-0.1.6-linux-x64.zip` / `-overlay.zip` 及各自 SHA-256。
+- 遗留问题：Markdown 链接仍不可点击跳转（主进程按安全基线禁止外部导航）；`allow_all` 只是策略放开，不构成沙箱；本轮未发布 npm 新版本。
