@@ -53,6 +53,24 @@ optional proxy cookies are written to `~/.pspore/credentials/<provider>.api-key`
 logs. The cookie is sent as an HTTP `Cookie` header when the model runtime calls the
 proxy. You can also supply credentials through the daemon's environment instead.
 
+## Approvals
+
+Tool calls are gated by a single daemon-wide policy. The default `ask_risky` only stops on
+risky operations; `ask_all` confirms every mutating tool; `deny` refuses all of them.
+
+```bash
+p-spore config permissions ask_risky      # default
+p-spore config permissions ask_all
+p-spore config permissions bypass         # alias for allow_all
+p-spore config permissions deny
+```
+
+`allow_all` (`bypass`) skips every approval prompt: reads, writes, shell commands, `sudo`
+and MCP calls all run immediately with the privileges of the user running the daemon.
+pSpore is not a sandbox, so only bypass approvals for work you already trust. The same
+setting is available as `/config permissions ...` in the TUI and under **Settings →
+权限** in the desktop client. Restart the daemon to apply a change to a running one.
+
 ## Everyday commands
 
 ```bash

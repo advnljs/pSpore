@@ -166,16 +166,24 @@ select:focus-visible,
 }
 .skip-link:focus { transform: translateY(0); }
 
+/*
+ * Flex, not grid: the connection banner is `display: none` while connected, and a
+ * fixed three-row grid template kept its empty track's gap, leaving dead space
+ * under the workspace on first paint.
+ */
 .app-shell {
   flex: 1 1 auto;
   width: 100%;
   min-height: 0;
   height: 100%;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 8px;
   padding: 10px;
 }
+.app-shell > .topbar,
+.app-shell > .connection-banner { flex: 0 0 auto; }
+.app-shell > .workspace-grid { flex: 1 1 auto; }
 
 .topbar {
   display: grid;
@@ -297,7 +305,6 @@ kbd { margin-left: 9px; padding: 2px 5px; border-radius: 4px; color: color-mix(i
 .workspace-grid {
   position: relative;
   min-height: 0;
-  height: 100%;
   align-self: stretch;
   display: grid;
   grid-template-columns: clamp(232px, 14vw, 268px) minmax(520px, 1fr) clamp(320px, 20vw, 378px);
@@ -445,6 +452,64 @@ select {
 .activity-detail,
 .approval-command { max-width: 100%; overflow: auto; padding: 13px 15px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--text-soft); font: 13px/1.7 var(--font-mono); white-space: pre; tab-size: 2; }
 .message-body > pre { margin: 14px 0; }
+
+/* Markdown blocks: prose keeps `pre-wrap` only for messages that render as plain text. */
+.message-body.markdown { white-space: normal; }
+.message-body.markdown > :first-child { margin-top: 0; }
+.message-body.markdown > :last-child { margin-bottom: 0; }
+.md-p { margin: 0 0 12px; }
+.md-h { margin: 22px 0 10px; color: var(--text); font-family: var(--font-sans); font-weight: 680; letter-spacing: -0.02em; line-height: 1.35; }
+.md-h1 { font-size: 21px; }
+.md-h2 { font-size: 19px; }
+.md-h3 { font-size: 17px; }
+.md-h4,
+.md-h5,
+.md-h6 { font-size: 15.5px; }
+.md-h5,
+.md-h6 { color: var(--muted); }
+.md-h1,
+.md-h2 { padding-bottom: 7px; border-bottom: 1px solid var(--border-soft); }
+.md-rule { height: 0; margin: 20px 0; border: 0; border-top: 1px solid var(--border); }
+
+.md-list { margin: 0 0 12px; padding-left: 22px; }
+.md-list li { margin: 5px 0; }
+.md-list li::marker { color: var(--faint); font-variant-numeric: tabular-nums; }
+.md-list .md-list { margin: 5px 0 0; }
+.md-list li.md-task { list-style: none; margin-left: -22px; padding-left: 0; display: flex; align-items: flex-start; gap: 9px; }
+.md-check { flex: 0 0 auto; width: 15px; height: 15px; margin-top: 4px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--live); background: var(--surface-input); font: 700 11px/1 var(--font-mono); }
+.md-check.checked { border-color: color-mix(in srgb, var(--live) 55%, var(--border)); background: var(--live-soft); }
+
+.md-quote { margin: 0 0 14px; padding: 3px 0 3px 15px; border-left: 2px solid var(--border-strong); color: var(--muted); }
+.md-quote > :last-child { margin-bottom: 0; }
+
+.md-code { margin: 14px 0; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-soft); overflow: hidden; }
+.md-code-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 11px 7px 14px; border-bottom: 1px solid var(--border-soft); }
+.md-code-lang { color: var(--faint); font: 600 11.5px/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+.md-copy { min-height: 24px; padding: 0 9px; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--muted); background: transparent; cursor: pointer; font: 600 11.5px/1 var(--font-mono); }
+.md-copy:hover { color: var(--text); border-color: var(--border); background: var(--surface-hover); }
+.md-code pre { margin: 0; border: 0; border-radius: 0; background: transparent; }
+.md-code.streaming .md-code-lang::after { content: " ·"; color: var(--live); }
+.md-copy-carrier { position: fixed; top: -1000px; left: -1000px; width: 1px; height: 1px; opacity: 0; }
+
+.md-table-wrap { max-width: 100%; margin: 14px 0; overflow-x: auto; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); }
+.md-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.md-table th,
+.md-table td { padding: 9px 13px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+.md-table th { color: var(--text); background: var(--surface-raised); font: 650 12.5px/1.5 var(--font-mono); letter-spacing: 0.04em; white-space: nowrap; }
+.md-table tbody tr:last-child td { border-bottom: 0; }
+.md-table tbody tr:hover td { background: var(--surface-hover); }
+.md-align-left { text-align: left; }
+.md-align-center { text-align: center; }
+.md-align-right { text-align: right; font-variant-numeric: tabular-nums; }
+
+.md-code-span { padding: 2px 5px; border: 1px solid var(--border-soft); border-radius: 4px; color: var(--text); background: var(--surface-soft); font: 0.88em/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.message-body strong { color: var(--text); font-weight: 680; }
+.message-body em { font-style: italic; }
+.message-body s { color: var(--faint); }
+.md-link { color: var(--text); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--lichen) 60%, transparent); text-underline-offset: 3px; }
+.md-link-url { margin-left: 5px; color: var(--faint); font: 0.82em/1.4 var(--font-mono); overflow-wrap: anywhere; }
+.md-link-url::before { content: "("; }
+.md-link-url::after { content: ")"; }
 .message details { border: 1px solid var(--border-soft); border-radius: var(--radius-md); background: var(--surface-soft); }
 .message details summary { padding: 11px 14px; cursor: pointer; color: var(--muted); font: 12.5px/1 var(--font-mono); }
 .message details summary:hover { color: var(--text-soft); }
@@ -523,6 +588,7 @@ select {
 .settings-section-title h3 { margin: 0 0 4px; color: var(--text); font-size: 15.5px; font-weight: 680; }
 .settings-section-title p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
 .settings-field-note { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.settings-danger-note { margin: 10px 0 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--honey) 46%, var(--border)); border-radius: var(--radius-sm); color: var(--honey); background: var(--honey-soft); font-size: 12.5px; line-height: 1.65; }
 .settings-section > label:not(.checkbox-field),
 .field-grid > label { display: flex; flex-direction: column; gap: 7px; }
 .settings-section > label + .field-grid,
@@ -631,7 +697,6 @@ select {
 }
 
 @media (max-height: 780px) {
-  .app-shell { grid-template-rows: auto auto minmax(0, 1fr); }
   .conversation { grid-template-rows: 64px minmax(0, 1fr) auto; }
   .transcript { padding-block: 22px 28px; }
   .message { margin-bottom: 22px; }

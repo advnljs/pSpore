@@ -4,10 +4,14 @@ import { ProcessTerminal, TuiAltScreen } from "@earendil-works/pi-tui";
 
 import { ProtocolClient } from "../../protocol/client.js";
 import type { ApprovalScope } from "../../policy/approval-service.js";
+import type { PermissionMode } from "../../config/config.js";
 import {
+  BYPASS_PERMISSION_MODE,
   decodeLlmSettingsUpdate,
   defaultModelFor,
   MODEL_APIS,
+  PERMISSION_MODES,
+  permissionModeSummary,
   PROVIDER_OPTIONS,
   THINKING_LEVELS,
   type LlmSettings,
@@ -491,6 +495,15 @@ export class PsporeTuiApp {
       await this.#saveSettings(updateFrom(current, { thinking: parseThinking(parts[2]) }));
       return;
     }
+    if (action === "permissions") {
+      if (parts.length !== 3) throw new Error(`Usage: /config permissions ${PERMISSION_MODES.join("|")}|bypass`);
+      const permissionMode = parsePermissionMode(parts[2]);
+      await this.#saveSettings(updateFrom(current, { permissionMode }));
+      if (permissionMode === BYPASS_PERMISSION_MODE) {
+        this.#store.setNotice("Permissions bypassed: tools now run with your own privileges and no confirmation");
+      }
+      return;
+    }
     if (action === "key") {
       if (parts.length !== 2) throw new Error("API keys are never accepted as command arguments; use /config key");
       const apiKey = await this.#view?.requestValue("API key (hidden; Esc cancels)", { secret: true });
@@ -788,6 +801,16 @@ function parseProvider(value: string | undefined): ProviderOption {
   return provider;
 }
 
+function parsePermissionMode(value: string | undefined): PermissionMode {
+  const normalized = value?.trim().toLowerCase();
+  // `bypass` is the name users reach for; it maps onto the existing allow_all policy.
+  const mode = normalized === "bypass" ? "allow_all" : normalized;
+  if (!mode || !PERMISSION_MODES.includes(mode as PermissionMode)) {
+    throw new Error(`Permission mode must be one of: ${PERMISSION_MODES.join(", ")} (or bypass)`);
+  }
+  return mode as PermissionMode;
+}
+
 function parseThinking(value: string | undefined): ThinkingLevel {
   const normalized = value?.trim().toLowerCase();
   if (!normalized || !THINKING_LEVELS.includes(normalized as ThinkingLevel)) {
@@ -813,6 +836,7 @@ function updateFrom(settings: LlmSettings, changes: Partial<LlmSettingsUpdate>):
     api: changes.api ?? settings.api,
     thinking: changes.thinking ?? settings.thinking,
     customModel: changes.customModel ?? settings.customModel,
+    permissionMode: changes.permissionMode ?? settings.permissionMode,
     ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
     ...(changes.cookie ? { cookie: changes.cookie } : {}),
     clearApiKey: changes.clearApiKey ?? false,
@@ -827,6 +851,7 @@ function settingsLines(settings: LlmSettings): string[] {
     `Base URL   ${settings.baseUrl || "provider default"}`,
     `API        ${settings.api}`,
     `Thinking   ${settings.thinking}`,
+    `Approvals  ${settings.permissionMode} — ${permissionModeSummary(settings.permissionMode)}`,
     `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
     `Cookie     ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
     "",

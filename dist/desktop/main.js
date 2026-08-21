@@ -1,10 +1,11 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, ipcMain, screen, session } from "electron";
 import { resolvePsporeHome } from "../config/config.js";
 import { DaemonSupervisor } from "../daemon/supervisor.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
+import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { DaemonBridge } from "./daemon-bridge.js";
@@ -55,7 +56,7 @@ async function startDesktop() {
     });
     bridge.start();
     settingsService = new LlmSettingsService(home, paths);
-    window = new BrowserWindow(desktopWindowOptions(preloadPath));
+    window = new BrowserWindow(desktopWindowOptions(preloadPath, primaryWorkArea()));
     hardenWindow(window, rendererUrl);
     installIpc(window, bridge, settingsService);
     unsubscribeBridge = bridge.subscribe((frame) => sendFrame(window, frame));
@@ -66,9 +67,29 @@ async function startDesktop() {
         requestShutdown(exitCode);
         return;
     }
-    window.once("ready-to-show", () => window?.show());
+    // The workspace is a full-height application shell, so the first launch fills
+    // the display instead of leaving the desktop visible around a floating window.
+    window.once("ready-to-show", () => showMaximized(window));
     if (!window.isVisible())
-        window.show();
+        showMaximized(window);
+}
+function primaryWorkArea() {
+    try {
+        const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+        return { width, height };
+    }
+    catch {
+        // Headless or display-less startup: fall back to the design baseline size.
+        return undefined;
+    }
+}
+function showMaximized(target) {
+    if (!target || target.isDestroyed())
+        return;
+    if (!target.isMaximized())
+        target.maximize();
+    if (!target.isVisible())
+        target.show();
 }
 function installSessionSecurity() {
     const desktopSession = session.defaultSession;
@@ -124,7 +145,7 @@ function installIpc(target, daemonBridge, desktopSettings) {
                     settings,
                     applied: false,
                     restartRequired: true,
-                    message: "设置已安全保存；当前由外部 Daemon 提供服务，重启该 Daemon 后生效。",
+                    message: `设置已安全保存；当前由外部 Daemon 提供服务，重启该 Daemon 后生效。${bypassNotice(settings)}`,
                 };
             }
             await daemonBridge.stop();
@@ -136,13 +157,19 @@ function installIpc(target, daemonBridge, desktopSettings) {
                 settings,
                 applied: true,
                 restartRequired: false,
-                message: "设置已保存并应用，本地 Daemon 已安全重启。",
+                message: `设置已保存并应用，本地 Daemon 已安全重启。${bypassNotice(settings)}`,
             };
         }
         finally {
             savingSettings = false;
         }
     });
+}
+/** Bypassing approvals is a standing risk, so every save restates it. */
+function bypassNotice(settings) {
+    return settings.permissionMode === BYPASS_PERMISSION_MODE
+        ? " 授权确认已绕过：工具会以当前用户权限直接执行。"
+        : "";
 }
 function assertTrustedSender(event, expected) {
     if (event.sender !== expected || !isTrustedRendererUrl(event.senderFrame?.url ?? "", rendererUrl)) {
@@ -252,6 +279,17 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       returnedSecret: Object.prototype.hasOwnProperty.call(settings, 'apiKey') || Object.prototype.hasOwnProperty.call(settings, 'cookie'),
       fieldFontSize: Number.parseFloat(getComputedStyle(provider).fontSize),
       providerOptions: Array.from(provider.options).map((option) => option.value),
+      permissionModes: Array.from(document.querySelector('#settings-permission-mode')?.options || []).map((option) => option.value),
+      permissionWarningHidden: document.querySelector('#settings-permission-warning')?.hidden !== false,
+      bypassWarningShown: (() => {
+        const mode = document.querySelector('#settings-permission-mode');
+        mode.value = 'allow_all';
+        mode.dispatchEvent(new Event('change'));
+        const shown = document.querySelector('#settings-permission-warning')?.hidden === false;
+        mode.value = 'ask_risky';
+        mode.dispatchEvent(new Event('change'));
+        return shown && document.querySelector('#settings-permission-warning')?.hidden === true;
+      })(),
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
       customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions'
     };
@@ -309,6 +347,8 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     document: {
       scrollWidth: document.documentElement.scrollWidth,
       scrollHeight: document.documentElement.scrollHeight,
+      shellHeight: document.querySelector('#app-shell')?.getBoundingClientRect().height || 0,
+      workspaceBottom: document.querySelector('#main-workspace')?.getBoundingClientRect().bottom || 0,
       bodyOverflow: getComputedStyle(document.body).overflow,
       csp: document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.content || null,
       approval: document.documentElement.dataset.approval || null,
@@ -357,6 +397,8 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     await writeFile(join(outputDirectory, "desktop-security.json"), `${JSON.stringify(report, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     assertSmokeReport(report, fixture);
 }
+/** The shell keeps a 10px gutter below the workspace; anything more is dead space. */
+const SHELL_PADDING_TOLERANCE = 12;
 function assertSmokeReport(report, fixture) {
     const failures = [];
     if (report.connection.phase !== "connected")
@@ -401,6 +443,10 @@ function assertSmokeReport(report, fixture) {
         failures.push("document overflows the viewport");
     if (report.probe.document.bodyOverflow !== "hidden")
         failures.push("body overflow is not contained");
+    if (Math.abs(report.probe.document.shellHeight - 1_080) > 1)
+        failures.push("app shell does not fill the viewport height");
+    if (1_080 - report.probe.document.workspaceBottom > SHELL_PADDING_TOLERANCE)
+        failures.push("main workspace leaves vertical dead space");
     if (report.probe.document.csp !== DESKTOP_CSP)
         failures.push("renderer CSP does not match the strict policy");
     for (const global of ["process", "require", "Buffer", "electron"]) {
@@ -421,6 +467,12 @@ function assertSmokeReport(report, fixture) {
         failures.push("settings field font size is below 14px");
     if (report.settings.providerOptions.join(",") !== "deepseek,openai,custom-openai")
         failures.push("settings provider choices changed");
+    if (report.settings.permissionModes.join(",") !== "ask_risky,ask_all,allow_all,deny")
+        failures.push("settings permission modes changed");
+    if (!report.settings.permissionWarningHidden)
+        failures.push("bypass warning is shown while approvals are still enforced");
+    if (!report.settings.bypassWarningShown)
+        failures.push("selecting the bypass mode did not surface its risk warning");
     if (!report.settings.customBaseUrlEnabled || !report.settings.customApiEnabled)
         failures.push("custom OpenAI controls are not enabled correctly");
     const expectedResponsive = [
@@ -433,6 +485,10 @@ function assertSmokeReport(report, fixture) {
             failures.push(`${name} viewport changed unexpectedly`);
         if (layout.scrollWidth !== width || layout.scrollHeight !== height)
             failures.push(`${name} document overflows the viewport`);
+        if (Math.abs(layout.shellHeight - height) > 1)
+            failures.push(`${name} app shell does not fill the viewport height`);
+        if (height - layout.workspaceBottom > SHELL_PADDING_TOLERANCE)
+            failures.push(`${name} main workspace leaves vertical dead space`);
         if (!layout.composerVisible || layout.conversationWidth < 520)
             failures.push(`${name} conversation does not use the available space`);
         if (!layout.inspectorContained)
@@ -525,6 +581,8 @@ async function readResponsiveLayout(target) {
       viewport: { width: innerWidth, height: innerHeight },
       scrollWidth: document.documentElement.scrollWidth,
       scrollHeight: document.documentElement.scrollHeight,
+      shellHeight: document.querySelector('#app-shell')?.getBoundingClientRect().height || 0,
+      workspaceBottom: document.querySelector('#main-workspace')?.getBoundingClientRect().bottom || 0,
       navigationVisible: visible('#navigation-panel'),
       inspectorVisible: visible('#inspector-panel'),
       inspectorContained: !visible('#inspector-panel') || Boolean(inspectorRect && inspectorRect.left >= 0 && inspectorRect.top >= 0 && inspectorRect.right <= innerWidth && inspectorRect.bottom <= innerHeight),

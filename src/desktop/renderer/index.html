@@ -249,6 +249,22 @@
           </section>
 
           <section class="settings-section">
+            <div class="settings-section-title"><h3>权限</h3><p>决定工具调用在执行前是否需要你确认。</p></div>
+            <label><span>授权模式</span>
+              <select id="settings-permission-mode" name="permissionMode">
+                <option value="ask_risky">仅高危操作询问（默认）</option>
+                <option value="ask_all">所有写入类操作都询问</option>
+                <option value="allow_all">绕过所有授权确认（Bypass）</option>
+                <option value="deny">拒绝所有受控操作</option>
+              </select>
+            </label>
+            <p id="settings-permission-help" class="settings-field-note">越界操作会先弹出批准请求。</p>
+            <p id="settings-permission-warning" class="settings-danger-note" hidden>
+              绕过模式下，读写文件、执行 Shell、sudo 与 MCP 调用都会以你当前登录用户的权限直接运行，不再询问。pSpore 不是沙箱，请只在你完全信任当前任务时开启。
+            </p>
+          </section>
+
+          <section class="settings-section">
             <div class="settings-section-title"><h3>凭据</h3><p>Key 只保存到当前用户私有目录，不进入聊天、日志或仓库。</p></div>
             <label><span>API Key</span>
               <div class="secret-input">

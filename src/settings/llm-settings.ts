@@ -1,3 +1,5 @@
+import type { PermissionMode } from "../config/config.js";
+
 export type ModelApi =
   | "provider-default"
   | "openai-completions"
@@ -16,6 +18,8 @@ export interface LlmSettings {
   api: ModelApi;
   thinking: ThinkingLevel;
   customModel: boolean;
+  /** Daemon-wide approval policy; `allow_all` bypasses every approval prompt. */
+  permissionMode: PermissionMode;
   hasApiKey: boolean;
   hasCookie: boolean;
 }
@@ -27,6 +31,7 @@ export interface LlmSettingsUpdate {
   api: ModelApi;
   thinking: ThinkingLevel;
   customModel: boolean;
+  permissionMode: PermissionMode;
   apiKey?: string;
   cookie?: string;
   clearApiKey: boolean;
@@ -43,6 +48,22 @@ export const MODEL_APIS: readonly ModelApi[] = [
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const PROVIDER_OPTIONS: readonly ProviderOption[] = ["deepseek", "openai", "custom-openai"];
+export const PERMISSION_MODES: readonly PermissionMode[] = ["ask_risky", "ask_all", "allow_all", "deny"];
+/** `allow_all` runs every tool with the daemon user's own privileges and no confirmation. */
+export const BYPASS_PERMISSION_MODE: PermissionMode = "allow_all";
+
+export function permissionModeSummary(mode: PermissionMode): string {
+  switch (mode) {
+    case "ask_risky":
+      return "ask before risky operations (default)";
+    case "ask_all":
+      return "ask before every mutating operation";
+    case "allow_all":
+      return "bypass all approvals — every tool runs unconfirmed";
+    case "deny":
+      return "deny every gated operation";
+  }
+}
 
 export function defaultModelFor(provider: ProviderOption): string {
   if (provider === "deepseek") return "deepseek-v4-flash";
@@ -54,7 +75,7 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   const input = object(value, label);
   exactShape(
     input,
-    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "clearApiKey", "clearCookie"],
+    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode", "clearApiKey", "clearCookie"],
     ["apiKey", "cookie"],
     label,
   );
@@ -87,6 +108,7 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
     api,
     thinking: enumeration(input["thinking"], THINKING_LEVELS, `${label}.thinking`),
     customModel,
+    permissionMode: enumeration(input["permissionMode"], PERMISSION_MODES, `${label}.permissionMode`),
     ...(apiKey ? { apiKey } : {}),
     ...(cookie ? { cookie } : {}),
     clearApiKey,

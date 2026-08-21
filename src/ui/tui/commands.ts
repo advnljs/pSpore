@@ -14,6 +14,7 @@ export const TUI_HELP_LINES = [
   "  /config provider deepseek|openai",
   "  /config model MODEL  /config thinking LEVEL",
   "  /config endpoint BASE_URL [chat|responses]",
+  "  /config permissions ask_risky|ask_all|allow_all|deny",
   "  /config key  /config clear-key",
   "  /config cookie  /config clear-cookie",
   "",

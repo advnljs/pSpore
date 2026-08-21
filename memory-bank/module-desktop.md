@@ -47,9 +47,13 @@ preload 仅暴露：
 
 ## 注意事项
 
+- 窗口初始尺寸由 `desktopInitialSize()` 按主显示器 work area 收敛（上限 1920×1080，下限 1180×720），首次显示时 `maximize()`；smoke 路径不走该分支，仍用显式 `setContentSize`。
+- `.app-shell` 是 flex column 而非固定行 grid：连接横幅 `display:none` 时固定模板会留下空轨道与 gap，导致首屏底部留白。
 - BrowserWindow 固定 `contextIsolation=true`、`sandbox=true`、`nodeIntegration=false`、`webviewTag=false`、`webSecurity=true`。
 - main 拒绝权限请求、下载、外部/非 exact-file 导航、新窗口、webview 和 HTTP(S)/WS 请求；HTML CSP 不允许 remote content、inline script、object、form 或 frame。
-- renderer 所有动态内容都通过 `textContent`/Text node 写入，不使用 `innerHTML`。
+- renderer 所有动态内容都通过 `textContent`/Text node 写入，不使用 `innerHTML`；Markdown 也走 `src/ui/shared/markdown.ts` 解析 + `markdown-view.ts` 建 DOM 的两段式，绝不拼 HTML 字符串。
+- Markdown 支持标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表、分隔线、GFM 表格与行内标记；链接因主进程禁止外部导航而渲染为惰性文本加可复制 URL，且只识别 http/https/mailto/file。
+- 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
 - renderer 通过语义色变量提供持久化深色/浅色主题；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。

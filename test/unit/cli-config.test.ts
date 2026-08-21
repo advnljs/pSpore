@@ -32,6 +32,7 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
       api: "provider-default",
       thinking: "low",
       customModel: false,
+      permissionMode: "ask_risky",
       hasApiKey: false,
       hasCookie: false,
     });
@@ -58,6 +59,31 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
     await assert.rejects(
       () => captureStdout(() => runCli(["--home", home, "config", "set", "anthropic"])),
       /deepseek, openai, or custom-openai/,
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("CLI can bypass approvals and restore an asking policy", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-cli-permissions-"));
+  try {
+    const initial = await captureStdout(() => runCli(["--home", home, "config", "show"]));
+    assert.match(initial, /Permissions: ask_risky/);
+
+    const bypassed = await captureStdout(() => runCli(["--home", home, "config", "permissions", "bypass"]));
+    assert.match(bypassed, /Permissions: allow_all — bypass all approvals/);
+    const configPath = join(home, "config.json");
+    assert.equal(JSON.parse(await readFile(configPath, "utf8")).permissions.mode, "allow_all");
+
+    await captureStdout(() => runCli(["--home", home, "config", "permissions", "ask_all"]));
+    assert.equal(JSON.parse(await readFile(configPath, "utf8")).permissions.mode, "ask_all");
+    // The model settings must survive a permission-only change.
+    assert.equal(JSON.parse(await readFile(configPath, "utf8")).permissions.rules.length, 0);
+
+    await assert.rejects(
+      () => captureStdout(() => runCli(["--home", home, "config", "permissions", "yolo"])),
+      /Permission mode must be one of/,
     );
   } finally {
     await rm(home, { recursive: true, force: true });

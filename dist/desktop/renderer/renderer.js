@@ -1,6 +1,7 @@
 /// <reference lib="DOM" />
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
+import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import { DesktopStore } from "./store.js";
 const store = new DesktopStore();
 const queuedFrames = [];
@@ -83,6 +84,9 @@ const elements = {
     settingsBaseUrl: byId("settings-base-url"),
     settingsApi: byId("settings-api"),
     settingsThinking: byId("settings-thinking"),
+    settingsPermissionMode: byId("settings-permission-mode"),
+    settingsPermissionHelp: byId("settings-permission-help"),
+    settingsPermissionWarning: byId("settings-permission-warning"),
     settingsApiKey: byId("settings-api-key"),
     settingsKeyReveal: byId("settings-key-reveal"),
     settingsClearKey: byId("settings-clear-key"),
@@ -170,6 +174,7 @@ function bindStaticActions() {
         void saveSettings();
     });
     elements.settingsProvider.addEventListener("change", () => configureProviderFields(true));
+    elements.settingsPermissionMode.addEventListener("change", () => configurePermissionFields());
     bindSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey);
     bindSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie);
     elements.settingsOverlay.addEventListener("keydown", (event) => {
@@ -297,6 +302,8 @@ function populateSettings(settings) {
     elements.settingsBaseUrl.value = settings.baseUrl;
     elements.settingsApi.value = settings.api;
     elements.settingsThinking.value = settings.thinking;
+    elements.settingsPermissionMode.value = settings.permissionMode;
+    configurePermissionFields();
     configureProviderFields(false);
     resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
     resetSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie, settings.hasCookie, "Cookie");
@@ -311,6 +318,7 @@ async function saveSettings() {
         api: elements.settingsApi.value,
         thinking: elements.settingsThinking.value,
         customModel: elements.settingsProvider.value === "custom-openai",
+        permissionMode: elements.settingsPermissionMode.value,
         ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
         ...(elements.settingsCookie.value ? { cookie: elements.settingsCookie.value } : {}),
         clearApiKey: elements.settingsClearKey.checked,
@@ -335,6 +343,17 @@ async function saveSettings() {
         elements.settingsCancel.disabled = false;
         elements.settingsClose.disabled = false;
     }
+}
+const PERMISSION_MODE_HELP = {
+    ask_risky: "越界操作会先弹出批准请求。",
+    ask_all: "所有写入、执行与外部副作用类工具都会先请求批准。",
+    allow_all: "所有工具立即执行，不再产生批准请求。",
+    deny: "所有受控工具都会被直接拒绝，只保留纯读取能力。",
+};
+function configurePermissionFields() {
+    const mode = elements.settingsPermissionMode.value;
+    elements.settingsPermissionWarning.hidden = mode !== "allow_all";
+    elements.settingsPermissionHelp.textContent = PERMISSION_MODE_HELP[mode] ?? PERMISSION_MODE_HELP["ask_risky"] ?? "";
 }
 function configureProviderFields(resetModel) {
     const provider = elements.settingsProvider.value;
@@ -610,8 +629,8 @@ function renderMessage(message) {
         article.append(meta, details);
     }
     else {
-        const body = element("div", "message-body");
-        appendRichText(body, message.text || "（空消息）");
+        const body = element("div", "message-body markdown");
+        appendMarkdown(body, message.text || "（空消息）");
         article.append(meta, body);
     }
     return article;
@@ -622,34 +641,10 @@ function renderStreamingMessage(value) {
     const label = element("span");
     label.textContent = "pSpore · streaming";
     meta.append(element("i", "role-dot"), label);
-    const body = element("div", "message-body");
-    body.append(text(value), element("i", "stream-cursor"));
+    const body = element("div", "message-body markdown");
+    appendMarkdownWithTrailing(body, value, element("i", "stream-cursor"));
     article.append(meta, body);
     return article;
-}
-function appendRichText(container, value) {
-    const expression = /```(?:[^\n]*)\n?([\s\S]*?)```/g;
-    let cursor = 0;
-    for (const match of value.matchAll(expression)) {
-        const index = match.index;
-        // `white-space: pre-wrap` would otherwise turn the newlines around a fence into a double gap.
-        if (index > cursor)
-            appendProse(container, value.slice(cursor, index));
-        const pre = element("pre");
-        pre.textContent = (match[1] ?? "").replace(/\n+$/, "");
-        container.append(pre);
-        cursor = index + match[0].length;
-    }
-    if (cursor < value.length)
-        appendProse(container, value.slice(cursor));
-}
-function appendProse(container, value) {
-    const withoutTrailing = value.replace(/\s+$/, "");
-    const trimmed = container.childNodes.length === 0
-        ? withoutTrailing.replace(/^\s+/, "")
-        : withoutTrailing.replace(/^\n+/, "");
-    if (trimmed)
-        container.append(text(trimmed));
 }
 function renderActivities(activities) {
     elements.activityCount.textContent = String(activities.length);

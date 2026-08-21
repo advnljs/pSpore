@@ -32,6 +32,8 @@
 | `src/protocol/` / `src/gateway/` | v1 envelope、严格 decoder、UDS client/server、幂等/replay |
 | `src/settings/` | GUI/TUI/CLI 共用 LLM schema、三类 Provider、私有 Key 与持久化 service |
 | `src/ui/shared/` | GUI/TUI 共用 protocol reducer、presentation/input routing 与 `CoworkActivity` 事件归一/脱敏 |
+| `src/ui/shared/markdown.ts` | 共享纯 Markdown 解析器（CommonMark/GFM 子集），无 DOM 依赖、可单测 |
+| `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制与惰性链接 |
 | `src/ui/tui/` | Pi TUI 客户端、wizard/命令配置、动态工作步骤、`/work`、160×45 双栏与 96×30 单栏 renderer |
 | `src/desktop/renderer/styles.css` | 桌面 design token 与组件样式唯一来源（spore print 双主题、语义色、字号下限） |
 | `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
@@ -84,7 +86,8 @@
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动拥有/复用 Daemon；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
-- 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|key|clear-key|cookie|clear-cookie`。
+- 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|key|clear-key|cookie|clear-cookie`。
+- 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
 - GUI 桌面包：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.zip`（含创建桌面快捷方式脚本）与 `pspore-desktop-<version>-linux-x64-overlay.zip`（仅应用代码）。推送到 `main` 或匹配 `package.json` 的 `v*` tag 后，GitHub Actions 会构建同一产物并直接上传到 `v<version>` GitHub Release。

@@ -20,6 +20,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
       api: "provider-default",
       thinking: "off",
       customModel: false,
+      permissionMode: "ask_risky",
       hasApiKey: false,
       hasCookie: false,
     });
@@ -32,6 +33,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
       api: "provider-default",
       thinking: "off",
       customModel: false,
+      permissionMode: "ask_risky",
       apiKey: secret,
       clearApiKey: false,
       clearCookie: false,
@@ -53,6 +55,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
       api: "provider-default",
       thinking: "low",
       customModel: false,
+      permissionMode: "ask_risky",
       clearApiKey: true,
       clearCookie: false,
     });
@@ -75,6 +78,7 @@ test("desktop settings can register an explicit OpenAI-compatible custom model",
       api: "openai-completions",
       thinking: "off",
       customModel: true,
+      permissionMode: "ask_risky",
       apiKey: "local-only",
       clearApiKey: false,
       clearCookie: false,
@@ -101,6 +105,7 @@ test("desktop settings persist an LLM proxy cookie as a private header reference
       api: "openai-completions",
       thinking: "off",
       customModel: true,
+      permissionMode: "ask_risky",
       cookie,
       clearApiKey: false,
       clearCookie: false,
@@ -122,6 +127,7 @@ test("desktop settings persist an LLM proxy cookie as a private header reference
       api: "openai-completions",
       thinking: "off",
       customModel: true,
+      permissionMode: "ask_risky",
       clearApiKey: false,
       clearCookie: true,
     });
@@ -129,6 +135,49 @@ test("desktop settings persist an LLM proxy cookie as a private header reference
     const after = JSON.parse(await readFile(join(paths.agentDir, "models.json"), "utf8"));
     assert.equal(after.providers["custom-openai"].headers, undefined);
     await assert.rejects(() => access(cookiePath), /ENOENT/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("permission mode round-trips through shared settings and reaches the daemon config", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-permission-mode-"));
+  try {
+    const { paths } = await initializePsporeHome(home);
+    const service = new LlmSettingsService(home, paths);
+    assert.equal((await service.get()).permissionMode, "ask_risky");
+
+    const bypassed = await service.save({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      baseUrl: "",
+      api: "provider-default",
+      thinking: "off",
+      customModel: false,
+      permissionMode: "allow_all",
+      clearApiKey: false,
+      clearCookie: false,
+    });
+    assert.equal(bypassed.permissionMode, "allow_all");
+    const config = JSON.parse(await readFile(paths.config, "utf8"));
+    assert.equal(config.permissions.mode, "allow_all");
+    // Bypassing approvals must not silently discard the rest of the policy.
+    assert.deepEqual(config.permissions.rules, []);
+    assert.equal(config.permissions.approvalTimeoutMs, 300_000);
+
+    const restored = await service.save({
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      baseUrl: "",
+      api: "provider-default",
+      thinking: "off",
+      customModel: false,
+      permissionMode: "ask_all",
+      clearApiKey: false,
+      clearCookie: false,
+    });
+    assert.equal(restored.permissionMode, "ask_all");
+    assert.equal(JSON.parse(await readFile(paths.config, "utf8")).permissions.mode, "ask_all");
   } finally {
     await rm(home, { recursive: true, force: true });
   }

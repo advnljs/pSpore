@@ -3,7 +3,13 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import test from "node:test";
 
-import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "../../src/desktop/security.js";
+import {
+  DESKTOP_CSP,
+  DESKTOP_MINIMUM_SIZE,
+  desktopInitialSize,
+  desktopWindowOptions,
+  isTrustedRendererUrl,
+} from "../../src/desktop/security.js";
 
 test("Electron window security baseline is fail-closed", () => {
   const options = desktopWindowOptions("/trusted/preload.cjs");
@@ -19,6 +25,21 @@ test("Electron window security baseline is fail-closed", () => {
   assert.equal(options.webPreferences?.webSecurity, true);
   assert.equal(options.webPreferences?.allowRunningInsecureContent, false);
   assert.equal(options.webPreferences?.webviewTag, false);
+});
+
+test("the initial window never asks for more content space than the desktop offers", () => {
+  assert.deepEqual(desktopInitialSize(), { width: 1_920, height: 1_080 });
+  assert.deepEqual(desktopInitialSize({ width: 2_560, height: 1_440 }), { width: 1_920, height: 1_080 });
+  // A 1080p desktop with a panel: asking for 1080 content pushed the window off screen.
+  assert.deepEqual(desktopInitialSize({ width: 1_920, height: 1_053 }), { width: 1_920, height: 1_053 });
+  assert.deepEqual(desktopInitialSize({ width: 1_366, height: 740 }), { width: 1_366, height: 740 });
+  assert.deepEqual(desktopInitialSize({ width: 900, height: 600 }), { ...DESKTOP_MINIMUM_SIZE });
+  assert.deepEqual(desktopInitialSize({ width: 0, height: 0 }), { width: 1_920, height: 1_080 });
+  const options = desktopWindowOptions("/trusted/preload.cjs", { width: 1_600, height: 900 });
+  assert.equal(options.width, 1_600);
+  assert.equal(options.height, 900);
+  assert.equal(options.minWidth, DESKTOP_MINIMUM_SIZE.width);
+  assert.equal(options.minHeight, DESKTOP_MINIMUM_SIZE.height);
 });
 
 test("renderer navigation is restricted to the exact local document", () => {

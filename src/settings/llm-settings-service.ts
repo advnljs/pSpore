@@ -64,6 +64,7 @@ export class LlmSettingsService {
       api,
       thinking: config.model?.thinking ?? "off",
       customModel,
+      permissionMode: config.permissions.mode,
       hasApiKey: await this.#hasApiKey(provider, providerConfig),
       hasCookie: await this.#hasCookie(provider, providerConfig),
     };
@@ -116,6 +117,7 @@ export class LlmSettingsService {
       {
         ...currentConfig,
         model: { provider: update.provider, model: update.model, thinking: update.thinking },
+        permissions: { ...currentConfig.permissions, mode: update.permissionMode },
       },
       this.#home,
     );

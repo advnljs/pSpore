@@ -447,3 +447,22 @@
   - `npm run test:electron`：1920×1080 / 1440×900 / 1180×720、双主题、设置 password（含 Cookie）、密钥不回读通过。
   - 本地打包：全量 zip 147M，SHA-256 `c1e3531777361e57115d1cf29b5a97c42111d91affc07673272c9db32b6079b9`；overlay zip 21M，SHA-256 `813fab8e001eb4c7fd3a4fb4a4e5ba7ed09c4f64356de3ed37ebd8c42856868a`。
 - 当前状态：代码与 `dist/` 已更新；GitHub Release `v0.1.5` 上传全量 zip 与 overlay zip。
+
+## 2026-08-21 — GUI Markdown 渲染、Bypass 授权模式与首屏铺满修复
+
+- 阶段目标：增强桌面端 Markdown 渲染；提供跳过所有授权确认的 bypass 选项；修复 GUI 初始未占满窗口高度。
+- 完成内容：
+  - 新增共享纯解析器 `src/ui/shared/markdown.ts`（CommonMark/GFM 子集）：ATX 标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表与嵌套、分隔线、GFM 表格与对齐、行内 code/strong/em/strike/链接与转义；带深度上限，非法或不成对标记原样保留。
+  - 新增 `src/desktop/renderer/markdown-view.ts` 只用 `createElement`/`textContent` 构建 DOM（不使用 `innerHTML`，符合既有 CSP 与渲染约束）；代码块带语言标签与复制按钮（`navigator.clipboard` 失败时回退 `execCommand`）；链接因主进程禁止外部导航而渲染为惰性文本 + 可复制 URL，非 http/https/mailto/file 协议不识别为链接。
+  - `renderMessage` 与 streaming 消息统一走 Markdown 渲染，`styles.css` 增加 spore print 风格的标题、列表、任务勾选、引用、表格（自身横向滚动）、行内 code 与链接样式。
+  - 共享 settings 契约增加 `permissionMode`，写入 `config.permissions.mode`：GUI 设置弹层新增“权限”区与 bypass 风险告警；TUI `/config permissions MODE`；CLI `config permissions MODE`（`bypass` 为 `allow_all` 别名），`config show` / `/config` 均显示当前模式。owned Daemon 保存后自动重启生效，external Daemon 提示重启。
+  - 修复首屏纵向留白：`.app-shell` 由固定三行 grid 改为 flex column（连接横幅 `display:none` 时原模板仍保留空轨道与 8px gap）；`desktopWindowOptions` 按主显示器 work area 收敛初始尺寸（1920×1080 content 在 1080p 屏上原本超出屏幕底部 31px），首次显示时 `maximize()`；窗口 `backgroundColor` 对齐 `--canvas`。
+  - Electron smoke 新增断言：`app-shell` 高度等于 viewport、workspace 底部留白 ≤12px（三档分辨率均校验）、权限下拉选项固定四项、切到 bypass 时风险告警出现且切回后消失。
+- 修改文件：`src/ui/shared/markdown.ts`、`src/desktop/renderer/markdown-view.ts`、`src/desktop/renderer/renderer.ts`、`src/desktop/renderer/index.html`、`src/desktop/renderer/styles.css`、`src/desktop/main.ts`、`src/desktop/security.ts`、`src/desktop/smoke-fixture.ts`、`src/settings/llm-settings.ts`、`src/settings/llm-settings-service.ts`、`src/cli/main.ts`、`src/ui/tui/tui-app.ts`、`src/ui/tui/commands.ts`、`README.md`、`test/unit/markdown.test.ts`、`test/unit/desktop-settings.test.ts`、`test/unit/desktop-security.test.ts`、`test/unit/desktop-ipc-validation.test.ts`、`test/unit/cli-config.test.ts`、`memory-bank/*.md`。
+- 验证方式与结果：
+  - Node `v24.19.0`：`npm run check`（typecheck + 128 项测试 + production build）通过。
+  - `npm run test:electron` 通过：1920×1080 主基准与 1440×900、1180×720 补测，双主题、设置、字号、owned/external Daemon、重连、IPC allowlist，以及新增的铺满与 bypass 告警断言。
+  - Xvfb 实测窗口尺寸：1920×1080 屏由原先 content bottom 1111（越界 31px）收敛为 1079；1366×768 与 2560×1440 下 `app-shell` 高度均等于 viewport，workspace 底部仅剩 10px 设计留白。
+  - Markdown 解析器 16 项单测覆盖标题/围栏/未闭合围栏/列表切换/任务项/表格/行内标记/危险链接协议/深度上限。
+- 当前状态：源码与 `dist/` 已同步重建。
+- 遗留问题：Markdown 链接仍不可点击跳转（主进程按安全基线禁止外部导航）；`allow_all` 只是策略放开，不构成沙箱。

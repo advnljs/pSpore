@@ -29,6 +29,9 @@
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | 推送 `main` 或匹配 `package.json` 的 `v*` tag 后，全量 zip 与 overlay zip 直接上传到 GitHub Release |
 
+| P3 | Markdown 链接在 GUI 中不可点击跳转 | Pending | 主进程按安全基线禁止外部导航与新窗口 | 若要支持，需要显式引入受控的 `shell.openExternal` 白名单（仅 http/https）并重新评估安全边界 |
+| P3 | Markdown 代码块无语法高亮 | Pending | 无 | 当前只显示语言标签；如需高亮需引入自实现 tokenizer 或新依赖（须先征求用户确认） |
+
 ## 已知风险
 
 - Pi 上游 API 演进较快，必须依赖 contract tests 与 adapter 隔离。
@@ -36,6 +39,7 @@
 - 同用户运行、Pi extension、host plugin 和 MCP server 均不构成安全沙箱。
 - 外部副作用在崩溃边界不能普遍保证 exactly-once。
 - 当前 UDS replay 与 command cache 仅在进程内；重启靠 snapshot，durable event log/session mapping 尚未完成。
+- `permissions.mode = allow_all`（bypass）会跳过全部批准；它只是策略放开，同用户进程内不构成沙箱，风险由用户承担。
 - 当前模型未配置时 Daemon 可正常 ready，但 prompt 会返回 `model_not_configured`；`deepseek/deepseek-v4-flash` 已于 2026-08-11 使用临时 credential 完成真实 API 验证，不将付费调用纳入默认自动化。
 - npm 包要求 Node 24；`desktop` 命令在纯 npm 安装中不会下载 Electron，而是提示使用 GitHub Release 中的桌面 zip。
 - `p-spore@0.1.0` 只安装 `pspore` 命令；已由 `0.1.1` 修复，仍停留在 `0.1.0` 的用户需要升级才能使用 `p-spore` 命令。

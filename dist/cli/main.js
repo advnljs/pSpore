@@ -14,7 +14,8 @@ import { readResourceTrustSummary } from "../plugins/extension-manager.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { ShellService } from "../shell/shell-service.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
-import { defaultModelFor, MODEL_APIS, PROVIDER_OPTIONS, THINKING_LEVELS, } from "../settings/llm-settings.js";
+import {} from "../config/config.js";
+import { defaultModelFor, MODEL_APIS, PERMISSION_MODES, permissionModeSummary, PROVIDER_OPTIONS, THINKING_LEVELS, } from "../settings/llm-settings.js";
 import { initializePsporeHome, loadConfig, psporePaths } from "../storage/home.js";
 import { acceptsModelSetupOffer, PsporeTuiApp } from "../ui/tui/tui-app.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
@@ -457,6 +458,12 @@ async function runConfigCommand(home, args) {
             throw new CliError(`config thinking usage: config thinking ${THINKING_LEVELS.join("|")}`);
         update = settingsUpdate(current, { thinking: parseConfigThinking(args[1]) });
     }
+    else if (action === "permissions") {
+        if (args.length !== 2) {
+            throw new CliError(`config permissions usage: config permissions ${PERMISSION_MODES.join("|")}|bypass`);
+        }
+        update = settingsUpdate(current, { permissionMode: parsePermissionMode(args[1]) });
+    }
     else if (action === "key") {
         if (args.length !== 1)
             throw new CliError("API keys are never accepted as command arguments; use `config key` and enter it securely");
@@ -484,7 +491,7 @@ async function runConfigCommand(home, args) {
         update = settingsUpdate(current, { clearCookie: true });
     }
     else {
-        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | key | clear-key | cookie | clear-cookie");
+        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | permissions | key | clear-key | cookie | clear-cookie");
     }
     const saved = await service.save(update);
     printModelSettings(saved);
@@ -498,6 +505,7 @@ function printModelSettings(settings) {
         `Base URL: ${settings.baseUrl || "provider default"}`,
         `API: ${settings.api}`,
         `Thinking: ${settings.thinking}`,
+        `Permissions: ${settings.permissionMode} — ${permissionModeSummary(settings.permissionMode)}`,
         `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
         `Cookie: ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
     ].join("\n") + "\n");
@@ -572,6 +580,15 @@ function parseConfigThinking(value) {
     }
     return normalized;
 }
+function parsePermissionMode(value) {
+    const normalized = value?.trim().toLowerCase();
+    // `bypass` is the name users reach for; it maps onto the existing allow_all policy.
+    const mode = normalized === "bypass" ? "allow_all" : normalized;
+    if (!mode || !PERMISSION_MODES.includes(mode)) {
+        throw new CliError(`Permission mode must be one of: ${PERMISSION_MODES.join(", ")} (or bypass)`);
+    }
+    return mode;
+}
 function parseConfigApi(value) {
     const normalized = value.trim().toLowerCase();
     const api = normalized === "chat" ? "openai-completions" : normalized === "responses" ? "openai-responses" : normalized;
@@ -588,6 +605,7 @@ function settingsUpdate(settings, changes) {
         api: changes.api ?? settings.api,
         thinking: changes.thinking ?? settings.thinking,
         customModel: changes.customModel ?? settings.customModel,
+        permissionMode: changes.permissionMode ?? settings.permissionMode,
         ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
         ...(changes.cookie ? { cookie: changes.cookie } : {}),
         clearApiKey: changes.clearApiKey ?? false,
@@ -875,7 +893,7 @@ function requireNoArgs(args, command) {
         throw new CliError(`${command} does not accept positional arguments`);
 }
 function helpText() {
-    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 class CliError extends Error {
     constructor(message) {

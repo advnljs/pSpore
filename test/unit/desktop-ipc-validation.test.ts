@@ -45,6 +45,7 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     api: "provider-default",
     thinking: "off",
     customModel: false,
+    permissionMode: "ask_risky",
     apiKey: "test-key",
     clearApiKey: false,
     clearCookie: false,
@@ -57,6 +58,7 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     baseUrl: "https://gateway.example.com/v1",
     api: "openai-completions",
     customModel: true,
+    permissionMode: "ask_risky",
     cookie: "session=proxy",
   } as const;
   assert.deepEqual(decodeDesktopLlmSettingsUpdate(custom), custom);
@@ -89,6 +91,18 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     /only available for custom-openai/,
   );
   assert.throws(() => decodeDesktopLlmSettingsUpdate({ ...custom, api: "anthropic-messages" }), /OpenAI-compatible/);
+  assert.deepEqual(
+    decodeDesktopLlmSettingsUpdate({ ...valid, permissionMode: "allow_all" }),
+    { ...valid, permissionMode: "allow_all" },
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, permissionMode: "bypass" }),
+    /permissionMode must be one of/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, permissionMode: undefined }),
+    /permissionMode/,
+  );
 });
 
 test("desktop command mapping fixes session, resource root, and child ceiling", () => {

@@ -23,6 +23,7 @@ import type {
   DesktopLlmSettingsUpdate,
   DesktopVersions,
 } from "../ipc-contract.js";
+import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import { DesktopStore, type DesktopActivity, type DesktopStoreSnapshot } from "./store.js";
 
 const store = new DesktopStore();
@@ -110,6 +111,9 @@ const elements = {
   settingsBaseUrl: byId<HTMLInputElement>("settings-base-url"),
   settingsApi: byId<HTMLSelectElement>("settings-api"),
   settingsThinking: byId<HTMLSelectElement>("settings-thinking"),
+  settingsPermissionMode: byId<HTMLSelectElement>("settings-permission-mode"),
+  settingsPermissionHelp: byId<HTMLElement>("settings-permission-help"),
+  settingsPermissionWarning: byId<HTMLElement>("settings-permission-warning"),
   settingsApiKey: byId<HTMLInputElement>("settings-api-key"),
   settingsKeyReveal: byId<HTMLButtonElement>("settings-key-reveal"),
   settingsClearKey: byId<HTMLInputElement>("settings-clear-key"),
@@ -198,6 +202,7 @@ function bindStaticActions(): void {
     void saveSettings();
   });
   elements.settingsProvider.addEventListener("change", () => configureProviderFields(true));
+  elements.settingsPermissionMode.addEventListener("change", () => configurePermissionFields());
   bindSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey);
   bindSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie);
   elements.settingsOverlay.addEventListener("keydown", (event) => {
@@ -322,6 +327,8 @@ function populateSettings(settings: DesktopLlmSettings): void {
   elements.settingsBaseUrl.value = settings.baseUrl;
   elements.settingsApi.value = settings.api;
   elements.settingsThinking.value = settings.thinking;
+  elements.settingsPermissionMode.value = settings.permissionMode;
+  configurePermissionFields();
   configureProviderFields(false);
   resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
   resetSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie, settings.hasCookie, "Cookie");
@@ -336,6 +343,7 @@ async function saveSettings(): Promise<void> {
     api: elements.settingsApi.value as DesktopLlmSettingsUpdate["api"],
     thinking: elements.settingsThinking.value as DesktopLlmSettingsUpdate["thinking"],
     customModel: elements.settingsProvider.value === "custom-openai",
+    permissionMode: elements.settingsPermissionMode.value as DesktopLlmSettingsUpdate["permissionMode"],
     ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
     ...(elements.settingsCookie.value ? { cookie: elements.settingsCookie.value } : {}),
     clearApiKey: elements.settingsClearKey.checked,
@@ -358,6 +366,19 @@ async function saveSettings(): Promise<void> {
     elements.settingsCancel.disabled = false;
     elements.settingsClose.disabled = false;
   }
+}
+
+const PERMISSION_MODE_HELP: Partial<Record<DesktopLlmSettingsUpdate["permissionMode"], string>> = {
+  ask_risky: "越界操作会先弹出批准请求。",
+  ask_all: "所有写入、执行与外部副作用类工具都会先请求批准。",
+  allow_all: "所有工具立即执行，不再产生批准请求。",
+  deny: "所有受控工具都会被直接拒绝，只保留纯读取能力。",
+};
+
+function configurePermissionFields(): void {
+  const mode = elements.settingsPermissionMode.value as DesktopLlmSettingsUpdate["permissionMode"];
+  elements.settingsPermissionWarning.hidden = mode !== "allow_all";
+  elements.settingsPermissionHelp.textContent = PERMISSION_MODE_HELP[mode] ?? PERMISSION_MODE_HELP["ask_risky"] ?? "";
 }
 
 function configureProviderFields(resetModel: boolean): void {
@@ -650,8 +671,8 @@ function renderMessage(message: RuntimeMessage): HTMLElement {
     details.append(summary, pre);
     article.append(meta, details);
   } else {
-    const body = element("div", "message-body");
-    appendRichText(body, message.text || "（空消息）");
+    const body = element("div", "message-body markdown");
+    appendMarkdown(body, message.text || "（空消息）");
     article.append(meta, body);
   }
   return article;
@@ -663,33 +684,10 @@ function renderStreamingMessage(value: string): HTMLElement {
   const label = element("span");
   label.textContent = "pSpore · streaming";
   meta.append(element("i", "role-dot"), label);
-  const body = element("div", "message-body");
-  body.append(text(value), element("i", "stream-cursor"));
+  const body = element("div", "message-body markdown");
+  appendMarkdownWithTrailing(body, value, element("i", "stream-cursor"));
   article.append(meta, body);
   return article;
-}
-
-function appendRichText(container: HTMLElement, value: string): void {
-  const expression = /```(?:[^\n]*)\n?([\s\S]*?)```/g;
-  let cursor = 0;
-  for (const match of value.matchAll(expression)) {
-    const index = match.index;
-    // `white-space: pre-wrap` would otherwise turn the newlines around a fence into a double gap.
-    if (index > cursor) appendProse(container, value.slice(cursor, index));
-    const pre = element("pre");
-    pre.textContent = (match[1] ?? "").replace(/\n+$/, "");
-    container.append(pre);
-    cursor = index + match[0].length;
-  }
-  if (cursor < value.length) appendProse(container, value.slice(cursor));
-}
-
-function appendProse(container: HTMLElement, value: string): void {
-  const withoutTrailing = value.replace(/\s+$/, "");
-  const trimmed = container.childNodes.length === 0
-    ? withoutTrailing.replace(/^\s+/, "")
-    : withoutTrailing.replace(/^\n+/, "");
-  if (trimmed) container.append(text(trimmed));
 }
 
 function renderActivities(activities: readonly DesktopActivity[]): void {

@@ -7,6 +7,21 @@ export const MODEL_APIS = [
 ];
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const PROVIDER_OPTIONS = ["deepseek", "openai", "custom-openai"];
+export const PERMISSION_MODES = ["ask_risky", "ask_all", "allow_all", "deny"];
+/** `allow_all` runs every tool with the daemon user's own privileges and no confirmation. */
+export const BYPASS_PERMISSION_MODE = "allow_all";
+export function permissionModeSummary(mode) {
+    switch (mode) {
+        case "ask_risky":
+            return "ask before risky operations (default)";
+        case "ask_all":
+            return "ask before every mutating operation";
+        case "allow_all":
+            return "bypass all approvals — every tool runs unconfirmed";
+        case "deny":
+            return "deny every gated operation";
+    }
+}
 export function defaultModelFor(provider) {
     if (provider === "deepseek")
         return "deepseek-v4-flash";
@@ -16,7 +31,7 @@ export function defaultModelFor(provider) {
 }
 export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
     const input = object(value, label);
-    exactShape(input, ["provider", "model", "baseUrl", "api", "thinking", "customModel", "clearApiKey", "clearCookie"], ["apiKey", "cookie"], label);
+    exactShape(input, ["provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode", "clearApiKey", "clearCookie"], ["apiKey", "cookie"], label);
     const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
     const model = modelIdentifier(input["model"], `${label}.model`, true);
     const baseUrl = optionalString(input["baseUrl"], `${label}.baseUrl`, 2_048);
@@ -53,6 +68,7 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         api,
         thinking: enumeration(input["thinking"], THINKING_LEVELS, `${label}.thinking`),
         customModel,
+        permissionMode: enumeration(input["permissionMode"], PERMISSION_MODES, `${label}.permissionMode`),
         ...(apiKey ? { apiKey } : {}),
         ...(cookie ? { cookie } : {}),
         clearApiKey,
