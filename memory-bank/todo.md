@@ -46,3 +46,6 @@
 - 非 TTY 环境下 `npm publish` 会直接以 `EOTP` 失败并把 2FA URL 打码；后续发布需在真实终端或伪终端（`script`）中执行。
 - 发布后 `npm view` 可能仍显示旧版本（本地/CDN 缓存延迟）；用 `curl -s https://registry.npmjs.org/p-spore` 直连确认，不要据此判断发布失败。
 - npm web 2FA 认证链接有效期很短；发布前先跑完 `npm run check`，再用 `--ignore-scripts` 发布，让链接立即出现并尽快点击，否则会以 `E404 /-/v1/done` 失败（失败不会产生半发布版本）。
+
+| P3 | MCP 集成测试偶发 UDS 超时 | Pending | 全量并行跑 `npm test` 时 `mcp-manager` 两个用例曾出现 `MCP error -32001: Request timed out`；隔离运行与复跑均通过，疑似负载相关抖动 | 如需稳定化，可给测试内 discover 超时加裕量或降低用例并行度 |
+| P2 | GUI GSAP 动效细节扩展（可选） | Pending | 已完成入场/消息/弹层/微交互基础编排 | 后续可按需增加主题切换过渡、抽屉动画；须继续遵守 reduced-motion 与 transform/opacity-only 约束 |

@@ -1,5 +1,28 @@
 # Overall Progress
 
+## 2026-08-22 — GUI 重构与交互优化
+
+- 阶段目标：按用户要求重构桌面 GUI——Enter 发送/Ctrl+Enter 换行、白蓝配色浅色默认、精致深色模式、GSAP 动效。
+- 完成内容：
+  - composer 键盘行为改为 Enter 发送、Ctrl/Cmd/Shift/Alt+Enter 换行，含 IME 合成态守卫；发送按钮提示更新。
+  - styles.css 全量重写为 "cobalt paper" 设计系统：浅色默认（`#f4f7fb` 纸面 + 钴蓝 `#2563eb`）、深色板岩藏青克制配色；topbar 去卡片化、panel 发丝边框、消息/建议卡片/表格/代码块全面翻新；保留全部响应式断点与可访问性基线。
+  - 新增 `src/desktop/renderer/motion.ts`：GSAP 入场编排、消息 stagger/单条入场（流式不重复触发）、设置/审批弹层出入场（退出后置 hidden + 状态守卫）、连接徽章脉冲、发送按钮微动效；`prefers-reduced-motion` 与引擎缺失时全部降级。
+  - `gsap@3.15.0` 加入 dependencies，UMD 构建经 `copy-desktop-assets.mjs` vendor 到 `dist/desktop/renderer/vendor/gsap.min.js`，index.html classic script 加载。
+  - renderer 安全测试契约显式放行且仅放行 `./vendor/gsap.min.js` 与 `./renderer.js` 两个本地脚本。
+- 修改文件：
+  - `package.json` / `package-lock.json`
+  - `scripts/copy-desktop-assets.mjs`
+  - `src/desktop/renderer/index.html`、`styles.css`、`renderer.ts`、`motion.ts`（新增）
+  - `test/unit/desktop-security.test.ts`
+  - `dist/**`（构建产物同步）
+- 验证方式与结果：
+  - `npm run typecheck`：通过。
+  - `npm test`：113/113 通过（中途两次 MCP 集成用例在并行负载下 UDS 超时抖动，隔离运行基线与改动版均通过，最终全量通过）。
+  - `npm run build`：通过，vendor 文件就位。
+  - `npm run test:electron`（Xvfb）：通过——1920×1080 主基准明暗双主题、1440×900、1180×720 布局、设置弹层 containment/inert、审批 modal、CSP、字号下限、IPC allowlist 全部断言成功；人工复核明/暗主题与设置弹层截图确认新视觉生效。
+- 当前状态：GUI 重构完成并已验证；工作树待提交。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-08-09 20:17 CST — 详细设计阶段
 
 - 阶段目标：把 `initial_design.txt` 的概念草案整理为可实施、可验证的 pSpore 详细设计。

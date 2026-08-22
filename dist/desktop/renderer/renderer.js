@@ -2,6 +2,7 @@
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
+import { animateMessagesIn, animateTranscriptHero, hideOverlayMotion, introChoreography, nudgeElement, pulseStatus, showOverlayMotion, } from "./motion.js";
 import { DesktopStore } from "./store.js";
 const store = new DesktopStore();
 const queuedFrames = [];
@@ -15,9 +16,14 @@ let renderSequence = 0;
 let settingsOpen = false;
 let savingSettings = false;
 let responsiveMode;
+let introPlayed = false;
+let lastConnectionPhase = "";
+const transcriptState = { sessionId: "", count: -1 };
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
 const elements = {
     appShell: byId("app-shell"),
+    topbar: document.querySelector(".topbar") ?? missingElement(".topbar"),
+    conversationPanel: document.querySelector(".conversation") ?? missingElement(".conversation"),
     navigationPanel: byId("navigation-panel"),
     navigationToggle: byId("navigation-toggle"),
     inspectorPanel: byId("inspector-panel"),
@@ -96,6 +102,7 @@ const elements = {
     settingsStatus: byId("settings-status"),
     settingsSave: byId("settings-save"),
     approvalOverlay: byId("approval-overlay"),
+    approvalDialog: document.querySelector(".approval-dialog") ?? missingElement(".approval-dialog"),
     approvalTitle: byId("approval-title"),
     approvalSummary: byId("approval-summary"),
     approvalCapability: byId("approval-capability"),
@@ -135,7 +142,14 @@ async function initialize() {
     }
     finally {
         document.documentElement.dataset["ready"] = "true";
+        playIntroOnce();
     }
+}
+function playIntroOnce() {
+    if (introPlayed)
+        return;
+    introPlayed = true;
+    introChoreography(elements.topbar, [elements.navigationPanel, elements.conversationPanel, elements.inspectorPanel]);
 }
 function bindStaticActions() {
     elements.navigationToggle.addEventListener("click", () => {
@@ -190,10 +204,13 @@ function bindStaticActions() {
         void submitComposer();
     });
     elements.composerInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-            event.preventDefault();
-            elements.composerForm.requestSubmit();
-        }
+        if (event.key !== "Enter" || event.isComposing)
+            return;
+        // Enter sends; Ctrl/Cmd+Enter, Shift+Enter and Alt+Enter insert a newline.
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey)
+            return;
+        event.preventDefault();
+        elements.composerForm.requestSubmit();
     });
     elements.spawnForm.addEventListener("submit", (event) => {
         event.preventDefault();
@@ -282,6 +299,7 @@ async function openSettings() {
         return;
     settingsOpen = true;
     elements.settingsOverlay.hidden = false;
+    showOverlayMotion(elements.settingsOverlay, elements.settingsDialog);
     elements.settingsStatus.textContent = "读取设置中…";
     elements.settingsSave.disabled = true;
     updateAppInert();
@@ -382,12 +400,15 @@ function closeSettings(restoreFocus = true) {
     if (!settingsOpen || savingSettings)
         return;
     settingsOpen = false;
-    elements.settingsOverlay.hidden = true;
     elements.settingsApiKey.value = "";
     elements.settingsApiKey.type = "password";
     elements.settingsCookie.value = "";
     elements.settingsCookie.type = "password";
     updateAppInert();
+    hideOverlayMotion(elements.settingsOverlay, elements.settingsDialog, () => {
+        if (!settingsOpen)
+            elements.settingsOverlay.hidden = true;
+    });
     if (restoreFocus)
         requestAnimationFrame(() => elements.settingsButton.focus());
 }
@@ -420,6 +441,7 @@ async function submitComposer() {
     const text = elements.composerInput.value.trim();
     if (!text)
         return;
+    nudgeElement(elements.send);
     const snapshot = store.snapshot();
     const mode = elements.composerMode.value;
     const intent = conversationIntent(snapshot.kernel, snapshot.selectedSessionId, text, mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "prompt");
@@ -502,6 +524,9 @@ function renderHeader(snapshot) {
     const connection = snapshot.connection;
     elements.connectionBadge.className = `connection-badge ${connection.phase}`;
     elements.connectionBadge.replaceChildren(element("i"), text(connection.phase === "connected" ? "ONLINE" : connection.phase.toUpperCase()));
+    if (lastConnectionPhase && connection.phase !== lastConnectionPhase)
+        pulseStatus(elements.connectionBadge);
+    lastConnectionPhase = connection.phase;
     elements.daemonInstance.textContent = connection.instanceId ? `daemon ${shortId(connection.instanceId)}` : "等待本地守护进程";
     elements.connectionBanner.classList.toggle("visible", connection.phase !== "connected");
     elements.connectionMessage.textContent = friendlyConnectionMessage(connection.message, connection.phase);
@@ -574,13 +599,26 @@ function renderConversation(snapshot) {
     const transcript = elements.transcript;
     const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
     const messages = session?.messages ?? [];
-    const content = messages.map((message) => renderMessage(message));
     const streaming = snapshot.streamingText[snapshot.selectedSessionId];
+    const content = messages.map((message) => renderMessage(message));
     if (streaming)
         content.push(renderStreamingMessage(streaming));
     if (content.length === 0)
         content.push(emptyTranscript(Boolean(child)));
+    const sessionChanged = transcriptState.sessionId !== snapshot.selectedSessionId;
+    const previousCount = transcriptState.count;
+    transcriptState.sessionId = snapshot.selectedSessionId;
+    transcriptState.count = messages.length;
     transcript.replaceChildren(...content);
+    if (sessionChanged) {
+        animateMessagesIn(content.slice(0, 14).filter((node) => node.classList.contains("message")), true);
+        if (!streaming && messages.length === 0) {
+            animateTranscriptHero(transcript.querySelector(".empty-transcript > div"));
+        }
+    }
+    else if (messages.length > previousCount) {
+        animateMessagesIn(content.slice(previousCount, messages.length), false);
+    }
     if (pinned)
         requestAnimationFrame(() => transcript.scrollTo({ top: transcript.scrollHeight }));
 }
@@ -753,15 +791,26 @@ function renderApproval(snapshot) {
     const request = Object.values(snapshot.kernel.approvals).sort((left, right) => left.requestedAt.localeCompare(right.requestedAt))[0];
     if (!request) {
         const previousApproval = activeApprovalId;
-        elements.approvalOverlay.hidden = true;
-        updateAppInert();
         activeApprovalId = undefined;
-        if (previousApproval)
+        if (elements.approvalOverlay.hidden)
+            return;
+        updateAppInert();
+        const finishHide = () => {
+            if (activeApprovalId !== undefined)
+                return;
+            elements.approvalOverlay.hidden = true;
+            updateAppInert();
             requestAnimationFrame(() => elements.composerInput.focus());
+        };
+        if (previousApproval)
+            hideOverlayMotion(elements.approvalOverlay, elements.approvalDialog, finishHide);
+        else
+            elements.approvalOverlay.hidden = true;
         return;
     }
     if (settingsOpen && !savingSettings)
         closeSettings(false);
+    const firstPaint = elements.approvalOverlay.hidden || activeApprovalId !== request.id;
     elements.approvalOverlay.hidden = false;
     updateAppInert();
     elements.approvalTitle.textContent = request.display.summary;
@@ -781,6 +830,8 @@ function renderApproval(snapshot) {
     elements.approvalActions.replaceChildren(...actions);
     if (activeApprovalId !== request.id) {
         activeApprovalId = request.id;
+        if (firstPaint)
+            showOverlayMotion(elements.approvalOverlay, elements.approvalDialog);
         requestAnimationFrame(() => actions[0]?.focus());
     }
 }
@@ -911,16 +962,17 @@ function initialTheme() {
             return stored;
     }
     catch {
-        // Fall through to the operating-system preference.
+        // Fall through to the daylight default.
     }
-    return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    // The product default is the daylight (white & cobalt) theme.
+    return "light";
 }
 function applyTheme(theme) {
     document.documentElement.dataset["theme"] = theme;
     const nextLabel = theme === "dark" ? "切换到浅色模式" : "切换到深色模式";
     elements.themeToggle.setAttribute("aria-label", nextLabel);
     elements.themeToggle.title = nextLabel;
-    elements.themeColor.content = theme === "dark" ? "#141310" : "#ede9dc";
+    elements.themeColor.content = theme === "dark" ? "#0c121b" : "#f4f7fb";
 }
 function friendlyConnectionMessage(message, phase) {
     if (message?.includes("ENOENT") || message?.includes("daemon.sock")) {

@@ -82,3 +82,10 @@
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
 - 推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 后，CI 必须构建 `pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并直接上传到 `v<version>` GitHub Release。
 - 本地打包验收：`release-dist/` 下必须同时存在全量 zip、overlay zip、对应 sha256 文件与可执行的 `pspore-<version>-linux-x64`；二进制能通过 `version` 与 `--help` 自检，且 `git status` 不得出现任何打包产物。
+
+## GUI 交互与视觉（2026-08-22 用户要求）
+
+- composer 默认 Enter 发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 为换行；中文输入法合成态（`isComposing`）回车不触发发送。
+- 默认主题为浅色（白天模式）白蓝配色（cobalt paper）；深色模式保持精致克制，无廉价感/广告感（无渐变光晕、单一强调色、发丝级边框）。
+- 动效使用 GSAP：入场编排、消息/弹层过渡、状态微交互；必须尊重 `prefers-reduced-motion`，引擎缺失时直接降级为无动画可用。
+- GSAP 以本地 vendored UMD 文件分发，不引入 bundler、不加载远程脚本；renderer 安全测试只放行 `./vendor/gsap.min.js` 与 `./renderer.js`。

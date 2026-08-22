@@ -56,8 +56,11 @@ preload 仅暴露：
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
-- renderer 通过语义色变量提供持久化深色/浅色主题；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
-- 视觉语言为 "spore print"：深色是暖腐殖土底 `#141310` + 骨白文字，浅色是暖纸 `#ede9dc` + 墨字；`--accent` 是骨白/墨（仅用于主操作、焦点环、选中文本），`--live` moss 表示存活/成功、`--honey` 表示等待与审批、`--rust` 表示失败、`--lichen` 表示用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。
+- renderer 通过语义色变量提供持久化深色/浅色主题，默认浅色（白天模式），localStorage 键 `pspore.desktop.theme` 可覆盖；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
+- 视觉语言为 "cobalt paper"（2026-08-22 重构，替代旧 "spore print"）：浅色为默认主题——冷白纸面 `#f4f7fb` + 白面板 + 深藏青墨字 `#16243d`，主强调色是钴蓝 `#2563eb`（仅用于主按钮、焦点环、选中态、链接、用户消息）；深色是去饱和板岩藏青 `#0b1119` 底 + 分层表面 + 发丝级边框，单一克制蓝 `#5f8dff`，无渐变光晕（避免廉价感/广告感）。语义色：`--live` 存活/成功、`--honey` 等待与审批告警、`--rust` 失败、`--lichen` 用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。topbar 无卡片化（透明浮于 canvas），panel 用发丝边框替代重阴影。
+- composer 键盘行为：Enter 直接发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 插入换行；`event.isComposing` 时忽略（中文输入法合成回车不发送）。发送按钮 kbd 提示为 `↵`。
+- 动效由 GSAP 3.15 驱动（`src/desktop/renderer/motion.ts` 封装）：应用入场编排（topbar/三栏 stagger expo.out）、会话切换消息 stagger 入场、新消息单条滑入（流式 delta 不重复触发）、设置/审批弹层出入场（含退出动画后置 `hidden` 与状态守卫防竞态）、连接徽章状态切换弹性脉冲、发送按钮按压微动效。所有动效在 `prefers-reduced-motion: reduce` 或引擎缺失时立即降级为直接显示。
+- GSAP 以 UMD 构建 vendored 进产品：`node_modules/gsap/dist/gsap.min.js` 由 `scripts/copy-desktop-assets.mjs` 复制到 `dist/desktop/renderer/vendor/gsap.min.js`，index.html 以 classic script 加载（CSP `script-src 'self'` 允许同源）；renderer 通过 `import type { gsap } from "gsap"` 取类型、运行时读 `window.gsap`，不引入 bundler。安全测试 `desktop-security.test.ts` 已显式放行且仅放行 `./vendor/gsap.min.js` 与 `./renderer.js` 两个本地脚本路径，内联与其它 src 仍被拒绝。
 - 会话正文测量宽度固定 `820px`，长代码块在自身容器内横向滚动；消息 meta 用 mono 小写标签加细线分隔；左栏用缩进 + `└` 型连接线呈现 agent 树（`--session-depth`），右侧标记显示会话状态。
 - 三栏在 `>=1600px` 默认全开；`1321–1599px` 只开会话+对话；`<=1320px` 检查器为覆盖抽屉；`<=1160px` 会话栏也转为抽屉。左栏底部常驻 `工作区` 摘要（运行/MCP/资源/待批准），与 TUI 的 WORKSPACE 块保持同一组指标。
 - GUI 文案统一中文（含 notice、错误与空状态）；只有 `src/ui/shared/activity.ts` 的 cowork label/summary 保持英文，因为 TUI/CLI 要求英文且两端共用同一归一层。
