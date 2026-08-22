@@ -53,6 +53,7 @@
 - 视觉识别统一为 "spore print"：暖土/暖纸底色，骨白（深色）或墨色（浅色）只用于主操作与焦点，饱和色仅承担状态语义（moss 存活/成功、honey 等待/审批、rust 失败、lichen 用户）；GUI 与 TUI 共用同一套语义色映射。
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
 - GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium）并直接上传到 `v<version>` GitHub Release。
+- 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成 release 二进制包：Node SEA 独立 CLI 二进制 `release-dist/pspore-<version>-linux-x64`；该二进制产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
 
 ## 设计验收标准
 
@@ -80,3 +81,4 @@
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
 - 推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 后，CI 必须构建 `pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并直接上传到 `v<version>` GitHub Release。
+- 本地打包验收：`release-dist/` 下必须同时存在全量 zip、overlay zip、对应 sha256 文件与可执行的 `pspore-<version>-linux-x64`；二进制能通过 `version` 与 `--help` 自检，且 `git status` 不得出现任何打包产物。

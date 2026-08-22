@@ -466,3 +466,18 @@
   - Markdown 解析器 16 项单测覆盖标题/围栏/未闭合围栏/列表切换/任务项/表格/行内标记/危险链接协议/深度上限。
 - 当前状态：版本升到 `0.1.6`，源码与 `dist/` 已同步重建并推送到 `main`（commit `98888cb`）。GitHub Actions `CI` 与 `Release desktop` 均 success，已发布 https://github.com/advnljs/pSpore/releases/tag/v0.1.6 ，含 `pspore-desktop-0.1.6-linux-x64.zip` / `-overlay.zip` 及各自 SHA-256。 已按发行验收要求直接从 Release 下载全量 zip，`sha256sum -c` 通过，并用包内 `pspore-desktop --smoke-dir --smoke-fixture` 在 Xvfb 2048×1200 下跑通全部断言（owned Daemon、双主题、三档布局、`app-shell` 高度 1080/900/720、workspace 底部留白均为 10px、权限四模式与 bypass 告警）。
 - 遗留问题：Markdown 链接仍不可点击跳转（主进程按安全基线禁止外部导航）；`allow_all` 只是策略放开，不构成沙箱；本轮未发布 npm 新版本。
+
+## 2026-08-22 — 打包流程并入本地 release 二进制包
+
+- 阶段目标：按用户新 spec，让每次打包在本地同时生成 CLI release 二进制包，且二进制产物保持被 Git 忽略。
+- 完成内容：
+  - 新增 `scripts/build-cli-binary.sh`：从 `dist/cli/main.js` 经 esbuild CJS bundle、`import_meta` 补丁、Node SEA blob 与 postject 注入，产出 `release-dist/pspore-<version>-linux-x64`，并自检 `version` 与 `--help`；完成后清理中间产物（bundle/blob/sea-config）。
+  - `scripts/package-desktop.sh` 在产出全量 zip 与 overlay zip 后调用上述脚本，`npm run package:desktop` 现在一次性生成桌面双 zip + CLI 二进制。
+  - `scripts/release.sh` 删除内联 SEA 构建逻辑，改为复用 `build-cli-binary.sh`，上传行为与产物清单不变。
+  - `memory-bank/specs.md` 增加对应约束与本地打包验收标准（2026-08-22）。
+- 验证方式与结果：
+  - `npm run package:desktop` 实跑通过：全量 zip 147M（sha256 `1b09c93d…265c008`）、overlay zip 21M（sha256 `7627bd6c…85d039c`）、CLI 二进制 140M。
+  - 二进制自检：`pspore-0.1.6-linux-x64 version` 输出 `pSpore 0.1.6 (Pi 0.84.1, Node 24.19.0)`，`--help` 正常（50 行）。
+  - `git check-ignore` 确认二进制与 zip 均被 `.gitignore` 的 `release-dist/` 规则忽略，`git status` 无打包产物。
+- 当前状态：脚本改动与 memory-bank 已提交；`release-dist/pspore-0.1.6-linux-x64` 留在本地供直接使用。
+- 遗留问题：CI（`release.yml`）仍只上传桌面双 zip，不上传该 CLI 二进制（沿用 `scripts/release.sh` 手动发布路径）；如需 CI Release 也附带二进制需另行确认。

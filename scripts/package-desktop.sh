@@ -29,7 +29,7 @@ if [[ "$NODE_MAJOR" -lt 24 ]]; then
   exit 1
 fi
 
-echo "==> Packaging desktop zip ${FULL_NAME}.zip and overlay ${OVERLAY_NAME}.zip"
+echo "==> Packaging desktop zip ${FULL_NAME}.zip, overlay ${OVERLAY_NAME}.zip and CLI binary"
 echo "--- npm run build"
 npm run build
 
@@ -140,5 +140,9 @@ PY
 
 rm -rf "$DIST_DIR/electron-out" "$DIST_DIR/staging-full" "$DIST_DIR/staging-overlay"
 
+echo "--- Building standalone CLI release binary"
+bash "$REPO_ROOT/scripts/build-cli-binary.sh" "$VERSION"
+
 echo "==> Full package: $FULL_ZIP ($(du -h "$FULL_ZIP" | cut -f1))"
 echo "==> Overlay package: $OVERLAY_ZIP ($(du -h "$OVERLAY_ZIP" | cut -f1))"
+echo "==> CLI binary: $DIST_DIR/pspore-${VERSION}-linux-x64"
