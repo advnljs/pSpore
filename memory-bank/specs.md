@@ -53,7 +53,7 @@
 - 视觉识别统一为 "spore print"：暖土/暖纸底色，骨白（深色）或墨色（浅色）只用于主操作与焦点，饱和色仅承担状态语义（moss 存活/成功、honey 等待/审批、rust 失败、lichen 用户）；GUI 与 TUI 共用同一套语义色映射。
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
 - GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium）并直接上传到 `v<version>` GitHub Release。
-- 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成 release 二进制包：Node SEA 独立 CLI 二进制 `release-dist/pspore-<version>-linux-x64`；该二进制产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
+- 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成与 GitHub Release 完全一致的全套可执行产物到 `release-dist/`：Node SEA 独立 CLI 二进制 `pspore-<version>-linux-x64`、全量 zip、overlay zip 及对应 sha256，以及解包后可直接运行的可执行二进制目录 `release-dist/pspore-desktop-<version>-linux-x64/`（由脚本自动从 staging 复制，等价于 release.sh 解压结果）。每次阶段性代码改动完成后都要重新打包，保证 `release-dist/` 始终对应最新工作树代码；这些产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
 
 ## 设计验收标准
 

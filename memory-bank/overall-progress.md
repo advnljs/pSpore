@@ -504,3 +504,14 @@
   - `git check-ignore` 确认二进制与 zip 均被 `.gitignore` 的 `release-dist/` 规则忽略，`git status` 无打包产物。
 - 当前状态：脚本改动与 memory-bank 已提交；`release-dist/pspore-0.1.6-linux-x64` 留在本地供直接使用。
 - 遗留问题：CI（`release.yml`）仍只上传桌面双 zip，不上传该 CLI 二进制（沿用 `scripts/release.sh` 手动发布路径）；如需 CI Release 也附带二进制需另行确认。
+
+## 2026-08-22（下午）— 本地 release 产物管线固化
+
+- 阶段目标：落实"每次都构建和 release 一样的可执行二进制目录到本地"的 spec，并补齐 GUI 重构后缺失的最新打包。
+- 完成内容：
+  - `scripts/package-desktop.sh` 新增步骤：每次打包自动把 staging 内容复制为 `release-dist/pspore-desktop-<version>-linux-x64/` 可执行目录（与全量 zip 内容一致，等价 release.sh 的解压结果）。
+  - 重新执行 `npm run package:desktop`：全量 zip、overlay zip、sha256、SEA CLI 二进制、可执行目录全部刷新至 c688a50（含 cobalt paper GUI + GSAP vendor），已用 grep 确认 app.asar 内含新样式与 gsap 脚本引用。
+- 验证方式与结果：
+  - 打包脚本 exit=0；CLI 二进制自检 `--help` OK；产物时间戳与内容核验通过。
+- 当前状态：spec 已记录到 `memory-bank/specs.md`，本地产物与最新代码一致。
+- 遗留问题：无新增。

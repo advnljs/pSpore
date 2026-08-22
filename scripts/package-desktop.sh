@@ -138,6 +138,12 @@ PY
   sha256sum "$(basename "$OVERLAY_ZIP")" | tee "$(basename "$OVERLAY_ZIP").sha256"
 )
 
+echo "--- keeping the unpacked runnable app dir in release-dist"
+# Every packaging leaves a locally runnable directory identical to the
+# full-release zip content, so the latest build is always ready to start.
+rm -rf "$DIST_DIR/$FULL_NAME"
+cp -a "$STAGE_FULL" "$DIST_DIR/"
+
 rm -rf "$DIST_DIR/electron-out" "$DIST_DIR/staging-full" "$DIST_DIR/staging-overlay"
 
 echo "--- Building standalone CLI release binary"
@@ -145,4 +151,5 @@ bash "$REPO_ROOT/scripts/build-cli-binary.sh" "$VERSION"
 
 echo "==> Full package: $FULL_ZIP ($(du -h "$FULL_ZIP" | cut -f1))"
 echo "==> Overlay package: $OVERLAY_ZIP ($(du -h "$OVERLAY_ZIP" | cut -f1))"
+echo "==> Runnable app dir: $DIST_DIR/$FULL_NAME"
 echo "==> CLI binary: $DIST_DIR/pspore-${VERSION}-linux-x64"
