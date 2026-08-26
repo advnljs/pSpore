@@ -11,6 +11,7 @@ Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`).
 
 - Linux
 - Node.js 24 (`>=24.0.0 <25`)
+- systemd user services (`systemctl --user`)
 
 ## Install
 
@@ -26,9 +27,11 @@ same CLI, so use whichever you prefer. To run it once without installing:
 npx p-spore --help
 ```
 
-`p-spore tui` initializes a missing home directory, starts a local daemon if none is
-running, and shuts down only the daemon it started itself. If one is already running, it
-reconnects to it instead.
+`p-spore tui` initializes a missing home directory and automatically installs, enables,
+and starts the per-user `pSpore` system service. The TUI and desktop app are reconnecting
+shells only: closing either client leaves sessions, scheduled jobs, MCP connections and
+other background work running. pSpore also attempts to enable user lingering so the
+service can start at boot without waiting for an interactive login.
 
 ## Configure a model
 
@@ -79,7 +82,10 @@ p-spore doctor                     # check Node, config, model, shell, ripgrep, 
 p-spore status                     # daemon and session status
 p-spore tui                        # reconnecting terminal client
 p-spore prompt "summarize today's notes"
-p-spore daemon                     # run the daemon in the foreground
+p-spore service status             # system service and boot state
+p-spore service logs               # recent service journal
+p-spore service restart            # restart the background service
+p-spore daemon                     # foreground service process (diagnostics/systemd)
 ```
 
 Add `--home PATH` to any command, or set `PSPORE_HOME`, to work against a home other than
@@ -154,7 +160,8 @@ This npm package is the CLI and does not bundle Electron. `p-spore desktop` work
 Electron is available in a source checkout; otherwise download the desktop zip from the
 project's GitHub Releases. The full zip includes Chromium and a clickable
 `创建桌面快捷方式.sh`. Later upgrades can use the smaller overlay zip, which replaces
-only `resources/app.asar` and does not include Chromium.
+only `resources/app.asar` and does not include Chromium. The desktop app automatically
+registers the same systemd user service and never ties the service lifetime to a window.
 
 ## Links
 

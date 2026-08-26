@@ -22,12 +22,18 @@
 | P3 | daemon 在 UDS 路径超长时给出可理解的错误 | Pending | 无 | 现在只报 `listen EINVAL: invalid argument`；应在 `listen` 前检查 socket 路径长度（sun_path 上限 108 字节）并提示改用更短的 `PSPORE_HOME` |
 | P3 | GUI 内共享 cowork 活动文案为英文 | Pending | TUI/CLI 必须英文，两端共用 `src/ui/shared/activity.ts` | 2026-08-17 起 GUI 其余文案已统一中文；若要彻底消除混排，需要给 activity label/summary 加平台级 i18n 映射，而不是改共享层 |
 | P2 | `dist/` 已纳入 Git，需防止与源码不同步 | Done | 无 | `ci.yml` 在 PR/`main` 上执行 `npm run check` 后 `git diff --exit-code -- dist` |
-| P3 | transcript 每次渲染整树重建 | Pending | 无 | `renderConversation` 每帧 `replaceChildren` 所有消息；长会话下建议改为按 message id 增量渲染或虚拟化，同时可去掉 `role="log"` 的重复播报风险 |
+| P3 | transcript 每次渲染整树重建 | In Progress | 无 | 本次任务将 GUI 改为消息虚拟渲染，并让 TUI 只格式化可见窗口附近的历史消息 |
 | P3 | 为桌面 zip 补齐产品图标与 WM_CLASS/desktopName | Pending | 不影响当前启动与功能 | 增加受控图标资产，并在 electron-builder 配置中设置 `desktopName` / `linux.syncDesktopName` |
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | 推送 `main` 或匹配 `package.json` 的 `v*` tag 后，全量 zip 与 overlay zip 直接上传到 GitHub Release |
+| P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；完整端到端验收随本次剩余功能完成后执行 |
+| P0 | 跨 session 创建、恢复与历史加载 | In Progress | 无 | 增加持久 session catalog，启动恢复全部根会话，并在 GUI/TUI 提供创建和切换入口 |
+| P1 | 统一发送与排队消息直接发送 | Pending | 无 | 普通发送根据运行状态自动 prompt/follow-up；界面只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |
+| P1 | 可配置自动 compact 长度 | Pending | 无 | 扩展共享 settings 与 Pi compaction 配置，并同步 GUI/TUI/CLI |
+| P1 | 流式 Markdown 与长历史虚拟渲染 | In Progress | 无 | 去除显式 `[tool:*]` 文本、按帧刷新 GUI、补字体回退并虚拟化 GUI/TUI 历史 |
+| P1 | 修复 zip 桌面快捷方式 | Pending | 无 | 改为稳定 launcher 并用隔离 XDG/HOME 验证 `.desktop` 可启动性 |
 
 | P3 | Markdown 链接在 GUI 中不可点击跳转 | Pending | 主进程按安全基线禁止外部导航与新窗口 | 若要支持，需要显式引入受控的 `shell.openExternal` 白名单（仅 http/https）并重新评估安全边界 |
 | P3 | Markdown 代码块无语法高亮 | Pending | 无 | 当前只显示语言标签；如需高亮需引入自实现 tokenizer 或新依赖（须先征求用户确认） |

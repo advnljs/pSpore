@@ -4,6 +4,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, ipcMain, screen, session } from "electron";
 import { resolvePsporeHome } from "../config/config.js";
 import { DaemonSupervisor } from "../daemon/supervisor.js";
+import { stopLegacyDaemon } from "../service/legacy-daemon.js";
+import { serviceLaunchSpec } from "../service/service-launch.js";
+import { SystemServiceManager } from "../service/system-service.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
@@ -18,6 +21,7 @@ if (arguments_.smokeDirectory)
 let window;
 let bridge;
 let daemonSupervisor;
+let systemService;
 let settingsService;
 let unsubscribeBridge;
 let rendererUrl = "";
@@ -42,8 +46,23 @@ async function startDesktop() {
     const rendererPath = join(moduleDirectory, "renderer", "index.html");
     rendererUrl = pathToFileURL(rendererPath).href;
     installSessionSecurity();
-    daemonSupervisor = new DaemonSupervisor({ home });
-    await daemonSupervisor.start();
+    if (arguments_.smokeDirectory) {
+        // The visual harness owns an isolated temporary daemon and must never
+        // register persistent services in the developer's real user manager.
+        daemonSupervisor = new DaemonSupervisor({ home });
+        await daemonSupervisor.start();
+    }
+    else {
+        systemService = new SystemServiceManager({ home, beforeStart: async () => stopLegacyDaemon(home) });
+        const launch = await serviceLaunchSpec(home, paths.workspace, {
+            execPath: process.execPath,
+            moduleUrl: import.meta.url,
+            electron: true,
+        });
+        const ensured = await systemService.ensureRunning(launch);
+        if (ensured.lingerWarning)
+            process.stderr.write(`pSpore service warning: ${ensured.lingerWarning}\n`);
+    }
     bridge = new DaemonBridge({
         socketPath: paths.socket,
         stagingRoot: join(paths.workspace, "staging"),
@@ -139,13 +158,25 @@ function installIpc(target, daemonBridge, desktopSettings) {
         savingSettings = true;
         try {
             const settings = await desktopSettings.save(update);
+            if (systemService) {
+                await daemonBridge.stop();
+                await systemService.restart();
+                daemonBridge.start();
+                await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 10_000);
+                return {
+                    settings,
+                    applied: true,
+                    restartRequired: false,
+                    message: `设置已保存并应用，后台系统服务已安全重启。${bypassNotice(settings)}`,
+                };
+            }
             const ownership = daemonSupervisor?.ownership;
             if (ownership !== "owned") {
                 return {
                     settings,
                     applied: false,
                     restartRequired: true,
-                    message: `设置已安全保存；当前由外部 Daemon 提供服务，重启该 Daemon 后生效。${bypassNotice(settings)}`,
+                    message: `设置已安全保存；当前测试使用外部 Daemon，重启后生效。${bypassNotice(settings)}`,
                 };
             }
             await daemonBridge.stop();
@@ -157,7 +188,7 @@ function installIpc(target, daemonBridge, desktopSettings) {
                 settings,
                 applied: true,
                 restartRequired: false,
-                message: `设置已保存并应用，本地 Daemon 已安全重启。${bypassNotice(settings)}`,
+                message: `设置已保存并应用，测试 Daemon 已安全重启。${bypassNotice(settings)}`,
             };
         }
         finally {
@@ -639,6 +670,8 @@ function requestShutdown(code) {
     unsubscribeBridge = undefined;
     void (async () => {
         await bridge?.stop();
+        // Production GUI is only a shell. The system service intentionally keeps
+        // sessions, automation, and integrations alive after every window closes.
         await daemonSupervisor?.stop();
     })()
         .catch((error) => {

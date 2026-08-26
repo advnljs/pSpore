@@ -11,6 +11,9 @@
 - `src/storage/daemon-lock.ts`
 - `src/daemon/daemon.ts`
 - `src/daemon/supervisor.ts`
+- `src/service/system-service.ts`
+- `src/service/service-launch.ts`
+- `src/service/legacy-daemon.ts`
 - `src/cli/main.ts`
 
 ## 关键文件
@@ -26,7 +29,9 @@
 - `acquireDaemonLock` / `writeEndpoint`
 - `DaemonAlreadyRunningError`：为桌面端复用已有实例提供可类型化的单实例分支，不匹配错误文本。
 - `PsporeDaemon.start` / `stop` / `whenStopped`
-- `DaemonSupervisor.start/stop`：GUI/TUI 共用 owned/external Daemon 生命周期。
+- `SystemServiceManager.ensureRunning/restart/status/logs/uninstall`：生产 GUI/TUI 共用 systemd user service 管理。
+- `serviceLaunchSpec`：为 npm/Node、SEA 与 Electron-as-Node 生成无 shell 的稳定 `ExecStart`。
+- `DaemonSupervisor.start/stop`：仅供隔离 smoke 使用的 owned/external 临时 Daemon 生命周期。
 - CLI：`init | daemon | status | doctor | tui | desktop | config | jobs | runs | notifications | agents | mcp | resources | schedule put | run | cancel | prompt | version`
 
 ## 内部依赖
@@ -43,7 +48,9 @@ Node.js 24 filesystem/process/net API 与 Linux `/proc/<pid>/stat`。
 - 初始化使用 create-only，不覆盖已有 workspace 文件；配置存在但 malformed 时 fail closed。
 - atomic write 在同目录 write + fsync + rename + directory fsync，失败时清理临时文件。
 - stale lock 不能只依赖 PID，必须同时核对 process start identity；release 只删除本 instance lock。
-- 共享 supervisor 的 `owned/external` 决策必须经过同一单实例锁；只有 `owned` 实例随 GUI/TUI 退出。
+- 生产 GUI/TUI 退出不得停止服务；systemd unit 使用 `Restart=always`、`WantedBy=default.target` 与 `UMask=0077`，并尽力启用 linger。
+- unit 参数直接交给 systemd，不经 shell；路径中的 `%`、反斜线与引号必须正确转义。自定义 home 使用带 SHA-256 短摘要的独立 unit 名。
+- legacy owned daemon 不能被 systemd 收养，首次迁移只允许通过 `daemon.shutdown` 协议优雅停止，再启动 service。
 - stop 即使某一步失败也继续尝试关闭 approval/session/gateway 并释放 endpoint/lock，最后回报首个错误。
 - monthly run JSONL 只把完整 newline 视为 commit；破损尾行备份后截断，中间损坏拒绝启动。
 - job JSON 使用 source hash compare-and-swap + atomic replace；notification 使用 `state/events/notifications.jsonl` durable append。

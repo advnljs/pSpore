@@ -16,7 +16,8 @@
 
 - `ipc-contract.ts`：离散 `DesktopCommand` union、严格 decoder 与 protocol mapping。
 - `daemon-bridge.ts`：UDS owner、cursor、gap/reconnect、snapshot、连续 delta coalescing。
-- `src/daemon/supervisor.ts`：桌面/TUI 共用；原子判定客户端拥有新 Daemon 还是复用现有实例，只关闭自己拥有的实例。`src/desktop/daemon-supervisor.ts` 仅保留兼容导出。
+- `src/service/system-service.ts`：生产桌面/TUI 共用；自动注册、启用并连接 systemd user service，窗口退出不停止服务。
+- `src/daemon/supervisor.ts`：只用于 Electron smoke 的隔离临时 Daemon；`src/desktop/daemon-supervisor.ts` 保留测试兼容导出。
 - `src/settings/llm-settings*.ts`：GUI/TUI/CLI 共用严格设置 decoder/service；验证并原子持久化 Provider、模型、Base URL、自定义兼容 API 与私有 API Key 引用，保存前用 Pi `ModelRuntime` 验证模型可解析。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
 - `src/ui/shared/activity.ts`：与 TUI 共享的 cowork 活动归一、工具事件合并、语义摘要、结果/耗时与脱敏详情。
@@ -55,7 +56,7 @@ preload 仅暴露：
 - Markdown 支持标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表、分隔线、GFM 表格与行内标记；链接因主进程禁止外部导航而渲染为惰性文本加可复制 URL，且只识别 http/https/mailto/file。
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
-- 桌面启动先以 create-only 方式初始化 home；无现有锁时在 Electron main process 拥有 Daemon，有活跃锁时复用外部 Daemon。退出始终先关闭 bridge，仅在 `owned` 模式下停止 Daemon，不影响外部/TUI 会话。
+- 桌面启动先以 create-only 方式初始化 home，再安装/更新 systemd user unit 并 `enable --now`；renderer 只连接 UDS。退出只关闭 bridge，不停止服务。smoke 路径显式绕过 systemd，防止测试污染真实用户服务。
 - renderer 通过语义色变量提供持久化深色/浅色主题，默认浅色（白天模式），localStorage 键 `pspore.desktop.theme` 可覆盖；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
 - 视觉语言为 "cobalt paper"（2026-08-22 重构，替代旧 "spore print"）：浅色为默认主题——冷白纸面 `#f4f7fb` + 白面板 + 深藏青墨字 `#16243d`，主强调色是钴蓝 `#2563eb`（仅用于主按钮、焦点环、选中态、链接、用户消息）；深色是去饱和板岩藏青 `#0b1119` 底 + 分层表面 + 发丝级边框，单一克制蓝 `#5f8dff`，无渐变光晕（避免廉价感/广告感）。语义色：`--live` 存活/成功、`--honey` 等待与审批告警、`--rust` 失败、`--lichen` 用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。topbar 无卡片化（透明浮于 canvas），panel 用发丝边框替代重阴影。
 - composer 键盘行为：Enter 直接发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 插入换行；`event.isComposing` 时忽略（中文输入法合成回车不发送）。发送按钮 kbd 提示为 `↵`。

@@ -515,3 +515,17 @@
   - 打包脚本 exit=0；CLI 二进制自检 `--help` OK；产物时间戳与内容核验通过。
 - 当前状态：spec 已记录到 `memory-bank/specs.md`，本地产物与最新代码一致。
 - 遗留问题：无新增。
+
+## 2026-08-26 — 生产 Daemon 改由 systemd 用户服务托管
+
+- 阶段目标：让完整 pSpore 后端成为可自动注册、登录后自启、异常重启的系统服务；GUI/TUI 仅作为客户端壳，退出时不再关闭后端。
+- 完成内容：
+  - 新增 `SystemServiceManager`，以私有、原子方式维护 XDG `systemd/user` unit，执行 `daemon-reload`、`enable --now`、重启、状态、日志和卸载；unit 不经 Shell 启动，包含 `Restart=always`。
+  - 新增 Node/npm、SEA 和 Electron-as-Node 三类稳定启动命令生成器；默认 home 使用 `pspore.service`，自定义 home 使用稳定哈希 unit 名，避免多实例冲突。
+  - CLI 新增 `service install|start|restart|stop|status|logs|uninstall`；TUI 启动时自动确保服务已安装并运行，退出只断开连接。
+  - Electron 生产启动自动确保 systemd 服务并仅维护 UDS bridge；设置保存后重启服务并重连。桌面 smoke 测试继续使用隔离的 `DaemonSupervisor`，不污染真实用户服务。
+  - 启动前会温和关闭旧版非 systemd 管理的 Daemon，以避免旧锁和 socket 阻止迁移；尝试启用 user linger，并在权限不足时返回可理解警告。
+- 修改文件：`src/service/*`、`src/cli/main.ts`、`src/desktop/main.ts`、`test/unit/system-service.test.ts`、`README.md`、`docs/project-overview.md`、`memory-bank/*`，以及同步构建的 `dist/`。
+- 验证方式与结果：`npm run check` 通过（严格 typecheck、117/117 测试、production build）；新增 4 项服务测试覆盖 unit 转义、隔离 systemd 生命周期、三类发行启动命令与多 home 命名；`git diff --check` 通过。
+- 当前状态：源码与 `dist/` 已同步；生产客户端不再拥有或随退出停止后端。尚未在本阶段启动真实用户服务，待后续会话协议改造完成后用最新完整服务做端到端验收。
+- 遗留问题：跨 session 恢复、自动 follow-up/队列直接发送、compact 设置、流式 Markdown/虚拟渲染和桌面快捷方式仍在本次任务后续阶段实现。

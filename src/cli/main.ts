@@ -9,13 +9,15 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { PsporeDaemon } from "../daemon/daemon.js";
-import { DaemonSupervisor } from "../daemon/supervisor.js";
 import type { AgentSnapshot } from "../domain/runtime.js";
 import type { KernelState } from "../kernel/state.js";
 import { ProtocolClient } from "../protocol/client.js";
 import { readResourceTrustSummary } from "../plugins/extension-manager.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { ShellService } from "../shell/shell-service.js";
+import { stopLegacyDaemon } from "../service/legacy-daemon.js";
+import { serviceLaunchSpec } from "../service/service-launch.js";
+import { SystemServiceManager } from "../service/system-service.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import { type PermissionMode } from "../config/config.js";
 import {
@@ -77,6 +79,8 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "daemon":
       requireNoArgs(args, "daemon");
       return runDaemon(home);
+    case "service":
+      return runServiceCommand(home, args);
     case "status":
       requireNoArgs(args, "status");
       return printStatus(home);
@@ -137,7 +141,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
 
 async function runDaemon(home: string): Promise<number> {
   const daemon = await PsporeDaemon.start({ home });
-  process.stdout.write(`pSpore daemon ${daemon.kernel.snapshot().daemon.phase} (PID ${process.pid})\nSocket: ${daemon.paths.socket}\n`);
+  process.stdout.write(`pSpore service process ${daemon.kernel.snapshot().daemon.phase} (PID ${process.pid})\nSocket: ${daemon.paths.socket}\n`);
   let stopping = false;
   const stop = () => {
     if (stopping) return;
@@ -237,30 +241,94 @@ async function runTui(home: string): Promise<number> {
     );
   }
   const { paths } = await initializePsporeHome(home);
-  const supervisor = new DaemonSupervisor({ home });
-  await supervisor.start();
+  const service = await cliSystemService(home, paths.workspace);
+  const ensured = await service.manager.ensureRunning(service.spec);
+  if (ensured.lingerWarning) process.stderr.write(`pSpore service warning: ${ensured.lingerWarning}\n`);
   const settings = new LlmSettingsService(home, paths);
-  try {
-    await new PsporeTuiApp({
-      socketPath: paths.socket,
-      settings,
-      onSettingsSaved: async () => {
-        if (supervisor.ownership !== "owned") {
-          return {
-            applied: false,
-            restartRequired: true,
-            message: "Settings saved; restart the external daemon to apply them",
-          };
-        }
-        await supervisor.stop();
-        await supervisor.start();
-        return { applied: true, restartRequired: false, message: "Settings saved; the TUI daemon is restarting" };
-      },
-    }).run();
+  await new PsporeTuiApp({
+    socketPath: paths.socket,
+    settings,
+    onSettingsSaved: async () => {
+      await service.manager.restart();
+      return { applied: true, restartRequired: false, message: "Settings saved; the system service is restarting" };
+    },
+  }).run();
+  return 0;
+}
+
+async function runServiceCommand(home: string, args: readonly string[]): Promise<number> {
+  const action = args[0] ?? "status";
+  const { paths } = await initializePsporeHome(home);
+  const service = await cliSystemService(home, paths.workspace);
+  if (action === "install" || action === "start") {
+    requireNoArgs(args.slice(1), `service ${action}`);
+    const status = await service.manager.ensureRunning(service.spec);
+    process.stdout.write(serviceStatusText(status));
+    if (status.lingerWarning) process.stderr.write(`Warning: ${status.lingerWarning}\n`);
     return 0;
-  } finally {
-    await supervisor.stop();
   }
+  if (action === "restart") {
+    requireNoArgs(args.slice(1), "service restart");
+    if (!(await service.manager.status()).installed) await service.manager.ensureRunning(service.spec);
+    else await service.manager.restart();
+    process.stdout.write(serviceStatusText(await service.manager.status()));
+    return 0;
+  }
+  if (action === "stop") {
+    requireNoArgs(args.slice(1), "service stop");
+    await service.manager.stop();
+    process.stdout.write(serviceStatusText(await service.manager.status()));
+    return 0;
+  }
+  if (action === "uninstall") {
+    requireNoArgs(args.slice(1), "service uninstall");
+    await service.manager.uninstall();
+    process.stdout.write(`Removed ${service.manager.unitName}\n`);
+    return 0;
+  }
+  if (action === "logs") {
+    if (args.length > 2) throw new CliError("service logs accepts an optional line count");
+    const lines = args[1] === undefined ? 100 : Number(args[1]);
+    process.stdout.write(await service.manager.logs(lines));
+    return 0;
+  }
+  if (action === "status") {
+    requireNoArgs(args.slice(1), "service status");
+    process.stdout.write(serviceStatusText(await service.manager.status()));
+    return 0;
+  }
+  throw new CliError("service usage: service install|start|restart|stop|status|logs [LINES]|uninstall");
+}
+
+async function cliSystemService(home: string, workspace: string): Promise<{
+  manager: SystemServiceManager;
+  spec: Awaited<ReturnType<typeof serviceLaunchSpec>>;
+}> {
+  const manager = new SystemServiceManager({ home, beforeStart: async () => stopLegacyDaemon(home) });
+  const spec = await serviceLaunchSpec(home, workspace, {
+    execPath: process.execPath,
+    ...(process.argv[1] === undefined ? {} : { argvEntry: process.argv[1] }),
+    moduleUrl: import.meta.url,
+  });
+  return { manager, spec };
+}
+
+function serviceStatusText(status: {
+  unitName: string;
+  unitPath: string;
+  installed: boolean;
+  enabled: boolean;
+  active: boolean;
+  linger: boolean | undefined;
+}): string {
+  return [
+    `Service: ${status.unitName}`,
+    `Unit: ${status.unitPath}`,
+    `Installed: ${status.installed ? "yes" : "no"}`,
+    `Enabled: ${status.enabled ? "yes" : "no"}`,
+    `Active: ${status.active ? "yes" : "no"}`,
+    `Boot without login: ${status.linger === undefined ? "unknown" : status.linger ? "yes" : "no"}`,
+  ].join("\n") + "\n";
 }
 
 async function runDesktop(home: string): Promise<number> {
@@ -879,7 +947,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  daemon           Run the foreground daemon\n  tui              Open the reconnecting terminal client and start a local daemon when needed\n  desktop          Open the secure Electron 43 client\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this daemon process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show daemon and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and daemon\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

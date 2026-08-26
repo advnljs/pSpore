@@ -18,6 +18,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - `Shared Client Core`：GUI/TUI 共用 protocol state reducer、presentation model、会话输入路由、Daemon supervisor 与 LLM settings service；DOM/terminal widget 各自渲染。
 - `Cowork Activity`：将 tool/run/retry/compaction/error/automation/agent/integration 事件归一为共享的语义活动模型；TUI 用动态工作步骤表现，Electron 用可折叠活动卡表现。
 - `Storage`：atomic JSON、append-only JSONL、lock、schema migration 和 recovery。
+- `System Service`：生产 GUI/TUI 自动安装并连接 systemd user service；服务负责完整 Kernel/automation/integration 生命周期，客户端退出不改变服务状态。
 
 ## 数据流
 
@@ -45,10 +46,10 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 16. 生成资源只允许从 `workspace/staging` 检查；目录内容形成 deterministic SHA-256，显式安装必须提交相同 digest。安装使用不可变私有目录，trust store 只信任 exact content，不执行 staging 代码，也不自动运行依赖 lifecycle scripts。
 17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
 18. Electron main 是桌面侧唯一 UDS owner；renderer 使用原生 DOM，仅通过固定 preload API 发送离散 action。main 对 action、snapshot/event、JSON 深度/大小和 event type 做二次校验，连续 delta 可合并但 cursor 顺序不可跳过。
-19. Desktop 通过同一 PID + process-start 单实例锁决定 Daemon 所有权：锁可获取时在 Electron main process 内启动并标记 `owned`，活跃锁存在时标记 `external` 并复用；退出只停止 `owned` 实例。
+19. 生产 Desktop/TUI 不再拥有 Daemon：首次启动原子写入 systemd user unit，执行 `enable --now` 并尝试启用 linger；服务使用 `Restart=always`，客户端只连接 UDS。旧的 owned/external supervisor 仅保留给隔离 Electron smoke，测试不得写真实用户服务。
 20. 模型设置由 GUI/TUI/CLI 共用 `LlmSettingsService` 与严格 decoder，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，GUI/TUI 状态只获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被客户端擅自中断。
 21. 用户级 Provider 只暴露 `deepseek`、`openai`、`custom-openai`；前两者使用受控默认 endpoint/API，只有自定义 OpenAI 可写 Base URL 并选择 Chat Completions/Responses。TUI 同时提供无副作用预览/确认的 wizard 与可脚本化配置命令。
-22. `DaemonSupervisor` 是桌面和 TUI 的共享生命周期 owner；通过单实例锁区分 `owned/external`，只停止自己拥有的 Daemon，解决独立 AppImage/TUI 启动时缺失 socket 的问题。
+22. `SystemServiceManager` 是生产桌面和 TUI 的共享服务控制层；Node/npm/SEA 使用 CLI 入口，Electron 包使用 `ELECTRON_RUN_AS_NODE=1` 执行 asar 内 CLI。`DaemonSupervisor` 仅作为 smoke fixture 的临时生命周期工具。
 23. GUI/TUI 不再各自解释原始 tool event；`CoworkActivity` 在共享 reducer 中按 `toolCallId` 合并 started/updated/completed，生成 cowork 语义标签、目标、状态、结果与耗时。技术详情在共享层统一脱敏、限深和限制为 8 KB，平台层仅决定视觉表现。
 
 ## 重要约束
@@ -77,3 +78,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-11：GUI/TUI/CLI 抽出共享 protocol reducer、presentation/input routing、Daemon supervisor 与 LLM settings core；TUI 补齐响应式双栏、完整状态面板和 wizard/命令双配置入口，npm CLI 包可独立安装运行。
 - 2026-08-13：增加 GUI/TUI 共享 `CoworkActivity` reducer，TUI 升级为有角色语义色、动态思考/工具状态、工作历史和脱敏详情的 cowork 工作台；Electron 活动卡同步消费该模型。
 - 2026-08-20：Linux GUI 发行改为全量 zip（含创建桌面快捷方式脚本）与不含 Chromium 的 overlay zip；LLM 设置增加私有 Cookie 头以调用代理 API；主工作区初始纵向铺满窗口。
+- 2026-08-26：生产后台生命周期迁移到 systemd user service；GUI/TUI 自动安装、启用、重连但不再启停服务，legacy daemon 在首次迁移时经协议优雅退出，Electron smoke 继续使用隔离 supervisor。
