@@ -23,6 +23,7 @@ export declare class PiRuntimeAdapter implements AgentRuntimePort {
     prompt(sessionId: SessionId, input: string): Promise<Accepted>;
     steer(sessionId: SessionId, input: string): Promise<Accepted>;
     followUp(sessionId: SessionId, input: string): Promise<Accepted>;
+    promoteFollowUp(sessionId: SessionId, index: number): Promise<Accepted>;
     abort(sessionId: SessionId, _reason: string): Promise<void>;
     compact(sessionId: SessionId, instructions?: string): Promise<void>;
     snapshot(sessionId: SessionId): AgentSnapshot;

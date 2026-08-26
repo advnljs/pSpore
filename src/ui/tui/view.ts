@@ -281,7 +281,9 @@ function renderSessionList(state: TuiStoreSnapshot, width: number, color: boolea
     const marker = item.selected ? "●" : "○";
     const tone = item.selected ? "brand" : item.status === "running" ? "live" : "muted";
     lines.push(`${"  ".repeat(item.depth)}${branch}${paint(marker, tone, color)} ${paint(shortId(item.id), item.kind === "agent" ? "agent" : "lichen", color)}  ${paint(item.status, item.status === "running" ? "live" : "faint", color)}`);
-    if (item.kind === "agent" && width >= 24) lines.push(paint(`${"  ".repeat(item.depth + 1)}  ${item.title}`, "faint", color));
+    if (width >= 24 && (item.kind === "agent" || item.title !== "Main session")) {
+      lines.push(paint(`${"  ".repeat(item.depth + 1)}  ${item.title}`, "faint", color));
+    }
   }
   return lines.map((line) => truncateToWidth(line, width));
 }
@@ -328,6 +330,15 @@ function renderTranscript(state: TuiStoreSnapshot, width: number, color: boolean
   if (activities.length > 0) lines.push(...renderWorkSteps(activities, width, color, animationFrame), "");
   const streaming = state.streamingText[state.selectedSessionId];
   if (streaming) lines.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width, color));
+  const childSelected = Object.values(state.kernel.agents).some((agent) => agent.sessionId === state.selectedSessionId);
+  const queued = childSelected ? [] : (selected?.queue.followUp ?? []);
+  if (queued.length > 0) {
+    lines.push("", paint("QUEUED MESSAGES", "section", color));
+    for (const [index, message] of queued.entries()) {
+      const source = `${paint(`${index + 1}. 继续排队`, "honey", color)} · ${paint(message, "muted", color)} · ${paint(`/send-now ${index + 1} 直接发送消息`, "bone", color)}`;
+      lines.push(...wrapTextWithAnsi(source, Math.max(1, width)));
+    }
+  }
   return lines;
 }
 

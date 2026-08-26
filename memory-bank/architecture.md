@@ -15,10 +15,11 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - `Notification`：durable local/session delivery，进入共享 Kernel snapshot，由 TUI/Electron 表现。
 - `Subagent Router`：session actor tree、mailbox、budget、权限继承和双工消息。
 - `Extension Host`：Pi skills/extensions、pSpore plugins 和 MCP adapter。
-- `Shared Client Core`：GUI/TUI 共用 protocol state reducer、presentation model、会话输入路由、Daemon supervisor 与 LLM settings service；DOM/terminal widget 各自渲染。
+- `Shared Client Core`：GUI/TUI 共用 protocol state reducer、presentation model、会话输入路由与 LLM settings service；DOM/terminal widget 各自渲染。
 - `Cowork Activity`：将 tool/run/retry/compaction/error/automation/agent/integration 事件归一为共享的语义活动模型；TUI 用动态工作步骤表现，Electron 用可折叠活动卡表现。
 - `Storage`：atomic JSON、append-only JSONL、lock、schema migration 和 recovery。
 - `System Service`：生产 GUI/TUI 自动安装并连接 systemd user service；服务负责完整 Kernel/automation/integration 生命周期，客户端退出不改变服务状态。
+- `Session Catalog`：将多个交互式根 session 的稳定 ID/标题/时间映射到 Pi JSONL；服务 ready 前恢复全部历史，agent/automation 临时 session 不进入目录。
 
 ## 数据流
 
@@ -51,6 +52,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 21. 用户级 Provider 只暴露 `deepseek`、`openai`、`custom-openai`；前两者使用受控默认 endpoint/API，只有自定义 OpenAI 可写 Base URL 并选择 Chat Completions/Responses。TUI 同时提供无副作用预览/确认的 wizard 与可脚本化配置命令。
 22. `SystemServiceManager` 是生产桌面和 TUI 的共享服务控制层；Node/npm/SEA 使用 CLI 入口，Electron 包使用 `ELECTRON_RUN_AS_NODE=1` 执行 asar 内 CLI。`DaemonSupervisor` 仅作为 smoke fixture 的临时生命周期工具。
 23. GUI/TUI 不再各自解释原始 tool event；`CoworkActivity` 在共享 reducer 中按 `toolCallId` 合并 started/updated/completed，生成 cowork 语义标签、目标、状态、结果与耗时。技术详情在共享层统一脱敏、限深和限制为 8 KB，平台层仅决定视觉表现。
+24. 交互式根 session 通过私有原子 catalog 持久映射到 Pi JSONL，服务启动逐个 `resume`；普通输入由 Application 按运行状态自动选择 prompt/follow-up。follow-up 可通过重排 Pi 队列提升为内部 steer，但客户端只呈现“继续排队/直接发送消息”。
 
 ## 重要约束
 
@@ -79,3 +81,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-13：增加 GUI/TUI 共享 `CoworkActivity` reducer，TUI 升级为有角色语义色、动态思考/工具状态、工作历史和脱敏详情的 cowork 工作台；Electron 活动卡同步消费该模型。
 - 2026-08-20：Linux GUI 发行改为全量 zip（含创建桌面快捷方式脚本）与不含 Chromium 的 overlay zip；LLM 设置增加私有 Cookie 头以调用代理 API；主工作区初始纵向铺满窗口。
 - 2026-08-26：生产后台生命周期迁移到 systemd user service；GUI/TUI 自动安装、启用、重连但不再启停服务，legacy daemon 在首次迁移时经协议优雅退出，Electron smoke 继续使用隔离 supervisor。
+- 2026-08-26：根 session 目录、多会话创建/恢复与历史加载落地；GUI/TUI 取消三模式 composer，普通发送自动 follow-up，并提供逐条“继续排队/直接发送消息”。

@@ -63,9 +63,12 @@
           <header class="panel-header navigation-header">
             <div class="section-heading">
               <div><h2>会话</h2></div>
-              <span id="session-count" class="count-pill">0</span>
+              <div class="section-heading-actions">
+                <span id="session-count" class="count-pill">0</span>
+                <button id="new-session-button" class="quiet-icon-button" type="button" title="新建会话" aria-label="新建会话">＋</button>
+              </div>
             </div>
-            <p>主会话与有界子任务共享同一上下文视图。</p>
+            <p>根会话独立保存历史；有界子任务挂在所属会话下。</p>
           </header>
           <section class="sessions-section">
             <nav id="session-list" class="session-list" aria-label="会话列表"></nav>
@@ -125,16 +128,11 @@
 
           <div class="composer-wrap">
             <div id="notice-line" class="notice-line" role="status">正在启动…</div>
+            <div id="message-queue" class="message-queue" aria-label="排队消息" hidden></div>
             <form id="composer-form" class="composer" autocomplete="off">
               <textarea id="composer-input" name="message" rows="3" maxlength="65536" placeholder="向 main 发送消息…" aria-label="消息"></textarea>
               <div class="composer-toolbar">
-                <label class="mode-select"><span>发送方式</span>
-                  <select id="composer-mode" name="mode">
-                    <option value="prompt">Prompt</option>
-                    <option value="steer">Steer</option>
-                    <option value="follow_up">Follow-up</option>
-                  </select>
-                </label>
+                <span class="send-behavior-hint">运行中发送的消息会继续排队</span>
                 <div class="composer-actions">
                   <button id="compact-button" class="ghost-button" type="button">压缩上下文</button>
                   <button id="abort-button" class="danger-ghost-button" type="button">中止</button>

@@ -1,7 +1,7 @@
 /// <reference lib="DOM" />
 
 import type { JobDefinition } from "../../automation/types.js";
-import type { RuntimeMessage } from "../../domain/runtime.js";
+import type { AgentSnapshot, RuntimeMessage } from "../../domain/runtime.js";
 import type { ResourceCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
 import { defaultModelFor, type ProviderOption } from "../../settings/llm-settings.js";
@@ -77,6 +77,7 @@ const elements = {
   connectionBanner: byId<HTMLElement>("connection-banner"),
   connectionMessage: byId<HTMLElement>("connection-message"),
   sessionCount: byId<HTMLElement>("session-count"),
+  newSession: byId<HTMLButtonElement>("new-session-button"),
   sessionList: byId<HTMLElement>("session-list"),
   railRuns: byId<HTMLElement>("rail-runs"),
   railMcp: byId<HTMLElement>("rail-mcp"),
@@ -101,9 +102,9 @@ const elements = {
   modelName: byId<HTMLElement>("model-name"),
   transcript: byId<HTMLElement>("transcript"),
   notice: byId<HTMLElement>("notice-line"),
+  messageQueue: byId<HTMLElement>("message-queue"),
   composerForm: byId<HTMLFormElement>("composer-form"),
   composerInput: byId<HTMLTextAreaElement>("composer-input"),
-  composerMode: byId<HTMLSelectElement>("composer-mode"),
   compact: byId<HTMLButtonElement>("compact-button"),
   abort: byId<HTMLButtonElement>("abort-button"),
   send: byId<HTMLButtonElement>("send-button"),
@@ -216,6 +217,13 @@ function bindStaticActions(): void {
     }
   });
   elements.refresh.addEventListener("click", () => void refreshSideData());
+  elements.newSession.addEventListener("click", () => {
+    void perform("新建会话", { action: "session.create" }, (result) => {
+      if (!isAgentSnapshot(result)) throw new Error("服务返回了无效的会话");
+      store.selectSession(result.sessionId);
+      elements.composerInput.focus();
+    });
+  });
   elements.settingsButton.addEventListener("click", () => void openSettings());
   elements.settingsClose.addEventListener("click", () => closeSettings());
   elements.settingsCancel.addEventListener("click", () => closeSettings());
@@ -250,7 +258,9 @@ function bindStaticActions(): void {
     event.preventDefault();
     const objective = elements.spawnObjective.value.trim();
     if (!objective) return;
-    void perform("启动子 Agent", { action: "agent.spawn", objective }, () => {
+    const snapshot = store.snapshot();
+    const parentId = selectedAgent(snapshot)?.rootId ?? snapshot.selectedSessionId;
+    void perform("启动子 Agent", { action: "agent.spawn", objective, parentId }, () => {
       elements.spawnObjective.value = "";
       setAgentCompose(false);
       return refreshSideData();
@@ -259,10 +269,15 @@ function bindStaticActions(): void {
   elements.abort.addEventListener("click", () => {
     const snapshot = store.snapshot();
     const child = selectedAgent(snapshot);
-    const command: DesktopCommand = child ? { action: "agent.cancel", agentId: child.id } : { action: "abort" };
+    const command: DesktopCommand = child
+      ? { action: "agent.cancel", agentId: child.id }
+      : { action: "abort", sessionId: snapshot.selectedSessionId };
     void perform(child ? `取消 ${child.id}` : "中止主会话", command);
   });
-  elements.compact.addEventListener("click", () => void perform("压缩主会话上下文", { action: "compact" }));
+  elements.compact.addEventListener("click", () => {
+    const sessionId = store.snapshot().selectedSessionId;
+    void perform("压缩会话上下文", { action: "compact", sessionId });
+  });
   elements.joinAgent.addEventListener("click", () => {
     const child = selectedAgent(store.snapshot());
     if (child) void perform(`等待 ${child.id} 完成`, { action: "agent.join", agentIds: [child.id] });
@@ -469,12 +484,11 @@ async function submitComposer(): Promise<void> {
   if (!text) return;
   nudgeElement(elements.send);
   const snapshot = store.snapshot();
-  const mode = elements.composerMode.value;
   const intent = conversationIntent(
     snapshot.kernel,
     snapshot.selectedSessionId,
     text,
-    mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "prompt",
+    "auto",
   );
   let command: DesktopCommand;
   if (intent.target === "agent") {
@@ -485,9 +499,9 @@ async function submitComposer(): Promise<void> {
       mode: intent.mode,
     };
   } else {
-    command = { action: intent.mode, text: intent.text };
+    command = { action: "prompt", text: intent.text, sessionId: intent.sessionId };
   }
-  await perform(`发送到 ${intent.target === "agent" ? intent.agentId : "main"}`, command, () => {
+  await perform(`发送到 ${intent.target === "agent" ? intent.agentId : shortId(intent.sessionId)}`, command, () => {
     elements.composerInput.value = "";
     elements.composerInput.focus();
   });
@@ -586,6 +600,7 @@ function renderSessions(snapshot: DesktopStoreSnapshot): void {
   ));
   elements.sessionList.replaceChildren(...nodes);
   elements.sessionCount.textContent = String(sessions.length);
+  elements.newSession.disabled = snapshot.connection.phase !== "connected";
   const child = selectedAgent(snapshot);
   elements.childControls.hidden = !child;
   elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
@@ -630,18 +645,20 @@ function sessionButton(id: string, title: string, status: string, depth: number,
 function renderConversation(snapshot: DesktopStoreSnapshot): void {
   const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
   const child = selectedAgent(snapshot);
-  elements.sessionTitle.textContent = child ? `${shortId(child.id)} · ${child.objective}` : "main";
+  elements.sessionTitle.textContent = child
+    ? `${shortId(child.id)} · ${child.objective}`
+    : session?.rootSession?.title ?? (snapshot.selectedSessionId === "main" ? "main" : shortId(snapshot.selectedSessionId));
   const status = session?.status ?? (child?.status ?? "idle");
   elements.sessionStatus.textContent = status.toUpperCase();
   elements.sessionStatus.className = `status-chip ${status}`;
   elements.modelName.textContent = session?.model ? `${session.model.provider}/${session.model.model}` : "未配置模型";
-  elements.composerInput.placeholder = `向 ${child?.id ?? "main"} 发送消息…`;
+  elements.composerInput.placeholder = `向 ${child?.id ?? shortId(snapshot.selectedSessionId)} 发送消息…`;
   const connected = snapshot.connection.phase === "connected";
   elements.composerInput.disabled = !connected;
-  elements.composerMode.disabled = !connected;
   elements.send.disabled = !connected;
   elements.abort.disabled = !connected || (!child && session?.status !== "running");
   elements.compact.disabled = !connected || Boolean(child) || !session;
+  renderMessageQueue(snapshot, child ? undefined : session);
 
   const transcript = elements.transcript;
   const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
@@ -666,6 +683,34 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   if (pinned) requestAnimationFrame(() => transcript.scrollTo({ top: transcript.scrollHeight }));
 }
 
+function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: AgentSnapshot | undefined): void {
+  const queued = session?.queue.followUp ?? [];
+  elements.messageQueue.hidden = queued.length === 0;
+  if (queued.length === 0) {
+    elements.messageQueue.replaceChildren();
+    return;
+  }
+  const nodes = queued.map((message, index) => {
+    const row = element("article", "queue-message");
+    const state = element("span");
+    state.textContent = "继续排队";
+    const copy = element("p");
+    copy.textContent = message;
+    copy.title = message;
+    const sendNow = actionButton("直接发送消息", "ghost-button", () => {
+      void perform("直接发送消息", {
+        action: "queue.send-now",
+        sessionId: snapshot.selectedSessionId,
+        index,
+      });
+    });
+    sendNow.disabled = snapshot.connection.phase !== "connected";
+    row.append(state, copy, sendNow);
+    return row;
+  });
+  elements.messageQueue.replaceChildren(...nodes);
+}
+
 const MAIN_SESSION_EXAMPLES = [
   "整理 ~/Downloads：按类型归档最近一周的文件，先给出计划",
   "找出这台机器上占用磁盘最多的 10 个目录",
@@ -679,7 +724,7 @@ function emptyTranscript(isChild: boolean): HTMLElement {
   heading.textContent = isChild ? "子 Agent 尚未产生消息" : "在这台机器上开始一件事";
   const body = element("span");
   body.textContent = isChild
-    ? "可以继续发送消息推进它，或用 steer 调整方向、follow-up 补充信息。"
+    ? "可以继续发送消息推进它；运行中发送的内容会自动排队。"
     : "pSpore 在本地运行：读写文件、执行命令、安排定时任务；越界操作会先向你请求批准。";
   inner.append(heading, body);
   if (!isChild) {
@@ -1066,6 +1111,13 @@ function isResourceEntry(value: unknown): value is ResourceCatalogEntry {
 
 function isInspection(value: unknown): value is StagedResourceInspection {
   return isRecord(value) && value["version"] === 1 && typeof value["name"] === "string" && typeof value["digest"] === "string" && Array.isArray(value["files"]);
+}
+
+function isAgentSnapshot(value: unknown): value is AgentSnapshot {
+  return isRecord(value)
+    && typeof value["sessionId"] === "string"
+    && typeof value["upstreamSessionId"] === "string"
+    && Array.isArray(value["messages"]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

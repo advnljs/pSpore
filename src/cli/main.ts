@@ -107,6 +107,11 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
     case "agents":
       requireNoArgs(args, "agents");
       return printProtocolList(home, "agents.list");
+    case "sessions":
+      requireNoArgs(args, "sessions");
+      return printSessions(home);
+    case "session":
+      return runSessionCommand(home, args);
     case "agent":
       return runAgentCommand(home, args);
     case "mcp":
@@ -132,8 +137,7 @@ export async function runCli(argv = process.argv.slice(2)): Promise<number> {
       if (args.length !== 1) throw new CliError("cancel requires exactly one run ID");
       return cancelRun(home, args[0] as string);
     case "prompt":
-      if (args.length === 0 || !args.join(" ").trim()) throw new CliError("prompt requires text");
-      return runPrompt(home, args.join(" "));
+      return runPromptCommand(home, args);
     default:
       throw new CliError(`Unknown command: ${command}\n\n${helpText()}`);
   }
@@ -684,7 +688,21 @@ function settingsUpdate(settings: LlmSettings, changes: Partial<LlmSettingsUpdat
   };
 }
 
-async function runPrompt(home: string, text: string): Promise<number> {
+async function runPromptCommand(home: string, args: readonly string[]): Promise<number> {
+  let sessionId = "main";
+  let textArgs = args;
+  if (args[0] === "--session") {
+    const selected = args[1];
+    if (!selected) throw new CliError("prompt --session requires a session ID");
+    sessionId = selected;
+    textArgs = args.slice(2);
+  }
+  const text = textArgs.join(" ").trim();
+  if (!text) throw new CliError("prompt requires text");
+  return runPrompt(home, text, sessionId);
+}
+
+async function runPrompt(home: string, text: string, sessionId: string): Promise<number> {
   const client = await connectFromEndpoint(home, "prompt");
   let resolveSettled!: () => void;
   let printedDelta = false;
@@ -692,18 +710,20 @@ async function runPrompt(home: string, text: string): Promise<number> {
     resolveSettled = resolve;
   });
   const unsubscribe = client.subscribe((event) => {
-    if (event.type === "message.delta" && typeof (event.payload as Record<string, unknown>)["delta"] === "string") {
+    const payload = event.payload as Record<string, unknown>;
+    if (payload["sessionId"] !== sessionId) return;
+    if (event.type === "message.delta" && typeof payload["delta"] === "string") {
       printedDelta = true;
-      process.stdout.write((event.payload as Record<string, unknown>)["delta"] as string);
+      process.stdout.write(payload["delta"] as string);
     }
     if (event.type === "run.settled") resolveSettled();
   });
-  const abort = () => void client.command("session.abort", { reason: "CLI interrupted" }, { sessionId: "main" }).catch(() => undefined);
+  const abort = () => void client.command("session.abort", { reason: "CLI interrupted" }, { sessionId }).catch(() => undefined);
   process.once("SIGINT", abort);
   try {
-    await client.command("session.prompt", { text, mode: "prompt" }, { sessionId: "main" });
+    await client.command("session.prompt", { text, mode: "auto" }, { sessionId });
     await settled;
-    const snapshot = await client.command<AgentSnapshot | null>("session.snapshot", {}, { sessionId: "main" });
+    const snapshot = await client.command<AgentSnapshot | null>("session.snapshot", {}, { sessionId });
     if (!snapshot) throw new CliError("Session disappeared before completion");
     const finalText = snapshot.messages.at(-1)?.text;
     if (printedDelta) process.stdout.write("\n");
@@ -712,6 +732,39 @@ async function runPrompt(home: string, text: string): Promise<number> {
   } finally {
     process.off("SIGINT", abort);
     unsubscribe();
+    await client.close();
+  }
+}
+
+async function printSessions(home: string): Promise<number> {
+  const client = await connectFromEndpoint(home, "sessions");
+  try {
+    const status = await client.command<KernelState>("status.get", {});
+    const roots = Object.values(status.sessions)
+      .filter((session) => session.rootSession)
+      .map((session) => ({
+        id: session.sessionId,
+        title: session.rootSession?.title,
+        status: session.status,
+        messages: session.messages.length,
+        updatedAt: session.rootSession?.updatedAt,
+      }));
+    process.stdout.write(`${JSON.stringify(roots, null, 2)}\n`);
+    return 0;
+  } finally {
+    await client.close();
+  }
+}
+
+async function runSessionCommand(home: string, args: readonly string[]): Promise<number> {
+  if (args[0] !== "new") throw new CliError("session usage: session new [TITLE]");
+  const title = args.slice(1).join(" ").trim();
+  const client = await connectFromEndpoint(home, "session-new");
+  try {
+    const created = await client.command<AgentSnapshot>("session.create", title ? { title } : {});
+    process.stdout.write(`${created.sessionId}\t${created.rootSession?.title ?? "New session"}\n`);
+    return 0;
+  } finally {
     await client.close();
   }
 }
@@ -914,7 +967,7 @@ async function endpointFor(home: string): Promise<{ socket: string; state: strin
     value = JSON.parse(await readFile(path, "utf8"));
   } catch (error) {
     throw new CliError(
-      `No daemon endpoint at ${path}; start it with \`${resolveInvokedName(process.argv[1])} daemon\``,
+      `No service endpoint at ${path}; start it with \`${resolveInvokedName(process.argv[1])} service start\``,
     );
   }
   if (!isRecord(value) || value["version"] !== 1 || typeof value["socket"] !== "string" || typeof value["state"] !== "string") {
@@ -947,7 +1000,7 @@ function requireNoArgs(args: readonly string[], command: string): void {
 }
 
 function helpText(): string {
-  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  prompt TEXT      Send one prompt and wait for completion\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+  return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  sessions         List persistent root sessions\n  session new [TITLE]\n                   Create a persistent root session\n  prompt [--session ID] TEXT\n                   Send normally; if busy, continue queuing and wait\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 
 class CliError extends Error {

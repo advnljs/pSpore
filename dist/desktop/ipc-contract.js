@@ -14,10 +14,31 @@ export function decodeDesktopCommand(value) {
         case "prompt":
         case "steer":
         case "follow_up":
-            exactKeys(input, ["action", "text"], action);
-            return { action, text: boundedString(input["text"], `${action}.text`, 65_536) };
+            exactKeys(input, ["action", "text", "sessionId"], action);
+            return {
+                action,
+                text: boundedString(input["text"], `${action}.text`, 65_536),
+                sessionId: identifier(input["sessionId"], `${action}.sessionId`),
+            };
         case "abort":
         case "compact":
+            exactKeys(input, ["action", "sessionId"], action);
+            return { action, sessionId: identifier(input["sessionId"], `${action}.sessionId`) };
+        case "session.create": {
+            exactKeys(input, ["action", "title"], action, ["title"]);
+            const title = input["title"];
+            return {
+                action,
+                ...(title === undefined ? {} : { title: boundedString(title, "session.create.title", 120) }),
+            };
+        }
+        case "queue.send-now":
+            exactKeys(input, ["action", "sessionId", "index"], action);
+            return {
+                action,
+                sessionId: identifier(input["sessionId"], "queue.send-now.sessionId"),
+                index: nonNegativeInteger(input["index"], "queue.send-now.index", 10_000),
+            };
         case "jobs.list":
         case "runs.list":
         case "notifications.list":
@@ -48,8 +69,12 @@ export function decodeDesktopCommand(value) {
             exactKeys(input, ["action", "runId"], action);
             return { action, runId: identifier(input["runId"], "run.cancel.runId") };
         case "agent.spawn":
-            exactKeys(input, ["action", "objective"], action);
-            return { action, objective: boundedString(input["objective"], "agent.spawn.objective", 16_384) };
+            exactKeys(input, ["action", "objective", "parentId"], action);
+            return {
+                action,
+                objective: boundedString(input["objective"], "agent.spawn.objective", 16_384),
+                parentId: identifier(input["parentId"], "agent.spawn.parentId"),
+            };
         case "agent.send":
             exactKeys(input, ["action", "agentId", "message", "mode"], action);
             return {
@@ -93,15 +118,19 @@ export function decodeDesktopCommand(value) {
 export function toProtocolInvocation(command, paths) {
     switch (command.action) {
         case "prompt":
-            return { type: "session.prompt", payload: { text: command.text, mode: "prompt" }, sessionId: "main" };
+            return { type: "session.prompt", payload: { text: command.text, mode: "auto" }, sessionId: command.sessionId };
         case "steer":
-            return { type: "session.prompt", payload: { text: command.text, mode: "steer" }, sessionId: "main" };
+            return { type: "session.prompt", payload: { text: command.text, mode: "steer" }, sessionId: command.sessionId };
         case "follow_up":
-            return { type: "session.prompt", payload: { text: command.text, mode: "follow_up" }, sessionId: "main" };
+            return { type: "session.prompt", payload: { text: command.text, mode: "follow_up" }, sessionId: command.sessionId };
         case "abort":
-            return { type: "session.abort", payload: { reason: "Electron user requested abort" }, sessionId: "main" };
+            return { type: "session.abort", payload: { reason: "Electron user requested abort" }, sessionId: command.sessionId };
         case "compact":
-            return { type: "session.compact", payload: {}, sessionId: "main" };
+            return { type: "session.compact", payload: {}, sessionId: command.sessionId };
+        case "session.create":
+            return { type: "session.create", payload: command.title === undefined ? {} : { title: command.title } };
+        case "queue.send-now":
+            return { type: "session.queue.send-now", payload: { index: command.index }, sessionId: command.sessionId };
         case "approval.resolve":
             return {
                 type: "approval.resolve",
@@ -125,7 +154,7 @@ export function toProtocolInvocation(command, paths) {
             return {
                 type: "agent.spawn",
                 payload: {
-                    parentId: "main",
+                    parentId: command.parentId,
                     objective: command.objective,
                     workspaceMode: "shared-read",
                     budget: {
@@ -169,13 +198,14 @@ function object(value, path) {
         throw new Error(`${path} must be an object`);
     return value;
 }
-function exactKeys(value, keys, path) {
+function exactKeys(value, keys, path, optional = []) {
     const expected = new Set(keys);
+    const optionalKeys = new Set(optional);
     const unknown = Object.keys(value).filter((key) => !expected.has(key));
     if (unknown.length > 0)
         throw new Error(`${path} contains unknown fields: ${unknown.join(", ")}`);
     for (const key of keys)
-        if (!(key in value))
+        if (!optionalKeys.has(key) && !(key in value))
             throw new Error(`${path}.${key} is required`);
 }
 function boundedString(value, path, maximum) {
@@ -198,6 +228,12 @@ function identifierArray(value, path, maximum) {
     if (new Set(result).size !== result.length)
         throw new Error(`${path} must not contain duplicates`);
     return result;
+}
+function nonNegativeInteger(value, path, maximum) {
+    if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > maximum) {
+        throw new Error(`${path} must be an integer between 0 and ${maximum}`);
+    }
+    return Number(value);
 }
 function resourceName(value, path) {
     const text = boundedString(value, path, 128);

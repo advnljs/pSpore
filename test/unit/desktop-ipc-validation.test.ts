@@ -16,7 +16,11 @@ import {
 } from "../../src/desktop/validation.js";
 
 test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
-  assert.deepEqual(decodeDesktopCommand({ action: "prompt", text: "hello" }), { action: "prompt", text: "hello" });
+  assert.deepEqual(decodeDesktopCommand({ action: "prompt", text: "hello", sessionId: "session-1" }), {
+    action: "prompt",
+    text: "hello",
+    sessionId: "session-1",
+  });
   assert.deepEqual(decodeDesktopCommand({ action: "approval.resolve", approvalId: "approval-1", approved: true, scope: "once" }), {
     action: "approval.resolve",
     approvalId: "approval-1",
@@ -26,6 +30,15 @@ test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
   assert.deepEqual(decodeDesktopCommand({ action: "resources.inspect", stagingName: "review-helper.v1" }), {
     action: "resources.inspect",
     stagingName: "review-helper.v1",
+  });
+  assert.deepEqual(decodeDesktopCommand({ action: "session.create", title: "Research" }), {
+    action: "session.create",
+    title: "Research",
+  });
+  assert.deepEqual(decodeDesktopCommand({ action: "queue.send-now", sessionId: "session-1", index: 2 }), {
+    action: "queue.send-now",
+    sessionId: "session-1",
+    index: 2,
   });
   assert.throws(() => decodeDesktopCommand({ action: "shell.exec", command: "id" }), /not allowlisted/);
   assert.throws(() => decodeDesktopCommand({ action: "abort", channel: "arbitrary" }), /unknown fields/);
@@ -107,16 +120,21 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
 
 test("desktop command mapping fixes session, resource root, and child ceiling", () => {
   const paths = { stagingPath: (name: string) => `/private/workspace/staging/${name}` };
-  assert.deepEqual(toProtocolInvocation({ action: "steer", text: "redirect" }, paths), {
+  assert.deepEqual(toProtocolInvocation({ action: "steer", text: "redirect", sessionId: "session-1" }, paths), {
     type: "session.prompt",
     payload: { text: "redirect", mode: "steer" },
-    sessionId: "main",
+    sessionId: "session-1",
   });
   assert.deepEqual(toProtocolInvocation({ action: "resources.inspect", stagingName: "safe-skill" }, paths), {
     type: "resources.inspect",
     payload: { stagingPath: "/private/workspace/staging/safe-skill" },
   });
-  const spawn = toProtocolInvocation({ action: "agent.spawn", objective: "bounded work" }, paths);
+  assert.deepEqual(toProtocolInvocation({ action: "queue.send-now", sessionId: "session-1", index: 2 }, paths), {
+    type: "session.queue.send-now",
+    payload: { index: 2 },
+    sessionId: "session-1",
+  });
+  const spawn = toProtocolInvocation({ action: "agent.spawn", objective: "bounded work", parentId: "session-1" }, paths);
   assert.equal(spawn.type, "agent.spawn");
   assert.deepEqual(spawn.payload["workspaceMode"], "shared-read");
   assert.deepEqual((spawn.payload["budget"] as Record<string, unknown>)["maxChildren"], 0);

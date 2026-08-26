@@ -51,16 +51,28 @@ export type DesktopFrame = {
 export type DesktopCommand = {
     action: "prompt";
     text: string;
+    sessionId: string;
 } | {
     action: "steer";
     text: string;
+    sessionId: string;
 } | {
     action: "follow_up";
     text: string;
+    sessionId: string;
 } | {
     action: "abort";
+    sessionId: string;
 } | {
     action: "compact";
+    sessionId: string;
+} | {
+    action: "session.create";
+    title?: string;
+} | {
+    action: "queue.send-now";
+    sessionId: string;
+    index: number;
 } | {
     action: "approval.resolve";
     approvalId: string;
@@ -83,6 +95,7 @@ export type DesktopCommand = {
 } | {
     action: "agent.spawn";
     objective: string;
+    parentId: string;
 } | {
     action: "agent.send";
     agentId: string;

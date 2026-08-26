@@ -42,6 +42,7 @@ const elements = {
     connectionBanner: byId("connection-banner"),
     connectionMessage: byId("connection-message"),
     sessionCount: byId("session-count"),
+    newSession: byId("new-session-button"),
     sessionList: byId("session-list"),
     railRuns: byId("rail-runs"),
     railMcp: byId("rail-mcp"),
@@ -66,9 +67,9 @@ const elements = {
     modelName: byId("model-name"),
     transcript: byId("transcript"),
     notice: byId("notice-line"),
+    messageQueue: byId("message-queue"),
     composerForm: byId("composer-form"),
     composerInput: byId("composer-input"),
-    composerMode: byId("composer-mode"),
     compact: byId("compact-button"),
     abort: byId("abort-button"),
     send: byId("send-button"),
@@ -180,6 +181,14 @@ function bindStaticActions() {
         }
     });
     elements.refresh.addEventListener("click", () => void refreshSideData());
+    elements.newSession.addEventListener("click", () => {
+        void perform("新建会话", { action: "session.create" }, (result) => {
+            if (!isAgentSnapshot(result))
+                throw new Error("服务返回了无效的会话");
+            store.selectSession(result.sessionId);
+            elements.composerInput.focus();
+        });
+    });
     elements.settingsButton.addEventListener("click", () => void openSettings());
     elements.settingsClose.addEventListener("click", () => closeSettings());
     elements.settingsCancel.addEventListener("click", () => closeSettings());
@@ -217,7 +226,9 @@ function bindStaticActions() {
         const objective = elements.spawnObjective.value.trim();
         if (!objective)
             return;
-        void perform("启动子 Agent", { action: "agent.spawn", objective }, () => {
+        const snapshot = store.snapshot();
+        const parentId = selectedAgent(snapshot)?.rootId ?? snapshot.selectedSessionId;
+        void perform("启动子 Agent", { action: "agent.spawn", objective, parentId }, () => {
             elements.spawnObjective.value = "";
             setAgentCompose(false);
             return refreshSideData();
@@ -226,10 +237,15 @@ function bindStaticActions() {
     elements.abort.addEventListener("click", () => {
         const snapshot = store.snapshot();
         const child = selectedAgent(snapshot);
-        const command = child ? { action: "agent.cancel", agentId: child.id } : { action: "abort" };
+        const command = child
+            ? { action: "agent.cancel", agentId: child.id }
+            : { action: "abort", sessionId: snapshot.selectedSessionId };
         void perform(child ? `取消 ${child.id}` : "中止主会话", command);
     });
-    elements.compact.addEventListener("click", () => void perform("压缩主会话上下文", { action: "compact" }));
+    elements.compact.addEventListener("click", () => {
+        const sessionId = store.snapshot().selectedSessionId;
+        void perform("压缩会话上下文", { action: "compact", sessionId });
+    });
     elements.joinAgent.addEventListener("click", () => {
         const child = selectedAgent(store.snapshot());
         if (child)
@@ -443,8 +459,7 @@ async function submitComposer() {
         return;
     nudgeElement(elements.send);
     const snapshot = store.snapshot();
-    const mode = elements.composerMode.value;
-    const intent = conversationIntent(snapshot.kernel, snapshot.selectedSessionId, text, mode === "steer" ? "steer" : mode === "follow_up" ? "follow_up" : "prompt");
+    const intent = conversationIntent(snapshot.kernel, snapshot.selectedSessionId, text, "auto");
     let command;
     if (intent.target === "agent") {
         command = {
@@ -455,9 +470,9 @@ async function submitComposer() {
         };
     }
     else {
-        command = { action: intent.mode, text: intent.text };
+        command = { action: "prompt", text: intent.text, sessionId: intent.sessionId };
     }
-    await perform(`发送到 ${intent.target === "agent" ? intent.agentId : "main"}`, command, () => {
+    await perform(`发送到 ${intent.target === "agent" ? intent.agentId : shortId(intent.sessionId)}`, command, () => {
         elements.composerInput.value = "";
         elements.composerInput.focus();
     });
@@ -542,6 +557,7 @@ function renderSessions(snapshot) {
     const nodes = sessions.map((session) => sessionButton(session.id, session.title, session.status, session.depth, session.selected, session.active));
     elements.sessionList.replaceChildren(...nodes);
     elements.sessionCount.textContent = String(sessions.length);
+    elements.newSession.disabled = snapshot.connection.phase !== "connected";
     const child = selectedAgent(snapshot);
     elements.childControls.hidden = !child;
     elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
@@ -584,18 +600,20 @@ function sessionButton(id, title, status, depth, selected, active) {
 function renderConversation(snapshot) {
     const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
     const child = selectedAgent(snapshot);
-    elements.sessionTitle.textContent = child ? `${shortId(child.id)} · ${child.objective}` : "main";
+    elements.sessionTitle.textContent = child
+        ? `${shortId(child.id)} · ${child.objective}`
+        : session?.rootSession?.title ?? (snapshot.selectedSessionId === "main" ? "main" : shortId(snapshot.selectedSessionId));
     const status = session?.status ?? (child?.status ?? "idle");
     elements.sessionStatus.textContent = status.toUpperCase();
     elements.sessionStatus.className = `status-chip ${status}`;
     elements.modelName.textContent = session?.model ? `${session.model.provider}/${session.model.model}` : "未配置模型";
-    elements.composerInput.placeholder = `向 ${child?.id ?? "main"} 发送消息…`;
+    elements.composerInput.placeholder = `向 ${child?.id ?? shortId(snapshot.selectedSessionId)} 发送消息…`;
     const connected = snapshot.connection.phase === "connected";
     elements.composerInput.disabled = !connected;
-    elements.composerMode.disabled = !connected;
     elements.send.disabled = !connected;
     elements.abort.disabled = !connected || (!child && session?.status !== "running");
     elements.compact.disabled = !connected || Boolean(child) || !session;
+    renderMessageQueue(snapshot, child ? undefined : session);
     const transcript = elements.transcript;
     const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
     const messages = session?.messages ?? [];
@@ -622,6 +640,33 @@ function renderConversation(snapshot) {
     if (pinned)
         requestAnimationFrame(() => transcript.scrollTo({ top: transcript.scrollHeight }));
 }
+function renderMessageQueue(snapshot, session) {
+    const queued = session?.queue.followUp ?? [];
+    elements.messageQueue.hidden = queued.length === 0;
+    if (queued.length === 0) {
+        elements.messageQueue.replaceChildren();
+        return;
+    }
+    const nodes = queued.map((message, index) => {
+        const row = element("article", "queue-message");
+        const state = element("span");
+        state.textContent = "继续排队";
+        const copy = element("p");
+        copy.textContent = message;
+        copy.title = message;
+        const sendNow = actionButton("直接发送消息", "ghost-button", () => {
+            void perform("直接发送消息", {
+                action: "queue.send-now",
+                sessionId: snapshot.selectedSessionId,
+                index,
+            });
+        });
+        sendNow.disabled = snapshot.connection.phase !== "connected";
+        row.append(state, copy, sendNow);
+        return row;
+    });
+    elements.messageQueue.replaceChildren(...nodes);
+}
 const MAIN_SESSION_EXAMPLES = [
     "整理 ~/Downloads：按类型归档最近一周的文件，先给出计划",
     "找出这台机器上占用磁盘最多的 10 个目录",
@@ -634,7 +679,7 @@ function emptyTranscript(isChild) {
     heading.textContent = isChild ? "子 Agent 尚未产生消息" : "在这台机器上开始一件事";
     const body = element("span");
     body.textContent = isChild
-        ? "可以继续发送消息推进它，或用 steer 调整方向、follow-up 补充信息。"
+        ? "可以继续发送消息推进它；运行中发送的内容会自动排队。"
         : "pSpore 在本地运行：读写文件、执行命令、安排定时任务；越界操作会先向你请求批准。";
     inner.append(heading, body);
     if (!isChild) {
@@ -993,6 +1038,12 @@ function isResourceEntry(value) {
 }
 function isInspection(value) {
     return isRecord(value) && value["version"] === 1 && typeof value["name"] === "string" && typeof value["digest"] === "string" && Array.isArray(value["files"]);
+}
+function isAgentSnapshot(value) {
+    return isRecord(value)
+        && typeof value["sessionId"] === "string"
+        && typeof value["upstreamSessionId"] === "string"
+        && Array.isArray(value["messages"]);
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);

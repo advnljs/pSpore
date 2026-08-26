@@ -11,12 +11,15 @@ export class AgentApplication {
     #kernel;
     #approvals;
     #notifications;
+    #sessionCatalog;
     #sessionTemplate;
     #modelConfigured;
     #onShutdownRequested;
     #clock;
     #idFactory;
+    #onError;
     #sessions = new Set();
+    #rootSessions = new Map();
     #unsubscribers = new Map();
     #sessionTails = new Map();
     #automation;
@@ -28,11 +31,13 @@ export class AgentApplication {
         this.#kernel = options.kernel;
         this.#approvals = options.approvals;
         this.#notifications = options.notifications;
+        this.#sessionCatalog = options.sessionCatalog;
         this.#sessionTemplate = options.sessionTemplate;
         this.#modelConfigured = options.modelConfigured;
         this.#onShutdownRequested = options.onShutdownRequested;
         this.#clock = options.clock ?? (() => new Date());
         this.#idFactory = options.idFactory ?? randomUUID;
+        this.#onError = options.onError ?? (() => undefined);
     }
     async handleCommand(command) {
         switch (command.type) {
@@ -42,22 +47,46 @@ export class AgentApplication {
             case "session.snapshot": {
                 exactPayload(command.payload, [], command.type);
                 const sessionId = requiredSessionId(command);
-                return this.#sessions.has(sessionId) ? this.#runtime.snapshot(sessionId) : null;
+                return this.#sessions.has(sessionId) ? this.#snapshot(sessionId) : null;
+            }
+            case "session.create": {
+                const payload = exactPayload(command.payload, ["title"], command.type);
+                const title = optionalSessionTitle(payload["title"], "payload.title");
+                const sessionId = generatedRootSessionId(this.#idFactory());
+                return this.#serializeSession(sessionId, async () => {
+                    await this.#createRootSession(sessionId, title);
+                    return this.#snapshot(sessionId);
+                });
             }
             case "session.prompt": {
                 const payload = exactPayload(command.payload, ["text", "mode"], command.type);
                 const text = nonEmptyString(payload["text"], "payload.text");
-                const mode = optionalEnum(payload["mode"], ["prompt", "steer", "follow_up"], "payload.mode") ?? "prompt";
+                const mode = optionalEnum(payload["mode"], ["auto", "prompt", "steer", "follow_up"], "payload.mode") ?? "auto";
                 const sessionId = requiredSessionId(command);
                 return this.#serializeSession(sessionId, async () => {
-                    await this.#ensureSession(sessionId);
-                    const accepted = mode === "steer"
+                    await this.#ensureRootSession(sessionId);
+                    const record = await this.#sessionCatalog.touch(sessionId, { prompt: text });
+                    if (record)
+                        this.#rootSessions.set(sessionId, rootMetadata(record));
+                    const automaticMode = mode === "auto"
+                        ? this.#runtime.snapshot(sessionId).status === "running" ? "follow_up" : "prompt"
+                        : mode;
+                    const accepted = automaticMode === "steer"
                         ? await this.#runtime.steer(sessionId, text)
-                        : mode === "follow_up"
+                        : automaticMode === "follow_up"
                             ? await this.#runtime.followUp(sessionId, text)
                             : await this.#runtime.prompt(sessionId, text);
                     setImmediate(() => void this.#agents?.sessionAvailable(sessionId));
                     return accepted;
+                });
+            }
+            case "session.queue.send-now": {
+                const payload = exactPayload(command.payload, ["index"], command.type);
+                const index = nonNegativeIntegerValue(payload["index"], "payload.index", 10_000);
+                const sessionId = requiredSessionId(command);
+                return this.#serializeSession(sessionId, async () => {
+                    this.#assertRootSession(sessionId);
+                    return this.#runtime.promoteFollowUp(sessionId, index);
                 });
             }
             case "session.abort": {
@@ -199,6 +228,23 @@ export class AgentApplication {
         if (this.#agents)
             throw new Error("Agent control is already configured");
         this.#agents = agents;
+        for (const sessionId of this.#rootSessions.keys()) {
+            agents.registerRoot({ id: sessionId, agentPath: [sessionId] });
+        }
+    }
+    async restoreRootSessions() {
+        const failures = [];
+        for (const record of this.#sessionCatalog.list()) {
+            try {
+                await this.#serializeSession(record.id, async () => this.#resumeRootSession(record));
+            }
+            catch (error) {
+                const failure = toError(error);
+                failures.push(failure);
+                this.#onError(failure);
+            }
+        }
+        return failures;
     }
     setMcp(mcp) {
         if (this.#mcp)
@@ -339,25 +385,102 @@ export class AgentApplication {
     async dispose() {
         await Promise.allSettled([...this.#sessionTails.values()]);
         await Promise.all([...this.#sessions].map(async (sessionId) => this.#disposeSession(sessionId)));
+        await this.#sessionCatalog.idle();
     }
     async #ensureSession(sessionId, cwd, authorization) {
         if (this.#sessions.has(sessionId))
             return;
-        if (!this.#modelConfigured) {
-            throw new CommandError("model_not_configured", "No model is configured. Set config.model.provider, config.model.model, and credentials before prompting.");
-        }
+        this.#assertModelConfigured();
         await this.#runtime.create({
             sessionId,
             ...this.#sessionTemplate,
             ...(cwd === undefined ? {} : { cwd }),
             ...(authorization === undefined ? {} : { authorization }),
         });
+        await this.#attachSession(sessionId);
+    }
+    async #ensureRootSession(sessionId) {
+        if (this.#sessions.has(sessionId)) {
+            this.#assertRootSession(sessionId);
+            return;
+        }
+        const record = this.#sessionCatalog.get(sessionId);
+        if (record) {
+            await this.#resumeRootSession(record);
+            return;
+        }
+        if (sessionId !== "main") {
+            throw new CommandError("session_not_found", `Root session does not exist: ${sessionId}`);
+        }
+        await this.#createRootSession(sessionId);
+    }
+    async #createRootSession(sessionId, title) {
+        if (this.#sessions.has(sessionId) || this.#sessionCatalog.get(sessionId)) {
+            throw new CommandError("session_exists", `Root session already exists: ${sessionId}`);
+        }
+        this.#assertModelConfigured();
+        const handle = await this.#runtime.create({ sessionId, ...this.#sessionTemplate });
+        let rootRegistered = false;
+        try {
+            const now = this.#clock().toISOString();
+            let metadata = {
+                title: title ?? (sessionId === "main" ? "Main session" : "New session"),
+                createdAt: now,
+                updatedAt: now,
+            };
+            if (handle.sessionFile) {
+                metadata = rootMetadata(await this.#sessionCatalog.add({
+                    id: sessionId,
+                    sessionFile: handle.sessionFile,
+                    cwd: this.#sessionTemplate.cwd,
+                    ...(title === undefined ? {} : { title }),
+                }));
+            }
+            this.#rootSessions.set(sessionId, metadata);
+            this.#agents?.registerRoot({ id: sessionId, agentPath: [sessionId] });
+            rootRegistered = Boolean(this.#agents);
+            await this.#attachSession(sessionId);
+        }
+        catch (error) {
+            this.#rootSessions.delete(sessionId);
+            if (rootRegistered)
+                this.#agents?.unregisterRoot(sessionId);
+            await this.#runtime.dispose(sessionId).catch(() => undefined);
+            throw error;
+        }
+    }
+    async #resumeRootSession(record) {
+        if (this.#sessions.has(record.id))
+            return;
+        this.#assertModelConfigured();
+        await this.#runtime.resume({
+            sessionId: record.id,
+            ...this.#sessionTemplate,
+            cwd: record.cwd,
+            sessionFile: record.sessionFile,
+        });
+        let rootRegistered = false;
+        try {
+            this.#rootSessions.set(record.id, rootMetadata(record));
+            this.#agents?.registerRoot({ id: record.id, agentPath: [record.id] });
+            rootRegistered = Boolean(this.#agents);
+            await this.#attachSession(record.id);
+        }
+        catch (error) {
+            this.#rootSessions.delete(record.id);
+            if (rootRegistered)
+                this.#agents?.unregisterRoot(record.id);
+            await this.#runtime.dispose(record.id).catch(() => undefined);
+            throw error;
+        }
+    }
+    async #attachSession(sessionId) {
         this.#sessions.add(sessionId);
         this.#unsubscribers.set(sessionId, this.#runtime.subscribe(sessionId, (event) => this.#onRuntimeEvent(event)));
-        await this.#publishSnapshot(this.#runtime.snapshot(sessionId));
+        await this.#publishSnapshot(this.#snapshot(sessionId));
     }
     #onRuntimeEvent(event) {
-        const snapshot = this.#runtime.snapshot(event.sessionId);
+        const snapshot = this.#snapshot(event.sessionId);
         void this.#kernel.dispatch({
             id: event.id,
             ts: event.ts,
@@ -365,6 +488,19 @@ export class AgentApplication {
             event,
             snapshot,
         });
+        if (this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
+            void this.#sessionCatalog.touch(event.sessionId, {
+                ...(snapshot.sessionFile === undefined ? {} : { sessionFile: snapshot.sessionFile }),
+            }).then((record) => {
+                if (record)
+                    this.#rootSessions.set(event.sessionId, rootMetadata(record));
+            }).catch((error) => this.#onError(toError(error)));
+        }
+    }
+    #snapshot(sessionId) {
+        const snapshot = this.#runtime.snapshot(sessionId);
+        const rootSession = this.#rootSessions.get(sessionId);
+        return rootSession ? { ...snapshot, rootSession: structuredClone(rootSession) } : snapshot;
     }
     async #publishSnapshot(snapshot) {
         await this.#kernel.dispatch({
@@ -380,6 +516,7 @@ export class AgentApplication {
         this.#unsubscribers.get(sessionId)?.();
         this.#unsubscribers.delete(sessionId);
         this.#sessions.delete(sessionId);
+        this.#rootSessions.delete(sessionId);
         let failure;
         try {
             await this.#runtime.dispose(sessionId);
@@ -399,6 +536,17 @@ export class AgentApplication {
     #assertSession(sessionId) {
         if (!this.#sessions.has(sessionId))
             throw new CommandError("session_not_found", `Session does not exist: ${sessionId}`);
+    }
+    #assertRootSession(sessionId) {
+        this.#assertSession(sessionId);
+        if (!this.#rootSessions.has(sessionId)) {
+            throw new CommandError("invalid_session", `Session is not an interactive root session: ${sessionId}`);
+        }
+    }
+    #assertModelConfigured() {
+        if (!this.#modelConfigured) {
+            throw new CommandError("model_not_configured", "No model is configured. Set config.model.provider, config.model.model, and credentials before prompting.");
+        }
     }
     #requireAutomation() {
         if (!this.#automation)
@@ -458,6 +606,32 @@ function optionalString(value, path) {
     if (value === undefined)
         return undefined;
     return nonEmptyString(value, path);
+}
+function optionalSessionTitle(value, path) {
+    if (value === undefined)
+        return undefined;
+    const title = nonEmptyString(value, path).replace(/\s+/g, " ").trim();
+    if ([...title].length > 120 || /[\u0000-\u001f]/.test(title)) {
+        throw new CommandError("invalid_command", `${path} must contain at most 120 characters without controls`);
+    }
+    return title;
+}
+function generatedRootSessionId(value) {
+    const id = `session-${value}`;
+    if (id.length > 128 || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(id)) {
+        throw new Error("Generated root session id is invalid");
+    }
+    return id;
+}
+function rootMetadata(record) {
+    return {
+        title: record.title,
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+    };
+}
+function toError(error) {
+    return error instanceof Error ? error : new Error(String(error));
 }
 function optionalEnum(value, allowed, path) {
     if (value === undefined)

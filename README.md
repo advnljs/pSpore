@@ -80,6 +80,9 @@ setting is available as `/config permissions ...` in the TUI and under **Setting
 p-spore init                       # create config/workspace/state directories
 p-spore doctor                     # check Node, config, model, shell, ripgrep, MCP, daemon
 p-spore status                     # daemon and session status
+p-spore sessions                   # list persistent root sessions
+p-spore session new "Research"     # create a persistent root session
+p-spore prompt --session ID "..."  # send to a selected root session
 p-spore tui                        # reconnecting terminal client
 p-spore prompt "summarize today's notes"
 p-spore service status             # system service and boot state
@@ -87,6 +90,12 @@ p-spore service logs               # recent service journal
 p-spore service restart            # restart the background service
 p-spore daemon                     # foreground service process (diagnostics/systemd)
 ```
+
+Root sessions are catalogued in private state and their Pi JSONL histories are resumed
+when the service starts. In the GUI use the `＋` button to create a session; in the TUI
+use `/new [TITLE]` and `/select ID`. A normal message sent while that session is still
+running becomes a follow-up automatically. Each queued message remains labelled
+`继续排队` and offers `直接发送消息` (`/send-now N` in the TUI).
 
 Add `--home PATH` to any command, or set `PSPORE_HOME`, to work against a home other than
 the default `~/.pspore`. Run `p-spore help` for the full command list.

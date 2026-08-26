@@ -107,6 +107,24 @@ export class PiRuntimeAdapter {
         await record.runtime.session.followUp(input);
         return this.#accepted();
     }
+    async promoteFollowUp(sessionId, index) {
+        const record = this.#record(sessionId);
+        if (!Number.isSafeInteger(index) || index < 0 || index >= record.queue.followUp.length) {
+            throw new Error(`Follow-up queue index is out of range: ${index}`);
+        }
+        const selected = record.queue.followUp[index];
+        if (selected === undefined)
+            throw new Error(`Follow-up queue entry is unavailable: ${index}`);
+        const queued = record.runtime.session.clearQueue();
+        for (const message of queued.steering)
+            await record.runtime.session.steer(message);
+        await record.runtime.session.steer(selected);
+        for (const [queuedIndex, message] of queued.followUp.entries()) {
+            if (queuedIndex !== index)
+                await record.runtime.session.followUp(message);
+        }
+        return this.#accepted();
+    }
     async abort(sessionId, _reason) {
         await this.#record(sessionId).runtime.session.abort();
     }

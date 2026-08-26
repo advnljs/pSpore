@@ -136,12 +136,13 @@ export class AgentManager {
     return new AgentManager(options, await realpath(options.workspaceRoot));
   }
 
-  registerRoot(input: { id: string; budget: RunBudget; jobId?: string; agentPath?: readonly string[] }): void {
+  registerRoot(input: { id: string; budget?: RunBudget; jobId?: string; agentPath?: readonly string[] }): void {
     if (this.#roots.has(input.id)) throw new Error(`Agent root is already registered: ${input.id}`);
-    validateBudget(input.budget, `root ${input.id} budget`);
+    const budget = input.budget ?? this.#defaultRootBudget;
+    validateBudget(budget, `root ${input.id} budget`);
     this.#roots.set(input.id, {
       id: input.id,
-      budget: structuredClone(input.budget),
+      budget: structuredClone(budget),
       ...(input.jobId === undefined ? {} : { jobId: input.jobId }),
       agentPath: [...(input.agentPath ?? [input.id])],
     });

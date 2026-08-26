@@ -1,9 +1,10 @@
 export const TUI_HELP_LINES = [
   "CONVERSATION",
   "  text                         Send to selected target",
-  "  /steer TEXT                  Interrupt with guidance",
-  "  /follow TEXT                 Queue after current turn",
-  "  /abort  /compact  /select ID",
+  "  /new [TITLE]                 Create a persistent session",
+  "  /select ID                   Switch session and history",
+  "  /send-now N                  直接发送消息（否则继续排队）",
+  "  /abort  /compact",
   "  /work [STEP_ID]              Work history or step details",
   "",
   "MODEL SETTINGS",

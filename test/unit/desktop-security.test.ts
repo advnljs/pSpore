@@ -63,6 +63,10 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.doesNotMatch(preload, /shell\.|remote\.|webFrame/);
   assert.match(html, new RegExp(escapeRegExp(DESKTOP_CSP)));
   assert.doesNotMatch(html, /https?:\/\//);
+  assert.doesNotMatch(html, /id="composer-mode"|>Steer<|>Follow-up</);
+  assert.match(html, /id="new-session-button"/);
+  assert.match(html, /id="message-queue"/);
+  assert.match(html, /继续排队/);
   // Only the exact local module entry plus the vendored GSAP build may load;
   // anything else (inline or another src) stays forbidden.
   assert.doesNotMatch(html, /<script(?![^>]*src="\.\/(vendor\/gsap\.min\.js|renderer\.js)")/);

@@ -529,3 +529,21 @@
 - 验证方式与结果：`npm run check` 通过（严格 typecheck、117/117 测试、production build）；新增 4 项服务测试覆盖 unit 转义、隔离 systemd 生命周期、三类发行启动命令与多 home 命名；`git diff --check` 通过。
 - 当前状态：源码与 `dist/` 已同步；生产客户端不再拥有或随退出停止后端。尚未在本阶段启动真实用户服务，待后续会话协议改造完成后用最新完整服务做端到端验收。
 - 遗留问题：跨 session 恢复、自动 follow-up/队列直接发送、compact 设置、流式 Markdown/虚拟渲染和桌面快捷方式仍在本次任务后续阶段实现。
+
+## 2026-08-26 — 多根 session 恢复与统一发送队列
+
+- 阶段目标：支持跨客户端/跨服务重启的新建与切换 session，启动加载完整历史；删除 GUI 三模式 composer，让普通发送自动排队，并给每条 follow-up 提供“继续排队/直接发送消息”。
+- 完成内容：
+  - 新增私有原子 `SessionCatalog`，持久映射根 session ID、标题、时间、cwd 与 Pi JSONL；服务 ready 前逐个 `resume`，旧安装无 catalog 时只迁移最近的 legacy JSONL 为 `main`。agent/automation 临时 session 不进入目录。
+  - Application 新增 `session.create`、`session.queue.send-now`；`session.prompt` 默认 `auto`，空闲时 prompt、运行中时 follow-up。根 session metadata 随 Kernel snapshot 进入 GUI/TUI；每个根 session 注册独立 subagent root。
+  - Pi adapter 增加 follow-up 提升操作：清空并保持原队列顺序，把指定 follow-up 重排到 steering 队列，不重复发送消息。
+  - GUI 左栏新增 `＋` 并立即切换新会话，所有 prompt/abort/compact/spawn 都使用当前 session；删除 Prompt/Steer/Follow-up 下拉。排队卡逐条显示“继续排队”和“直接发送消息”。
+  - TUI 新增 `/new [TITLE]`、`/send-now N`，`/select` 可切换任意根会话及历史；普通输入不再因运行中而拒绝。CLI 新增 `sessions`、`session new [TITLE]` 与 `prompt --session ID TEXT`。
+- 修改文件：`src/sessions/session-catalog.ts`、`src/application/agent-application.ts`、`src/daemon/daemon.ts`、`src/pi/pi-runtime-adapter.ts`、`src/domain/runtime.ts`、`src/agents/agent-manager.ts`、`src/ui/shared/presentation.ts`、`src/ui/tui/*`、`src/desktop/ipc-contract.ts`、`src/desktop/renderer/*`、`src/cli/main.ts`、相关测试/文档及同步构建的 `dist/`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、124/124 测试、production build。
+  - 新增真实 Pi contract 验证队列提升后的用户消息顺序为“指定直接发送项 → 其余继续排队项”，且不重复；Daemon 集成测试验证多 session 创建、服务重启恢复标题/完整历史、auto follow-up 与 send-now。
+  - `npm run test:electron` 通过：PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`，双主题、设置、排版、smoke Daemon ownership、重连和 IPC allowlist 全绿。
+  - TUI 主基准 `160×45` golden 与 `96×30` 补测通过，并新增“继续排队/直接发送消息”逐项文案断言。
+- 当前状态：源码与 `dist/` 同步构建；全部根 session 会在服务启动时加载，GUI/TUI composer 已统一。当前 smoke 使用隔离 Daemon，未改动真实用户 home/service。
+- 遗留问题：自动 compact 设置、流式 Markdown/字符清理、GUI/TUI 长历史虚拟渲染和桌面快捷方式仍在后续阶段。

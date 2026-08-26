@@ -20,7 +20,7 @@
 
 - `CommandEnvelope<v1>` / `EventEnvelope<v1>`
 - snapshot/replay/ack/auth handshake
-- session prompt/steer/follow-up/abort、approval、agent/job commands
+- session create/auto-prompt/queue-send-now/abort/compact、approval、agent/job commands
 - Electron renderer 固定 `bootstrap/dispatch/subscribe` preload API；`DesktopCommand` 在 main process 严格解码并映射到既有 UDS command。
 
 ## 内部依赖
@@ -48,7 +48,8 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - `activity.ts` 将 tool 三段事件按 `toolCallId` 合并，并对 run/compaction/retry/error/automation/agent/integration 事件保持语义化活动；TUI 和 Electron 共用 label/summary/status/result/duration/detail redaction。
 - TUI 与桌面共用同一套语义色：brand/bone `187`、live moss `108`、agent `151`、lichen（用户/会话 id）`109`、honey（等待/审批）`179`、rust（失败）`174`、memory `182`、muted `245`、faint `242`、border `240`；动画只在选中 session 运行或存在运行中活动时以 120 ms 刷新，并尊重 `NO_COLOR`/dumb terminal。
 - `/work` 展示最近 30 个工作步骤，`/work <ID-prefix>` 展示一步的脱敏、限深、8 KB 限长详情；会话区不再重复渲染 raw tool result 消息。
-- 普通输入、steer、follow-up 根据共享 `conversationIntent` 路由到当前选中的 main/child，避免 child 输入误发给 main。
+- 普通输入根据共享 `conversationIntent` 路由到当前选中的任意根 session/child，避免 child 输入误发给其他根会话；根 session 运行中由 Application 自动 follow-up。GUI 不显示发送模式，follow-up 每项仅显示“继续排队/直接发送消息”；TUI 用 `/send-now N` 执行同一操作，底层 Pi steer 术语不暴露。
+- `AgentSnapshot.rootSession` 只为持久交互式根会话携带 title/createdAt/updatedAt；`presentSessions` 将多个根会话及各自 agent tree 分组呈现。
 - npm 分发包名为 `p-spore`，全局可执行命令为 `pspore`；纯 npm 包不包含 Electron 生产依赖，桌面端由 GitHub Release 全量 zip / overlay zip 分发。
 
 ## 常见修改点

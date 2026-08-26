@@ -229,6 +229,64 @@ describe("daemon vertical slice", () => {
     await waitFor(() => [first.sessionId, second.sessionId].every((id) => daemon.kernel.snapshot().sessions[id] === undefined));
   });
 
+  test("creates persistent root sessions and restores their full history after daemon restart", async () => {
+    const home = await configuredHome();
+    const first = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async (context) => new FakeRuntime(true, context.paths.sessions),
+      idFactory: sequence("session-first"),
+    });
+    const firstClient = new ProtocolClient({ socketPath: first.paths.socket, clientId: "session-first-client" });
+    await firstClient.connect();
+    const created = await firstClient.command<AgentSnapshot>("session.create", { title: "Persistent research" });
+    await firstClient.command("session.prompt", { text: "remember this history", mode: "auto" }, { sessionId: created.sessionId });
+    await waitFor(() => first.kernel.snapshot().sessions[created.sessionId]?.messages.at(-1)?.text === "fake reply");
+    await firstClient.close();
+    await first.stop();
+
+    const second = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async (context) => new FakeRuntime(true, context.paths.sessions),
+      idFactory: sequence("session-second"),
+    });
+    const secondClient = new ProtocolClient({ socketPath: second.paths.socket, clientId: "session-second-client" });
+    cleanups.push(async () => {
+      await secondClient.close();
+      await second.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    const hello = await secondClient.connect();
+    const restored = hello.snapshot.sessions[created.sessionId];
+    assert.equal(restored?.rootSession?.title, "Persistent research");
+    assert.deepEqual(restored?.messages.map((message) => message.text), ["remember this history", "fake reply"]);
+    assert.equal(restored?.status, "idle");
+    assert.match(await readFile(second.paths.sessionCatalog, "utf8"), new RegExp(created.sessionId));
+  });
+
+  test("automatically queues a normal send while running and can promote it for direct delivery", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime(false);
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("queue-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "queue-client" });
+    cleanups.push(async () => {
+      runtime.finishAll();
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+    await client.command("session.prompt", { text: "start", mode: "auto" }, { sessionId: "main" });
+    await client.command("session.prompt", { text: "queued next", mode: "auto" }, { sessionId: "main" });
+    await waitFor(() => daemon.kernel.snapshot().sessions["main"]?.queue.followUp[0] === "queued next");
+    await client.command("session.queue.send-now", { index: 0 }, { sessionId: "main" });
+    await waitFor(() => daemon.kernel.snapshot().sessions["main"]?.queue.steering[0] === "queued next");
+    assert.deepEqual(daemon.kernel.snapshot().sessions["main"]?.queue.followUp, []);
+  });
+
   test("lazily discovers configured MCP schemas through UDS and publishes health", async () => {
     const home = await configuredHome();
     const config = defaultConfig(home);
@@ -408,21 +466,49 @@ class FakeRuntime implements AgentRuntimePort {
   readonly #listeners = new Map<string, Set<(event: RuntimeEvent) => void>>();
   readonly #snapshots = new Map<string, AgentSnapshot>();
   readonly #autoSettle: boolean;
+  readonly #persistenceRoot: string | undefined;
+  readonly #files = new Map<string, string>();
   readonly #settlers: Array<{ sessionId: string; settle: () => void }> = [];
   readonly #idle = new Map<string, Promise<void>>();
   readonly #resolveIdle = new Map<string, () => void>();
 
-  constructor(autoSettle = true) {
+  constructor(autoSettle = true, persistenceRoot?: string) {
     this.#autoSettle = autoSettle;
+    this.#persistenceRoot = persistenceRoot;
   }
 
   async create(spec: AgentSessionSpec): Promise<AgentHandle> {
-    this.#snapshots.set(spec.sessionId, baseSnapshot(spec));
-    return { sessionId: spec.sessionId, upstreamSessionId: `fake-${spec.sessionId}` };
+    let snapshot = baseSnapshot(spec);
+    let sessionFile: string | undefined;
+    if (this.#persistenceRoot) {
+      const directory = join(this.#persistenceRoot, spec.workspaceId);
+      await mkdir(directory, { recursive: true, mode: 0o700 });
+      sessionFile = join(directory, `${spec.sessionId.replace(/[^A-Za-z0-9._-]/g, "-")}.jsonl`);
+      snapshot = { ...snapshot, sessionFile };
+      this.#files.set(spec.sessionId, sessionFile);
+      await writeFile(sessionFile, `${JSON.stringify(snapshot)}\n`, { mode: 0o600 });
+    }
+    this.#snapshots.set(spec.sessionId, snapshot);
+    return {
+      sessionId: spec.sessionId,
+      upstreamSessionId: `fake-${spec.sessionId}`,
+      ...(sessionFile === undefined ? {} : { sessionFile }),
+    };
   }
 
   async resume(spec: ResumeSessionSpec): Promise<AgentHandle> {
-    return this.create(spec);
+    const stored = JSON.parse((await readFile(spec.sessionFile, "utf8")).trim()) as AgentSnapshot;
+    const snapshot = {
+      ...stored,
+      sessionId: spec.sessionId,
+      upstreamSessionId: `fake-${spec.sessionId}`,
+      cwd: spec.cwd,
+      status: "idle" as const,
+      sessionFile: spec.sessionFile,
+    };
+    this.#snapshots.set(spec.sessionId, snapshot);
+    this.#files.set(spec.sessionId, spec.sessionFile);
+    return { sessionId: spec.sessionId, upstreamSessionId: snapshot.upstreamSessionId, sessionFile: spec.sessionFile };
   }
 
   async prompt(sessionId: string, input: string): Promise<Accepted> {
@@ -458,8 +544,27 @@ class FakeRuntime implements AgentRuntimePort {
 
   async followUp(sessionId: string, input: string): Promise<Accepted> {
     const current = this.required(sessionId);
-    this.#snapshots.set(sessionId, { ...current, messages: [...current.messages, { role: "user", text: `follow:${input}` }] });
+    this.#snapshots.set(sessionId, {
+      ...current,
+      queue: { ...current.queue, followUp: [...current.queue.followUp, input] },
+    });
+    this.#emit(sessionId, "queue.updated", false);
     return { accepted: true, commandId: "fake-follow", acceptedAt: new Date(0).toISOString() };
+  }
+
+  async promoteFollowUp(sessionId: string, index: number): Promise<Accepted> {
+    const current = this.required(sessionId);
+    const message = current.queue.followUp[index];
+    if (message === undefined) throw new Error(`Follow-up queue index is out of range: ${index}`);
+    this.#snapshots.set(sessionId, {
+      ...current,
+      queue: {
+        steering: [...current.queue.steering, message],
+        followUp: current.queue.followUp.filter((_value, queuedIndex) => queuedIndex !== index),
+      },
+    });
+    this.#emit(sessionId, "queue.updated", false);
+    return { accepted: true, commandId: "fake-promote", acceptedAt: new Date(0).toISOString() };
   }
 
   async abort(sessionId: string): Promise<void> {
@@ -482,10 +587,14 @@ class FakeRuntime implements AgentRuntimePort {
     await this.#idle.get(sessionId);
   }
   async dispose(sessionId: string): Promise<void> {
+    const snapshot = this.#snapshots.get(sessionId);
+    const file = this.#files.get(sessionId);
+    if (snapshot && file) await writeFile(file, `${JSON.stringify(snapshot)}\n`, { mode: 0o600 });
     this.#snapshots.delete(sessionId);
     this.#listeners.delete(sessionId);
     this.#idle.delete(sessionId);
     this.#resolveIdle.delete(sessionId);
+    this.#files.delete(sessionId);
   }
 
   finishAll(): void {

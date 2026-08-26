@@ -45,11 +45,13 @@ export type DesktopFrame =
   | { version: 1; kind: "delta"; streamId: string; fromSeq: number; seq: number; sessionId: string; text: string };
 
 export type DesktopCommand =
-  | { action: "prompt"; text: string }
-  | { action: "steer"; text: string }
-  | { action: "follow_up"; text: string }
-  | { action: "abort" }
-  | { action: "compact" }
+  | { action: "prompt"; text: string; sessionId: string }
+  | { action: "steer"; text: string; sessionId: string }
+  | { action: "follow_up"; text: string; sessionId: string }
+  | { action: "abort"; sessionId: string }
+  | { action: "compact"; sessionId: string }
+  | { action: "session.create"; title?: string }
+  | { action: "queue.send-now"; sessionId: string; index: number }
   | { action: "approval.resolve"; approvalId: string; approved: boolean; scope: "once" | "session" | "job" }
   | { action: "jobs.list" }
   | { action: "runs.list" }
@@ -57,7 +59,7 @@ export type DesktopCommand =
   | { action: "job.run"; jobId: string }
   | { action: "run.cancel"; runId: string }
   | { action: "agents.list" }
-  | { action: "agent.spawn"; objective: string }
+  | { action: "agent.spawn"; objective: string; parentId: string }
   | { action: "agent.send"; agentId: string; message: string; mode: "steer" | "follow_up" | "next" }
   | { action: "agent.join"; agentIds: string[] }
   | { action: "agent.cancel"; agentId: string }
@@ -109,10 +111,31 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
     case "prompt":
     case "steer":
     case "follow_up":
-      exactKeys(input, ["action", "text"], action);
-      return { action, text: boundedString(input["text"], `${action}.text`, 65_536) };
+      exactKeys(input, ["action", "text", "sessionId"], action);
+      return {
+        action,
+        text: boundedString(input["text"], `${action}.text`, 65_536),
+        sessionId: identifier(input["sessionId"], `${action}.sessionId`),
+      };
     case "abort":
     case "compact":
+      exactKeys(input, ["action", "sessionId"], action);
+      return { action, sessionId: identifier(input["sessionId"], `${action}.sessionId`) };
+    case "session.create": {
+      exactKeys(input, ["action", "title"], action, ["title"]);
+      const title = input["title"];
+      return {
+        action,
+        ...(title === undefined ? {} : { title: boundedString(title, "session.create.title", 120) }),
+      };
+    }
+    case "queue.send-now":
+      exactKeys(input, ["action", "sessionId", "index"], action);
+      return {
+        action,
+        sessionId: identifier(input["sessionId"], "queue.send-now.sessionId"),
+        index: nonNegativeInteger(input["index"], "queue.send-now.index", 10_000),
+      };
     case "jobs.list":
     case "runs.list":
     case "notifications.list":
@@ -142,8 +165,12 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
       exactKeys(input, ["action", "runId"], action);
       return { action, runId: identifier(input["runId"], "run.cancel.runId") };
     case "agent.spawn":
-      exactKeys(input, ["action", "objective"], action);
-      return { action, objective: boundedString(input["objective"], "agent.spawn.objective", 16_384) };
+      exactKeys(input, ["action", "objective", "parentId"], action);
+      return {
+        action,
+        objective: boundedString(input["objective"], "agent.spawn.objective", 16_384),
+        parentId: identifier(input["parentId"], "agent.spawn.parentId"),
+      };
     case "agent.send":
       exactKeys(input, ["action", "agentId", "message", "mode"], action);
       return {
@@ -191,15 +218,19 @@ export function toProtocolInvocation(
 ): DesktopProtocolInvocation {
   switch (command.action) {
     case "prompt":
-      return { type: "session.prompt", payload: { text: command.text, mode: "prompt" }, sessionId: "main" };
+      return { type: "session.prompt", payload: { text: command.text, mode: "auto" }, sessionId: command.sessionId };
     case "steer":
-      return { type: "session.prompt", payload: { text: command.text, mode: "steer" }, sessionId: "main" };
+      return { type: "session.prompt", payload: { text: command.text, mode: "steer" }, sessionId: command.sessionId };
     case "follow_up":
-      return { type: "session.prompt", payload: { text: command.text, mode: "follow_up" }, sessionId: "main" };
+      return { type: "session.prompt", payload: { text: command.text, mode: "follow_up" }, sessionId: command.sessionId };
     case "abort":
-      return { type: "session.abort", payload: { reason: "Electron user requested abort" }, sessionId: "main" };
+      return { type: "session.abort", payload: { reason: "Electron user requested abort" }, sessionId: command.sessionId };
     case "compact":
-      return { type: "session.compact", payload: {}, sessionId: "main" };
+      return { type: "session.compact", payload: {}, sessionId: command.sessionId };
+    case "session.create":
+      return { type: "session.create", payload: command.title === undefined ? {} : { title: command.title } };
+    case "queue.send-now":
+      return { type: "session.queue.send-now", payload: { index: command.index }, sessionId: command.sessionId };
     case "approval.resolve":
       return {
         type: "approval.resolve",
@@ -223,7 +254,7 @@ export function toProtocolInvocation(
       return {
         type: "agent.spawn",
         payload: {
-          parentId: "main",
+          parentId: command.parentId,
           objective: command.objective,
           workspaceMode: "shared-read",
           budget: {
@@ -268,11 +299,12 @@ function object(value: unknown, path: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-function exactKeys(value: Record<string, unknown>, keys: readonly string[], path: string): void {
+function exactKeys(value: Record<string, unknown>, keys: readonly string[], path: string, optional: readonly string[] = []): void {
   const expected = new Set(keys);
+  const optionalKeys = new Set(optional);
   const unknown = Object.keys(value).filter((key) => !expected.has(key));
   if (unknown.length > 0) throw new Error(`${path} contains unknown fields: ${unknown.join(", ")}`);
-  for (const key of keys) if (!(key in value)) throw new Error(`${path}.${key} is required`);
+  for (const key of keys) if (!optionalKeys.has(key) && !(key in value)) throw new Error(`${path}.${key} is required`);
 }
 
 function boundedString(value: unknown, path: string, maximum: number): string {
@@ -295,6 +327,13 @@ function identifierArray(value: unknown, path: string, maximum: number): string[
   const result = value.map((item, index) => identifier(item, `${path}[${index}]`));
   if (new Set(result).size !== result.length) throw new Error(`${path} must not contain duplicates`);
   return result;
+}
+
+function nonNegativeInteger(value: unknown, path: string, maximum: number): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > maximum) {
+    throw new Error(`${path} must be an integer between 0 and ${maximum}`);
+  }
+  return Number(value);
 }
 
 function resourceName(value: unknown, path: string): string {

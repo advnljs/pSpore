@@ -237,6 +237,37 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal(messages.at(-1)?.text, "after-follow-up");
   });
 
+  test("promotes one queued follow-up for direct delivery without duplicating it", async () => {
+    const { adapter, faux, root } = await fixture({ tokensPerSecond: 120 });
+    faux.setResponses([
+      fauxAssistantMessage(`first:${"x".repeat(240)}`),
+      fauxAssistantMessage("after-promoted"),
+      fauxAssistantMessage("after-waiting"),
+    ]);
+    await adapter.create(spec(root));
+    const firstDelta = new Promise<void>((resolve) => {
+      adapter.subscribe("main", (event) => {
+        if (event.type === "message.delta") resolve();
+      });
+    });
+
+    await adapter.prompt("main", "start");
+    await firstDelta;
+    await adapter.followUp("main", "continue waiting");
+    await adapter.followUp("main", "send this now");
+    await adapter.promoteFollowUp("main", 1);
+    assert.deepEqual(adapter.snapshot("main").queue, {
+      steering: ["send this now"],
+      followUp: ["continue waiting"],
+    });
+    await adapter.waitForIdle("main");
+
+    const userMessages = adapter.snapshot("main").messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.text);
+    assert.deepEqual(userMessages, ["start", "send this now", "continue waiting"]);
+  });
+
   test("maps manual compaction lifecycle", async () => {
     const { adapter, faux, root } = await fixture({ tokenSize: { min: 1_000, max: 1_000 } });
     const longResponse = "content to compact ".repeat(1_600);

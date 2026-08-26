@@ -55,6 +55,11 @@ export interface RuntimeQueueSnapshot {
     steering: readonly string[];
     followUp: readonly string[];
 }
+export interface RootSessionMetadata {
+    title: string;
+    createdAt: string;
+    updatedAt: string;
+}
 export interface AgentSnapshot {
     sessionId: SessionId;
     upstreamSessionId: string;
@@ -67,6 +72,7 @@ export interface AgentSnapshot {
     entries: readonly RuntimeMessage[];
     queue: RuntimeQueueSnapshot;
     usage: RuntimeUsage;
+    rootSession?: RootSessionMetadata;
     lastError?: string;
 }
 export type RuntimeEventType = "session.replaced" | "run.started" | "run.settled" | "message.started" | "message.delta" | "message.thinking.delta" | "message.completed" | "tool.started" | "tool.updated" | "tool.completed" | "queue.updated" | "compaction.started" | "compaction.completed" | "retry.started" | "retry.completed" | "runtime.error";
@@ -106,6 +112,7 @@ export interface AgentRuntimePort {
     prompt(sessionId: SessionId, input: string): Promise<Accepted>;
     steer(sessionId: SessionId, input: string): Promise<Accepted>;
     followUp(sessionId: SessionId, input: string): Promise<Accepted>;
+    promoteFollowUp(sessionId: SessionId, index: number): Promise<Accepted>;
     abort(sessionId: SessionId, reason: string): Promise<void>;
     compact(sessionId: SessionId, instructions?: string): Promise<void>;
     snapshot(sessionId: SessionId): AgentSnapshot;

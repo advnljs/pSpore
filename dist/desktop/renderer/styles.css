@@ -344,6 +344,7 @@ kbd {
 .section-description { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
 .section-description code { color: var(--text-soft); font: 12px var(--font-mono); }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+.section-heading-actions { display: flex; align-items: center; gap: 7px; }
 .section-heading h2,
 .inspector-header h2 { margin: 6px 0 0; font-size: 16px; line-height: 1.2; font-weight: 700; letter-spacing: -0.015em; }
 .eyebrow { color: var(--faint); font: 600 11.5px/1 var(--font-mono); letter-spacing: 0.15em; }
@@ -554,13 +555,17 @@ select {
 
 .composer-wrap { position: relative; padding: 0 20px 16px; background: linear-gradient(180deg, transparent, var(--surface) 18%); }
 .notice-line { height: 26px; padding: 5px 3px 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-queue { display: flex; flex-direction: column; gap: 6px; max-height: 142px; margin: 0 0 8px; overflow: auto; }
+.queue-message { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 8px 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.queue-message > span { color: var(--honey); font: 600 11px/1 var(--font-mono); white-space: nowrap; }
+.queue-message > p { min-width: 0; margin: 0; color: var(--text-soft); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-message > button { min-height: 28px; padding: 4px 8px; font-size: 11.5px; }
 .composer { border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface-input); box-shadow: var(--shadow-soft); }
 .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 0 0 3px var(--accent-soft); }
 .composer textarea { min-height: 62px; max-height: 180px; border: 0; border-radius: var(--radius-md) var(--radius-md) 0 0; background: transparent; padding: 13px 15px; font-size: 15px; line-height: 1.6; }
 .composer textarea:focus-visible { outline: 0; }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border-top: 1px solid var(--border-soft); }
-.mode-select { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
-.mode-select select { min-height: 32px; padding-block: 5px; font-size: 13px; }
+.send-behavior-hint { padding-left: 5px; color: var(--faint); font-size: 11.5px; }
 .composer-actions { gap: 7px; }
 
 .inspector-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px 14px; }

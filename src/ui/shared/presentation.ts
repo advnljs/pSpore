@@ -24,26 +24,51 @@ export interface KernelMetrics {
   resources: number;
 }
 
-export type ComposerMode = "prompt" | "steer" | "follow_up";
+export type ComposerMode = "auto" | "prompt" | "steer" | "follow_up";
 export type ConversationIntent =
-  | { target: "main"; sessionId: "main"; text: string; mode: ComposerMode }
+  | { target: "main"; sessionId: string; text: string; mode: ComposerMode }
   | { target: "agent"; agentId: string; sessionId: string; text: string; mode: "next" | "steer" | "follow_up" };
 
 export function presentSessions(kernel: KernelState, selectedSessionId: string): SessionListItem[] {
-  const main = kernel.sessions["main"];
-  const result: SessionListItem[] = [{
-    id: "main",
-    sessionId: "main",
-    title: "Main session",
-    status: main?.status ?? "idle",
-    depth: 0,
-    selected: selectedSessionId === "main",
-    active: Boolean(main) || selectedSessionId === "main",
-    kind: "main",
-  }];
-  for (const agent of Object.values(kernel.agents).sort((left, right) => left.createdAt.localeCompare(right.createdAt))) {
-    const session = kernel.sessions[agent.sessionId];
+  const agents = Object.values(kernel.agents).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  const agentSessionIds = new Set(agents.map((agent) => agent.sessionId));
+  const roots: Array<[string, KernelState["sessions"][string] | undefined]> = Object.entries(kernel.sessions)
+    .filter(([id, session]) => session.rootSession || (!agentSessionIds.has(id) && !id.startsWith("agent:") && !id.startsWith("run:")))
+    .sort(([leftId, left], [rightId, right]) => {
+      if (leftId === "main") return -1;
+      if (rightId === "main") return 1;
+      return (left.rootSession?.createdAt ?? "").localeCompare(right.rootSession?.createdAt ?? "") || leftId.localeCompare(rightId);
+    });
+  if (roots.length === 0) roots.push(["main", undefined]);
+
+  const result: SessionListItem[] = [];
+  const appendedAgents = new Set<string>();
+  for (const [id, session] of roots) {
     result.push({
+      id,
+      sessionId: id,
+      title: session?.rootSession?.title ?? sessionTitle(session?.messages, id),
+      status: session?.status ?? "idle",
+      depth: 0,
+      selected: selectedSessionId === id,
+      active: Boolean(session) || selectedSessionId === id,
+      kind: "main",
+    });
+    for (const agent of agents.filter((candidate) => candidate.rootId === id)) {
+      result.push(agentListItem(agent, kernel, selectedSessionId));
+      appendedAgents.add(agent.id);
+    }
+  }
+  for (const agent of agents) {
+    if (appendedAgents.has(agent.id)) continue;
+    result.push(agentListItem(agent, kernel, selectedSessionId));
+  }
+  return result;
+}
+
+function agentListItem(agent: AgentRecord, kernel: KernelState, selectedSessionId: string): SessionListItem {
+    const session = kernel.sessions[agent.sessionId];
+    return {
       id: agent.id,
       sessionId: agent.sessionId,
       title: agent.objective || agent.id,
@@ -52,9 +77,7 @@ export function presentSessions(kernel: KernelState, selectedSessionId: string):
       selected: selectedSessionId === agent.sessionId,
       active: Boolean(session),
       kind: "agent",
-    });
-  }
-  return result;
+    };
 }
 
 export function kernelMetrics(kernel: KernelState): KernelMetrics {
@@ -92,10 +115,18 @@ export function conversationIntent(
       agentId: agent.id,
       sessionId: agent.sessionId,
       text,
-      mode: mode === "prompt" ? "next" : mode,
+      mode: mode === "auto" || mode === "prompt" ? "next" : mode,
     };
   }
-  return { target: "main", sessionId: "main", text, mode };
+  const sessionId = kernel.sessions[selectedSessionId] ? selectedSessionId : "main";
+  return { target: "main", sessionId, text, mode };
+}
+
+function sessionTitle(messages: readonly { role: string; text: string }[] | undefined, id: string): string {
+  const first = messages?.find((message) => message.role === "user" && message.text.trim())?.text.replace(/\s+/g, " ").trim();
+  if (!first) return id === "main" ? "Main session" : "New session";
+  const chars = [...first];
+  return chars.length > 72 ? `${chars.slice(0, 71).join("")}…` : first;
 }
 
 export function terminalAgentStatus(value: string): boolean {

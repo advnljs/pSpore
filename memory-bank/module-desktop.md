@@ -36,7 +36,7 @@ preload 仅暴露：
 - `saveSettings(settings)`：发送严格解码的模型设置；owned Daemon 自动重启应用，external Daemon 只保存并提示用户重启。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
 
-支持 main prompt/steer/follow-up/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。resource IPC 只接受单层 staging name；renderer 不能提交任意绝对路径。
+支持根 session create/auto-prompt/queue-send-now/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。所有 session 动作携带 renderer 当前选中的严格 sessionId；resource IPC 只接受单层 staging name，renderer 不能提交任意绝对路径。
 
 ## 内部依赖
 
@@ -63,6 +63,7 @@ preload 仅暴露：
 - 动效由 GSAP 3.15 驱动（`src/desktop/renderer/motion.ts` 封装）：应用入场编排（topbar/三栏 stagger expo.out）、会话切换消息 stagger 入场、新消息单条滑入（流式 delta 不重复触发）、设置/审批弹层出入场（含退出动画后置 `hidden` 与状态守卫防竞态）、连接徽章状态切换弹性脉冲、发送按钮按压微动效。所有动效在 `prefers-reduced-motion: reduce` 或引擎缺失时立即降级为直接显示。
 - GSAP 以 UMD 构建 vendored 进产品：`node_modules/gsap/dist/gsap.min.js` 由 `scripts/copy-desktop-assets.mjs` 复制到 `dist/desktop/renderer/vendor/gsap.min.js`，index.html 以 classic script 加载（CSP `script-src 'self'` 允许同源）；renderer 通过 `import type { gsap } from "gsap"` 取类型、运行时读 `window.gsap`，不引入 bundler。安全测试 `desktop-security.test.ts` 已显式放行且仅放行 `./vendor/gsap.min.js` 与 `./renderer.js` 两个本地脚本路径，内联与其它 src 仍被拒绝。
 - 会话正文测量宽度固定 `820px`，长代码块在自身容器内横向滚动；消息 meta 用 mono 小写标签加细线分隔；左栏用缩进 + `└` 型连接线呈现 agent 树（`--session-depth`），右侧标记显示会话状态。
+- 左栏 `＋` 创建独立持久根会话并立即切换；composer 只有普通发送，运行中由服务端自动 follow-up。每条 follow-up 以“继续排队”标识并提供“直接发送消息”按钮。
 - 三栏在 `>=1600px` 默认全开；`1321–1599px` 只开会话+对话；`<=1320px` 检查器为覆盖抽屉；`<=1160px` 会话栏也转为抽屉。左栏底部常驻 `工作区` 摘要（运行/MCP/资源/待批准），与 TUI 的 WORKSPACE 块保持同一组指标。
 - GUI 文案统一中文（含 notice、错误与空状态）；只有 `src/ui/shared/activity.ts` 的 cowork label/summary 保持英文，因为 TUI/CLI 要求英文且两端共用同一归一层。
 - activity inspector 对 started/updated/completed 工具事件只保留一张持续更新的卡片，使用与 TUI 一致的 cowork label、状态点、目标、结果与脱敏详情；其他运行/系统活动保持可见。

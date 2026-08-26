@@ -5,6 +5,7 @@ export interface PsporePaths {
     workspace: string;
     state: string;
     sessions: string;
+    sessionCatalog: string;
     runs: string;
     approvals: string;
     events: string;

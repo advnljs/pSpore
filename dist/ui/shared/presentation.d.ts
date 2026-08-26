@@ -21,10 +21,10 @@ export interface KernelMetrics {
     activeResources: number;
     resources: number;
 }
-export type ComposerMode = "prompt" | "steer" | "follow_up";
+export type ComposerMode = "auto" | "prompt" | "steer" | "follow_up";
 export type ConversationIntent = {
     target: "main";
-    sessionId: "main";
+    sessionId: string;
     text: string;
     mode: ComposerMode;
 } | {

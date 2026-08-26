@@ -31,7 +31,7 @@ export declare class AgentManager {
     static create(options: AgentManagerOptions): Promise<AgentManager>;
     registerRoot(input: {
         id: string;
-        budget: RunBudget;
+        budget?: RunBudget;
         jobId?: string;
         agentPath?: readonly string[];
     }): void;

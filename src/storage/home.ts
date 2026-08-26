@@ -10,6 +10,7 @@ export interface PsporePaths {
   workspace: string;
   state: string;
   sessions: string;
+  sessionCatalog: string;
   runs: string;
   approvals: string;
   events: string;
@@ -45,6 +46,7 @@ export function psporePaths(home: string, workspace?: string): PsporePaths {
     workspace: resolvedWorkspace,
     state,
     sessions: join(state, "sessions"),
+    sessionCatalog: join(state, "session-catalog.json"),
     runs: join(state, "runs"),
     approvals: join(state, "approvals"),
     events: join(state, "events"),

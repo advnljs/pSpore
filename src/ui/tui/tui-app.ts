@@ -25,6 +25,7 @@ import { TUI_HELP_LINES } from "./commands.js";
 import { PsporeTuiView } from "./view.js";
 import { activityDetailLines } from "../shared/activity.js";
 import { conversationIntent, selectedAgent } from "../shared/presentation.js";
+import type { AgentSnapshot } from "../../domain/runtime.js";
 
 export interface TuiSettingsPort {
   get(): Promise<LlmSettings>;
@@ -178,17 +179,34 @@ export class PsporeTuiApp {
         await this.#config(input);
         return;
       }
+      if (input === "/new" || input.startsWith("/new ")) {
+        const title = input.slice(4).trim();
+        const session = await this.#command("session.create", title ? { title } : {}) as AgentSnapshot;
+        this.#store.selectSession(session.sessionId);
+        this.#store.setNotice(`New session ${session.sessionId}`);
+        return;
+      }
       if (input === "/abort") {
+        const selectedSessionId = this.#store.snapshot().selectedSessionId;
         const child = this.#selectedAgent();
         if (child) await this.#command("agent.cancel", { agentId: child.id, reason: "cancelled from TUI" });
-        else await this.#command("session.abort", { reason: "TUI user requested abort" }, "main");
+        else await this.#command("session.abort", { reason: "TUI user requested abort" }, selectedSessionId);
         this.#store.setNotice(child ? `Agent ${child.id} cancelled` : "Abort requested");
         return;
       }
       if (input === "/compact") {
-        if (this.#selectedAgent()) throw new Error("Compaction is available only for the main session");
-        await this.#command("session.compact", {}, "main");
+        if (this.#selectedAgent()) throw new Error("Compaction is available only for a root session");
+        await this.#command("session.compact", {}, this.#store.snapshot().selectedSessionId);
         this.#store.setNotice("Compaction requested");
+        return;
+      }
+      if (input.startsWith("/send-now ")) {
+        if (this.#selectedAgent()) throw new Error("Queued root-session messages are unavailable for a child agent");
+        const displayIndex = Number(input.slice(10).trim());
+        if (!Number.isSafeInteger(displayIndex) || displayIndex < 1) throw new Error("Usage: /send-now QUEUE_NUMBER");
+        const sessionId = this.#store.snapshot().selectedSessionId;
+        await this.#command("session.queue.send-now", { index: displayIndex - 1 }, sessionId);
+        this.#store.setNotice("直接发送消息");
         return;
       }
       if (input === "/jobs") {
@@ -309,8 +327,10 @@ export class PsporeTuiApp {
       if (input.startsWith("/agent-spawn ")) {
         const objective = input.slice(13).trim();
         if (!objective) throw new Error("Usage: /agent-spawn OBJECTIVE");
+        const snapshot = this.#store.snapshot();
+        const parentId = selectedAgent(snapshot.kernel, snapshot.selectedSessionId)?.rootId ?? snapshot.selectedSessionId;
         const agent = await this.#command("agent.spawn", {
-          parentId: "main",
+          parentId,
           objective,
           workspaceMode: "shared-read",
           budget: {
@@ -374,13 +394,7 @@ export class PsporeTuiApp {
         await this.#approval(input);
         return;
       }
-      const child = this.#selectedAgent();
-      const main = this.#store.snapshot().kernel.sessions["main"];
-      if (!child && main?.status === "running") {
-        this.#store.setNotice("Session is running; use /steer TEXT or /follow TEXT explicitly");
-        return;
-      }
-      await this.#prompt(input, "prompt");
+      await this.#prompt(input, "auto");
     } catch (error) {
       this.#store.setNotice(`Error: ${toError(error).message}`);
     } finally {
@@ -388,7 +402,7 @@ export class PsporeTuiApp {
     }
   }
 
-  async #prompt(text: string, mode: "prompt" | "steer" | "follow_up"): Promise<void> {
+  async #prompt(text: string, mode: "auto" | "prompt" | "steer" | "follow_up"): Promise<void> {
     const snapshot = this.#store.snapshot();
     const intent = conversationIntent(snapshot.kernel, snapshot.selectedSessionId, text, mode);
     if (intent.target === "agent") {
@@ -401,7 +415,8 @@ export class PsporeTuiApp {
       return;
     }
     await this.#command("session.prompt", { text: intent.text, mode: intent.mode }, intent.sessionId);
-    this.#store.setNotice(`${mode} accepted for main`);
+    const queued = this.#store.snapshot().kernel.sessions[intent.sessionId]?.status === "running" && mode === "auto";
+    this.#store.setNotice(queued ? "继续排队" : `Message accepted for ${intent.sessionId}`);
   }
 
   async #approval(input: string): Promise<void> {
@@ -757,7 +772,8 @@ export class PsporeTuiApp {
   }
 
   async #interrupt(): Promise<void> {
-    const running = this.#store.snapshot().kernel.sessions["main"]?.status === "running";
+    const snapshot = this.#store.snapshot();
+    const running = snapshot.kernel.sessions[snapshot.selectedSessionId]?.status === "running";
     if (running) {
       await this.#submit("/abort");
       this.#lastInterruptAt = Date.now();

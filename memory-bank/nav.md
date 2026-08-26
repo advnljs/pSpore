@@ -22,6 +22,7 @@
 | `src/kernel/` | 纯 reducer、权威 state 与串行 effect loop |
 | `src/storage/` | home/config 初始化、atomic write、JSONL、PID+start lock |
 | `src/service/` | systemd user service 安装/状态/重启、Node/SEA/Electron 启动规格与 legacy daemon 迁移 |
+| `src/sessions/session-catalog.ts` | 持久根会话目录、legacy 最近会话迁移与 Pi JSONL 路径边界 |
 | `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
 | `src/tools/core-tools.ts` | read/edit/search/shell 固定基础工具 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
@@ -46,7 +47,7 @@
 | `scripts/linux/apply-overlay-upgrade.sh` | overlay zip 内覆盖 `resources/app.asar` 的升级脚本 |
 | `scripts/release.sh` | 本地发布辅助：复用 `build-cli-binary.sh` 生成 CLI 二进制 + 调用 `package-desktop.sh` 后上传 GitHub Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
-| `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/prompt/version 入口 |
+| `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |
 | `.gitignore` | 环境文件、私钥、`release-dist/` 与本地 pSpore 数据排除；`dist/` 已不再忽略 |
 | `memory-bank/specs.md` | 用户约束与验收标准 |
@@ -89,6 +90,7 @@
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
+- 会话：GUI 左栏 `＋`；TUI `/new [TITLE]`、`/select ID`、`/send-now N`；CLI `sessions`、`session new [TITLE]`、`prompt --session ID TEXT`。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|key|clear-key|cookie|clear-cookie`。
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
@@ -109,6 +111,6 @@
 - LLM 扩展配置：`~/.pspore/state/pi/models.json`；GUI/TUI/CLI 保存的 Provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`）。
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
-- sessions/runs/approval grants/notifications/audit：`~/.pspore/state/`
+- 根 session mapping：`~/.pspore/state/session-catalog.json`；Pi JSONL：`~/.pspore/state/sessions/`；runs/approval grants/notifications/audit：`~/.pspore/state/`
 - resource trust：`~/.pspore/state/resource-trust.json`；installed skill：`workspace/skills/.installed/<name>/<digest>/`；host plugin：`plugins/<name>/<digest>/`。
 - lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。

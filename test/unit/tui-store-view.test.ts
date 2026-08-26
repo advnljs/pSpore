@@ -142,7 +142,27 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(plain, /\/help commands/);
     assert.match(plain, /\/config setup/);
     assert.match(plain, /to child-1 › inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "95a5f40323ed7b6903ab0d88dfd070ce9d2aef64497b7cbcf345b0031db57a9c");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "c120e22fb2d245aea779bb3c9ac956728af45bf46cf8578e9006c3ba26ecdf50");
+  });
+
+  test("labels every follow-up with the requested queue and direct-send wording", () => {
+    const initial = hello();
+    const main = initial.snapshot.sessions["main"];
+    assert.ok(main);
+    const store = new TuiStore();
+    store.applyHello({
+      ...initial,
+      snapshot: {
+        ...initial.snapshot,
+        sessions: {
+          ...initial.snapshot.sessions,
+          main: { ...main, status: "running", queue: { steering: [], followUp: ["first queued", "second queued"] } },
+        },
+      },
+    });
+    const plain = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 160, 45, "", { color: false }).join("\n"));
+    assert.match(plain, /1\. 继续排队 · first queued · \/send-now 1 直接发送消息/);
+    assert.match(plain, /2\. 继续排队 · second queued · \/send-now 2 直接发送消息/);
   });
 
   test("opens the complete command palette and adapts to a compact terminal", () => {

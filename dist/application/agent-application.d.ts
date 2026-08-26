@@ -8,16 +8,19 @@ import type { NotificationService } from "../notifications/notification-service.
 import type { ApprovalService } from "../policy/approval-service.js";
 import type { ResourceCatalogEntry, ResourceKind, StagedResourceInspection } from "../plugins/types.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
+import type { SessionCatalog } from "../sessions/session-catalog.js";
 export interface AgentApplicationOptions {
     runtime: AgentRuntimePort;
     kernel: KernelLoop;
     approvals: ApprovalService;
     notifications: Pick<NotificationService, "list">;
+    sessionCatalog: SessionCatalog;
     sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
     modelConfigured: boolean;
     onShutdownRequested?: () => void;
     clock?: () => Date;
     idFactory?: () => string;
+    onError?: (error: Error) => void;
 }
 export interface AutomationControl {
     listJobs(): JobDefinition[];
@@ -29,7 +32,7 @@ export interface AutomationControl {
 export interface AgentControl {
     registerRoot(input: {
         id: string;
-        budget: RunBudget;
+        budget?: RunBudget;
         jobId?: string;
         agentPath?: readonly string[];
     }): void;
@@ -72,6 +75,7 @@ export declare class AgentApplication implements AgentSessionHost {
     handleCommand(command: CommandEnvelope): Promise<unknown>;
     setAutomation(automation: AutomationControl): void;
     setAgents(agents: AgentControl): void;
+    restoreRootSessions(): Promise<Error[]>;
     setMcp(mcp: McpControl): void;
     setResources(resources: ResourceControl): void;
     executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot>;

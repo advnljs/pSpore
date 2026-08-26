@@ -20,6 +20,7 @@ export function psporePaths(home, workspace) {
         workspace: resolvedWorkspace,
         state,
         sessions: join(state, "sessions"),
+        sessionCatalog: join(state, "session-catalog.json"),
         runs: join(state, "runs"),
         approvals: join(state, "approvals"),
         events: join(state, "events"),

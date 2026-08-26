@@ -27,6 +27,7 @@ import { PolicyEngine } from "../policy/policy.js";
 import { ShellService } from "../shell/shell-service.js";
 import { acquireDaemonLock, writeEndpoint } from "../storage/daemon-lock.js";
 import { initializePsporeHome } from "../storage/home.js";
+import { SessionCatalog } from "../sessions/session-catalog.js";
 import { createCoreTools } from "../tools/core-tools.js";
 export class PsporeDaemon {
     home;
@@ -202,14 +203,23 @@ export class PsporeDaemon {
                 pinnedFiles: config.context.pinnedFiles,
                 maxPinnedTokens: config.context.maxPinnedTokens,
             }).load();
+            const currentWorkspaceId = workspaceId(paths.workspace);
+            const sessionCatalog = await SessionCatalog.open({
+                path: paths.sessionCatalog,
+                sessionsRoot: paths.sessions,
+                workspaceId: currentWorkspaceId,
+                cwd: paths.workspace,
+                clock,
+            });
             application = new AgentApplication({
                 runtime,
                 kernel,
                 approvals,
                 notifications,
+                sessionCatalog,
                 modelConfigured: config.model !== null,
                 sessionTemplate: {
-                    workspaceId: workspaceId(paths.workspace),
+                    workspaceId: currentWorkspaceId,
                     cwd: paths.workspace,
                     ...(config.model === null
                         ? {}
@@ -222,6 +232,7 @@ export class PsporeDaemon {
                 },
                 clock,
                 idFactory,
+                onError: (error) => void markDegraded(kernel, event, error),
                 onShutdownRequested: () => setImmediate(() => void daemon?.stop()),
             });
             agents = await AgentManager.create({
@@ -261,6 +272,7 @@ export class PsporeDaemon {
             });
             await scheduler.initialize();
             application.setAutomation(scheduler);
+            const sessionRestoreFailures = await application.restoreRootSessions();
             gateway = new LocalGateway({
                 socketPath: paths.socket,
                 instanceId: lock.instanceId,
@@ -286,14 +298,16 @@ export class PsporeDaemon {
                 idFactory,
             });
             const resourceFailure = extensions.listHealth().find((health) => health.status === "blocked" || health.status === "degraded");
-            const phase = resourceFailure ? "degraded" : "ready";
+            const restoreFailure = sessionRestoreFailures[0];
+            const phase = resourceFailure || restoreFailure ? "degraded" : "ready";
+            const startupError = resourceFailure?.message ?? (restoreFailure ? `Session restore failed: ${restoreFailure.message}` : undefined);
             await kernel.dispatch(event({
                 type: "daemon.transition",
                 daemon: {
                     phase,
                     instanceId: lock.instanceId,
                     startedAt,
-                    ...(resourceFailure?.message === undefined ? {} : { error: resourceFailure.message }),
+                    ...(startupError === undefined ? {} : { error: startupError }),
                 },
             }));
             await writeEndpoint(paths.endpoint, {
