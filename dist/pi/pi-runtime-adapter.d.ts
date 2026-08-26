@@ -1,6 +1,7 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, AgentSnapshot, ModelRef, ResumeSessionSpec, RuntimeEvent, SessionId, ToolGate } from "../domain/runtime.js";
+import type { AutoCompactionConfig } from "../config/config.js";
 type Clock = () => Date;
 type IdFactory = () => string;
 export interface PiRuntimeAdapterOptions {
@@ -13,6 +14,7 @@ export interface PiRuntimeAdapterOptions {
     toolGate?: ToolGate;
     clock?: Clock;
     idFactory?: IdFactory;
+    autoCompaction?: AutoCompactionConfig;
 }
 export declare class PiRuntimeAdapter implements AgentRuntimePort {
     #private;

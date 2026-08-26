@@ -197,6 +197,7 @@ export class PsporeDaemon {
                     toolGate,
                     createTools: toolsFor,
                     createSkillPaths: () => extensions?.skillPaths() ?? [],
+                    autoCompaction: config.context.autoCompaction,
                 });
             const context = await new PinnedContextLoader({
                 workspaceRoot: paths.workspace,

@@ -18,7 +18,8 @@
 - `daemon-bridge.ts`：UDS owner、cursor、gap/reconnect、snapshot、连续 delta coalescing。
 - `src/service/system-service.ts`：生产桌面/TUI 共用；自动注册、启用并连接 systemd user service，窗口退出不停止服务。
 - `src/daemon/supervisor.ts`：只用于 Electron smoke 的隔离临时 Daemon；`src/desktop/daemon-supervisor.ts` 保留测试兼容导出。
-- `src/settings/llm-settings*.ts`：GUI/TUI/CLI 共用严格设置 decoder/service；验证并原子持久化 Provider、模型、Base URL、自定义兼容 API 与私有 API Key 引用，保存前用 Pi `ModelRuntime` 验证模型可解析。
+- `src/settings/llm-settings*.ts`、`compaction-settings.ts`：GUI/TUI/CLI 共用严格设置 decoder/service；验证并原子持久化 Provider、模型、Base URL、自动 compact 阈值、自定义兼容 API 与私有 API Key 引用，保存前用 Pi `ModelRuntime` 验证模型可解析。
+- `src/ui/shared/virtual-list.ts`：GUI 变高历史窗口索引；Fenwick tree 提供 `O(log n)` 视口定位与测量更新。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
 - `src/ui/shared/activity.ts`：与 TUI 共享的 cowork 活动归一、工具事件合并、语义摘要、结果/耗时与脱敏详情。
 - `security.ts`：BrowserWindow security flags、严格 CSP 与 exact local navigation 检查。
@@ -55,6 +56,8 @@ preload 仅暴露：
 - renderer 所有动态内容都通过 `textContent`/Text node 写入，不使用 `innerHTML`；Markdown 也走 `src/ui/shared/markdown.ts` 解析 + `markdown-view.ts` 建 DOM 的两段式，绝不拼 HTML 字符串。
 - Markdown 支持标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表、分隔线、GFM 表格与行内标记；链接因主进程禁止外部导航而渲染为惰性文本加可复制 URL，且只识别 http/https/mailto/file。
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
+- 设置弹层含“自动压缩”区，配置 `enabled/reserveTokens/keepRecentTokens`；旧客户端未发送这些可选 IPC 字段时保持当前值，避免 overlay 升级窗口重置配置。
+- transcript 只创建变高虚拟窗口中的消息节点，完成消息 DOM 使用 128 项 LRU 缓存；streaming frame 合并到下一 animation frame。renderer/store 返回不可变当前引用，不在每个 delta 上 `structuredClone` 全历史。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home，再安装/更新 systemd user unit 并 `enable --now`；renderer 只连接 UDS。退出只关闭 bridge，不停止服务。smoke 路径显式绕过 systemd，防止测试污染真实用户服务。
 - renderer 通过语义色变量提供持久化深色/浅色主题，默认浅色（白天模式），localStorage 键 `pspore.desktop.theme` 可覆盖；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
@@ -70,7 +73,7 @@ preload 仅暴露：
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
 - API Key 与 Cookie 保存到 `credentials/<provider>.api-key` 与 `<provider>.cookie` 且 mode `0600`；`models.json` 只存私有文件读取引用，Cookie 写入 `headers.Cookie`。renderer 始终只看见 `hasApiKey` / `hasCookie`。
-- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；报告自动断言外部/拥有 Daemon、双主题、设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
+- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，报告同时覆盖外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
 - GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（仅 `resources/app.asar`，不含 Chromium）；版本与 npm/package 对齐。
 - 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir）。GitHub Actions `Release desktop` 在推送到 `main` 或 `v*` tag 时构建这两个 zip，并直接上传到 `v<version>` GitHub Release（已有 Release 则覆盖同名资产）。
 - 主工作区使用 `body` flex + `.app-shell` 纵向拉伸，初始加载即铺满窗口高度。

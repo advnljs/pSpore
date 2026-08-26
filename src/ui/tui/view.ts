@@ -209,8 +209,8 @@ export function renderTuiSnapshot(
     // The conversation label stays pinned at the top while messages grow upward from the prompt.
     const rows = Math.max(1, bodyRows - 1);
     const heading = `${paint("CONVERSATION", "section", color)}  ${paint(shortId(state.selectedSessionId), "lichen", color)}`;
-    const content = renderTranscript(state, mainWidth, color, animationFrame);
-    main = [heading, ...anchorBottom(windowLines(content, rows, offset), rows)];
+    const content = renderTranscriptWindow(state, mainWidth, color, animationFrame, rows, offset);
+    main = [heading, ...anchorBottom(content, rows)];
   }
   let body: string[];
   let bodyTop: string;
@@ -312,34 +312,55 @@ function metric(label: string, value: string, color: boolean): string {
   return `  ${paint(label.padEnd(11), "faint", color)}${paint(value, "muted", color)}`;
 }
 
-function renderTranscript(state: TuiStoreSnapshot, width: number, color: boolean, animationFrame: number): string[] {
+function renderTranscriptWindow(
+  state: TuiStoreSnapshot,
+  width: number,
+  color: boolean,
+  animationFrame: number,
+  rows: number,
+  offset: number,
+): string[] {
   const selected = state.kernel.sessions[state.selectedSessionId];
-  const lines: string[] = [];
+  const targetLines = Math.max(rows + Math.max(0, offset) + 8, rows);
+  const tail: string[] = [];
   if (!selected || selected.messages.length === 0) {
-    lines.push(paint("Ready. Describe a task below, or run /help for the command palette.", "muted", color), "");
+    tail.push(paint("Ready. Describe a task below, or run /help for the command palette.", "muted", color), "");
     for (const example of EXAMPLE_TASKS) {
-      lines.push(...wrapTextWithAnsi(paint(`  ${example}`, "faint", color), Math.max(1, width)));
+      tail.push(...wrapTextWithAnsi(paint(`  ${example}`, "faint", color), Math.max(1, width)));
     }
-    lines.push("");
-  }
-  for (const message of selected?.messages ?? []) {
-    const rendered = renderMessage(message, width, color);
-    if (rendered.length > 0) lines.push(...rendered, "");
+    tail.push("");
   }
   const activities = state.activities.filter((activity) => activity.sessionId === state.selectedSessionId).slice(-8);
-  if (activities.length > 0) lines.push(...renderWorkSteps(activities, width, color, animationFrame), "");
+  if (activities.length > 0) tail.push(...renderWorkSteps(activities, width, color, animationFrame), "");
   const streaming = state.streamingText[state.selectedSessionId];
-  if (streaming) lines.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width, color));
+  if (streaming) tail.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width, color));
   const childSelected = Object.values(state.kernel.agents).some((agent) => agent.sessionId === state.selectedSessionId);
   const queued = childSelected ? [] : (selected?.queue.followUp ?? []);
   if (queued.length > 0) {
-    lines.push("", paint("QUEUED MESSAGES", "section", color));
+    tail.push("", paint("QUEUED MESSAGES", "section", color));
     for (const [index, message] of queued.entries()) {
       const source = `${paint(`${index + 1}. 继续排队`, "honey", color)} · ${paint(message, "muted", color)} · ${paint(`/send-now ${index + 1} 直接发送消息`, "bone", color)}`;
-      lines.push(...wrapTextWithAnsi(source, Math.max(1, width)));
+      tail.push(...wrapTextWithAnsi(source, Math.max(1, width)));
     }
   }
-  return lines;
+
+  // Walk backward and stop once the requested terminal window plus a small
+  // overscan is covered. Normal bottom-pinned rendering therefore formats only
+  // the last handful of messages even when a restored session has thousands.
+  const messageChunks: string[][] = [];
+  let collectedLines = tail.length;
+  const messages = selected?.messages ?? [];
+  for (let index = messages.length - 1; index >= 0 && collectedLines < targetLines; index -= 1) {
+    const message = messages[index];
+    if (!message) continue;
+    const rendered = renderMessage(message, width, color);
+    if (rendered.length === 0) continue;
+    const chunk = [...rendered, ""];
+    messageChunks.unshift(chunk);
+    collectedLines += chunk.length;
+  }
+  const content = [...messageChunks.flat(), ...tail];
+  return windowLines(content, rows, offset);
 }
 
 function renderPanel(title: string, values: readonly string[], width: number, color: boolean): string[] {
@@ -421,7 +442,9 @@ function bracketedPaste(data: string): string | undefined {
   return /[\r\n\u0000]/.test(value) ? undefined : value;
 }
 
-const SPINNER_FRAMES = ["⣋", "⣙", "⣹", "⣸", "⣼", "⣴", "⣦", "⣧", "⣇", "⣏"] as const;
+// ASCII frames stay legible in minimal Linux consoles where Braille spinner
+// glyphs otherwise appear as tofu boxes or width-ambiguous symbols.
+const SPINNER_FRAMES = [".", "o", "O", "o"] as const;
 const ROLE_GUTTER = 8;
 
 const EXAMPLE_TASKS = [

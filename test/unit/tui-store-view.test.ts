@@ -21,6 +21,7 @@ describe("TUI protocol store", () => {
   test("uses snapshot authority, applies ordered events, and detects gaps", () => {
     const store = new TuiStore();
     store.applyHello(hello());
+    const kernelBeforeDelta = store.snapshot().kernel;
     store.applyEvent({
       v: 1,
       kind: "event",
@@ -33,6 +34,7 @@ describe("TUI protocol store", () => {
       payload: { sessionId: "main", delta: "stream" },
     });
     assert.equal(store.snapshot().streamingText["main"], "stream");
+    assert.equal(store.snapshot().kernel, kernelBeforeDelta, "streaming must not clone the complete TUI history");
     store.applyEvent({
       v: 1,
       kind: "event",
@@ -142,7 +144,7 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(plain, /\/help commands/);
     assert.match(plain, /\/config setup/);
     assert.match(plain, /to child-1 › inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "c120e22fb2d245aea779bb3c9ac956728af45bf46cf8578e9006c3ba26ecdf50");
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "7c4bc9506252d79a0f42c37751291df9185b2d5a1afb7b605576b67458bdd1a5");
   });
 
   test("labels every follow-up with the requested queue and direct-send wording", () => {
@@ -163,6 +165,45 @@ describe("TUI 160x45 snapshot", () => {
     const plain = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 160, 45, "", { color: false }).join("\n"));
     assert.match(plain, /1\. 继续排队 · first queued · \/send-now 1 直接发送消息/);
     assert.match(plain, /2\. 继续排队 · second queued · \/send-now 2 直接发送消息/);
+  });
+
+  test("formats only the visible tail of a long restored history", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    const base = store.snapshot();
+    const main = base.kernel.sessions["main"];
+    assert.ok(main);
+    let textReads = 0;
+    const messages = Array.from({ length: 10_000 }, (_, index) => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      get text() {
+        textReads += 1;
+        return `history message ${index}`;
+      },
+    }));
+    const state = {
+      ...base,
+      selectedSessionId: "main",
+      kernel: {
+        ...base.kernel,
+        agents: {},
+        sessions: {
+          main: {
+            ...main,
+            rootSession: {
+              title: "Long history",
+              createdAt: "2026-08-09T00:00:00.000Z",
+              updatedAt: "2026-08-09T00:00:00.000Z",
+            },
+            messages,
+          },
+        },
+      },
+    };
+    const plain = stripTerminalSequences(renderTuiSnapshot(state, 96, 30, "", { color: false }).join("\n"));
+    assert.match(plain, /history message 9999/);
+    assert.doesNotMatch(plain, /history message 0(?:\D|$)/);
+    assert.ok(textReads < 100, `expected a virtual tail, read ${textReads} message bodies`);
   });
 
   test("opens the complete command palette and adapts to a compact terminal", () => {

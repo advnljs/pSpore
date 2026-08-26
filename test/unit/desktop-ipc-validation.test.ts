@@ -116,6 +116,21 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
     () => decodeDesktopLlmSettingsUpdate({ ...valid, permissionMode: undefined }),
     /permissionMode/,
   );
+  assert.deepEqual(decodeDesktopLlmSettingsUpdate({
+    ...valid,
+    autoCompactionEnabled: false,
+    autoCompactionReserveTokens: 24_576,
+    autoCompactionKeepRecentTokens: 12_288,
+  }), {
+    ...valid,
+    autoCompactionEnabled: false,
+    autoCompactionReserveTokens: 24_576,
+    autoCompactionKeepRecentTokens: 12_288,
+  });
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, autoCompactionKeepRecentTokens: 0 }),
+    /positive integer/,
+  );
 });
 
 test("desktop command mapping fixes session, resource root, and child ceiling", () => {

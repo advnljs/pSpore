@@ -188,8 +188,10 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.waitForIdle("main");
 
     assert.equal(executed, false);
-    const toolResult = adapter.snapshot("main").messages.find((message) => message.role === "toolResult");
+    const messages = adapter.snapshot("main").messages;
+    const toolResult = messages.find((message) => message.role === "toolResult");
     assert.match(toolResult?.text ?? "", /blocked by contract policy/);
+    assert.ok(messages.every((message) => !message.text.includes("[tool:")));
   });
 
   test("aborts a streaming response and returns to idle", async () => {

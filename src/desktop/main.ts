@@ -55,6 +55,8 @@ interface SmokeReport {
     codeContained: boolean;
     composerVisible: boolean;
     streamingVisible: boolean;
+    renderedMessages: number;
+    authoritativeMessages: number;
   };
   responsive: {
     medium: ResponsiveLayoutProbe;
@@ -74,6 +76,7 @@ interface SmokeReport {
     bypassWarningShown: boolean;
     customBaseUrlEnabled: boolean;
     customApiEnabled: boolean;
+    autoCompactionControls: boolean;
   };
   probe: {
     viewport: { width: number; height: number; devicePixelRatio: number };
@@ -375,7 +378,9 @@ async function runSmoke(
       transcriptScrollable: Boolean(transcript && transcript.scrollHeight > transcript.clientHeight),
       codeContained: Boolean(code && code.scrollWidth > code.clientWidth && getComputedStyle(code).overflowX !== 'visible'),
       composerVisible: Boolean(composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight),
-      streamingVisible: Boolean(document.querySelector('.message.streaming'))
+      streamingVisible: Boolean(document.querySelector('.message.streaming')),
+      renderedMessages: document.querySelectorAll('#transcript > .message').length,
+      authoritativeMessages: 1007
     };
   })()`);
   const mainImage = await target.webContents.capturePage();
@@ -435,7 +440,10 @@ async function runSmoke(
         return shown && document.querySelector('#settings-permission-warning')?.hidden === true;
       })(),
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
-      customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions'
+      customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions',
+      autoCompactionControls: document.querySelector('#settings-auto-compaction')?.checked === settings.autoCompactionEnabled
+        && Number(document.querySelector('#settings-compaction-reserve')?.value) === settings.autoCompactionReserveTokens
+        && Number(document.querySelector('#settings-compaction-keep-recent')?.value) === settings.autoCompactionKeepRecentTokens
     };
   })()`);
   await target.webContents.executeJavaScript("document.querySelector('#settings-close')?.click()");
@@ -597,6 +605,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   if (!report.settings.permissionWarningHidden) failures.push("bypass warning is shown while approvals are still enforced");
   if (!report.settings.bypassWarningShown) failures.push("selecting the bypass mode did not surface its risk warning");
   if (!report.settings.customBaseUrlEnabled || !report.settings.customApiEnabled) failures.push("custom OpenAI controls are not enabled correctly");
+  if (!report.settings.autoCompactionControls) failures.push("auto-compaction controls do not reflect persisted settings");
   const expectedResponsive: Array<[string, ResponsiveLayoutProbe, number, number]> = [
     ["medium", report.responsive.medium, 1_440, 900],
     ["compact", report.responsive.compact, 1_180, 720],
@@ -619,6 +628,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.mainVisual.codeContained || !report.probe.document.codeContained) failures.push("long code did not exercise contained horizontal scrolling");
     if (!report.mainVisual.composerVisible || !report.probe.document.composerVisible) failures.push("composer is not fully visible");
     if (!report.mainVisual.streamingVisible) failures.push("streaming delta is not visible in the main capture");
+    if (report.mainVisual.authoritativeMessages < 1_000 || report.mainVisual.renderedMessages >= 40) failures.push("long history was not virtualized");
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
     if (!report.probe.document.backgroundInert) failures.push("approval modal did not make the background inert");
     if (report.probe.document.focusLabel !== "拒绝") failures.push("approval modal did not receive deterministic focus");

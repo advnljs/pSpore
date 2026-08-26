@@ -547,3 +547,20 @@
   - TUI 主基准 `160×45` golden 与 `96×30` 补测通过，并新增“继续排队/直接发送消息”逐项文案断言。
 - 当前状态：源码与 `dist/` 同步构建；全部根 session 会在服务启动时加载，GUI/TUI composer 已统一。当前 smoke 使用隔离 Daemon，未改动真实用户 home/service。
 - 遗留问题：自动 compact 设置、流式 Markdown/字符清理、GUI/TUI 长历史虚拟渲染和桌面快捷方式仍在后续阶段。
+
+## 2026-08-26 15:27 CST — 自动 compact、流式 Markdown 与长历史虚拟渲染
+
+- 阶段目标：让自动 compact 长度可配置，清理正文中的内部工具标记，并让 GUI/TUI 在恢复长历史后保持流畅。
+- 完成内容：
+  - `config.context.autoCompaction` 增加 `enabled/reserveTokens/keepRecentTokens`；缺少字段的旧 v1 config 自动使用 `true/16384/20000`。共享 settings 接入 GUI“自动压缩”、TUI/CLI `config compact`，保存后服务重启应用到全部新建/恢复 session。
+  - Pi adapter 为每个 session 注入同一 compact 策略；assistant transcript 只提取公开 text block，不再把 tool call/thinking 合成为 `[tool:shell]` 等正文。
+  - GUI streaming frame 合并到 animation frame；store 不再每帧深拷贝完整 Kernel。新增 Fenwick tree 变高虚拟列表、测量校正和 128 项消息 DOM LRU，只渲染视口与 overscan。
+  - TUI store 同样复用不可变快照引用，历史从尾部反向格式化到 `rows + offset + overscan` 即停止；Braille spinner 改为兼容最小 Linux console 的 ASCII，GUI 字体链补 Emoji/Symbol fallback。
+- 修改文件：`src/settings/*`、`src/config/config.ts`、`src/pi/pi-runtime-adapter.ts`、`src/daemon/daemon.ts`、`src/ui/shared/virtual-list.ts`、GUI/TUI renderer/store、smoke fixture、相关测试/文档及同步 `dist/`。
+- 验证方式与结果：
+  - `npm run typecheck` 通过；49 项针对性 unit/contract 测试通过，含旧 config 兼容、compact 持久化、工具标记清理、10000 条 TUI/虚拟索引性能边界。
+  - `npm run test:electron` 通过；PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`。fixture 含 1007 条权威历史并断言实际 DOM 少于 40，同时覆盖 streaming Markdown、compact 设置、双主题、重连、owned/external Daemon 与 IPC 安全。
+  - 首轮 smoke 捕获到 browser renderer 因共享常量误导入 Node config 模块而被 CSP 阻止；已拆出 browser-safe `compaction-settings.ts` 后在相同压力 fixture 复跑通过，未放宽 CSP。
+  - `npm run package:desktop` 通过并刷新本地产物：全量 zip 149M（sha256 `3c56e6d5…23180878`）、overlay 23M（sha256 `dc65c344…569424f`）、140M SEA CLI（`version` 与 61 行 `--help` 自检通过）及可执行目录；均位于被 Git 忽略的 `release-dist/`。
+- 当前状态：源码与 `dist/` 已同步构建；compact/Markdown/虚拟历史阶段完成，尚未启动真实用户 service。
+- 遗留问题：Linux 快捷方式、overlay 跨版本升级验证与最终完整打包/系统服务端到端验收仍待后续阶段。

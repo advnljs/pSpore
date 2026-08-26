@@ -67,6 +67,9 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.match(html, /id="new-session-button"/);
   assert.match(html, /id="message-queue"/);
   assert.match(html, /继续排队/);
+  assert.match(html, /id="settings-auto-compaction"/);
+  assert.match(html, /id="settings-compaction-reserve"/);
+  assert.match(html, /id="settings-compaction-keep-recent"/);
   // Only the exact local module entry plus the vendored GSAP build may load;
   // anything else (inline or another src) stays forbidden.
   assert.doesNotMatch(html, /<script(?![^>]*src="\.\/(vendor\/gsap\.min\.js|renderer\.js)")/);

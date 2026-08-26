@@ -8,7 +8,9 @@ export class TuiStore {
         notice: "Connecting to daemon…",
     };
     snapshot() {
-        return structuredClone(this.#state);
+        // Protocol reducers replace state immutably and clone IPC payloads at the
+        // boundary. Avoid copying every historical message on each terminal frame.
+        return this.#state;
     }
     applyHello(hello) {
         const cursors = { ...this.#state.cursors, [hello.streamId]: hello.latestSeq };

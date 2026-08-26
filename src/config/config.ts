@@ -8,6 +8,14 @@ import type {
   McpTransportConfig,
 } from "../mcp/types.js";
 import type { HostPluginActivationConfig } from "../plugins/types.js";
+import {
+  DEFAULT_AUTO_COMPACTION,
+  MAX_COMPACTION_TOKENS,
+  type AutoCompactionConfig,
+} from "../settings/compaction-settings.js";
+
+export { DEFAULT_AUTO_COMPACTION, MAX_COMPACTION_TOKENS } from "../settings/compaction-settings.js";
+export type { AutoCompactionConfig } from "../settings/compaction-settings.js";
 
 export type PermissionMode = "deny" | "ask_all" | "ask_risky" | "allow_all";
 
@@ -28,6 +36,7 @@ export interface PsporeConfig {
   context: {
     pinnedFiles: string[];
     maxPinnedTokens: number;
+    autoCompaction: AutoCompactionConfig;
   };
   permissions: {
     mode: PermissionMode;
@@ -67,6 +76,7 @@ export function defaultConfig(home: string): PsporeConfig {
     context: {
       pinnedFiles: ["AGENTS.md", "SOUL.md", "USER.md", "MEMORY.md"],
       maxPinnedTokens: 5_000,
+      autoCompaction: { ...DEFAULT_AUTO_COMPACTION },
     },
     permissions: {
       mode: "ask_risky",
@@ -106,7 +116,9 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
   const runtime = object(root["runtime"], "config.runtime");
   exactKeys(runtime, ["workspace", "maxConcurrentAgents", "shutdownGraceMs"], "config.runtime");
   const context = object(root["context"], "config.context");
-  exactKeys(context, ["pinnedFiles", "maxPinnedTokens"], "config.context");
+  // `autoCompaction` was added after config v1 shipped. It is optional on read so
+  // existing homes upgrade in place, while every parsed config exposes defaults.
+  exactShape(context, ["pinnedFiles", "maxPinnedTokens"], ["autoCompaction"], "config.context");
   const permissions = object(root["permissions"], "config.permissions");
   exactKeys(permissions, ["mode", "approvalTimeoutMs", "rules"], "config.permissions");
   const memory = object(root["memory"], "config.memory");
@@ -134,6 +146,9 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
   const duplicateMcpIds = duplicates(mcpServers.map((server) => server.id));
   if (duplicateMcpIds.length > 0) throw new Error(`config.mcpServers contains duplicate ids: ${duplicateMcpIds.join(", ")}`);
   const shellExecutable = shell["executable"];
+  const autoCompaction = context["autoCompaction"] === undefined
+    ? DEFAULT_AUTO_COMPACTION
+    : parseAutoCompaction(context["autoCompaction"]);
 
   return {
     version: 1,
@@ -146,6 +161,7 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
     context: {
       pinnedFiles,
       maxPinnedTokens: positiveInteger(context["maxPinnedTokens"], "config.context.maxPinnedTokens"),
+      autoCompaction: { ...autoCompaction },
     },
     permissions: {
       mode: enumeration(permissions["mode"], ["deny", "ask_all", "ask_risky", "allow_all"], "config.permissions.mode"),
@@ -171,6 +187,24 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
     boot: { enabled: boolean(boot["enabled"], "config.boot.enabled") },
     plugins,
     mcpServers,
+  };
+}
+
+function parseAutoCompaction(value: unknown): AutoCompactionConfig {
+  const compaction = object(value, "config.context.autoCompaction");
+  exactShape(compaction, ["enabled", "reserveTokens", "keepRecentTokens"], [], "config.context.autoCompaction");
+  return {
+    enabled: boolean(compaction["enabled"], "config.context.autoCompaction.enabled"),
+    reserveTokens: boundedPositiveInteger(
+      compaction["reserveTokens"],
+      "config.context.autoCompaction.reserveTokens",
+      MAX_COMPACTION_TOKENS,
+    ),
+    keepRecentTokens: boundedPositiveInteger(
+      compaction["keepRecentTokens"],
+      "config.context.autoCompaction.keepRecentTokens",
+      MAX_COMPACTION_TOKENS,
+    ),
   };
 }
 
@@ -367,6 +401,12 @@ function boolean(value: unknown, path: string): boolean {
 function positiveInteger(value: unknown, path: string): number {
   if (!Number.isSafeInteger(value) || Number(value) <= 0) throw new Error(`${path} must be a positive safe integer`);
   return Number(value);
+}
+
+function boundedPositiveInteger(value: unknown, path: string, maximum: number): number {
+  const parsed = positiveInteger(value, path);
+  if (parsed > maximum) throw new Error(`${path} cannot exceed ${maximum}`);
+  return parsed;
 }
 
 function optionalPositiveInteger(value: unknown, path: string): number | undefined {

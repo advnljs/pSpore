@@ -1,0 +1,1 @@
+{"version":3,"file":"compaction-settings.d.ts","sourceRoot":"","sources":["../../src/settings/compaction-settings.ts"],"names":[],"mappings":"AAAA,MAAM,WAAW,oBAAoB;IACnC,OAAO,EAAE,OAAO,CAAC;IACjB,aAAa,EAAE,MAAM,CAAC;IACtB,gBAAgB,EAAE,MAAM,CAAC;CAC1B;AAED,eAAO,MAAM,uBAAuB,EAAE,QAAQ,CAAC,oBAAoB,CAIlE,CAAC;AAEF,eAAO,MAAM,qBAAqB,UAAY,CAAC"}

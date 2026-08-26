@@ -53,6 +53,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 22. `SystemServiceManager` 是生产桌面和 TUI 的共享服务控制层；Node/npm/SEA 使用 CLI 入口，Electron 包使用 `ELECTRON_RUN_AS_NODE=1` 执行 asar 内 CLI。`DaemonSupervisor` 仅作为 smoke fixture 的临时生命周期工具。
 23. GUI/TUI 不再各自解释原始 tool event；`CoworkActivity` 在共享 reducer 中按 `toolCallId` 合并 started/updated/completed，生成 cowork 语义标签、目标、状态、结果与耗时。技术详情在共享层统一脱敏、限深和限制为 8 KB，平台层仅决定视觉表现。
 24. 交互式根 session 通过私有原子 catalog 持久映射到 Pi JSONL，服务启动逐个 `resume`；普通输入由 Application 按运行状态自动选择 prompt/follow-up。follow-up 可通过重排 Pi 队列提升为内部 steer，但客户端只呈现“继续排队/直接发送消息”。
+25. 自动 compact 配置属于共享 `config.context.autoCompaction`，旧 v1 config 缺字段时读取 Pi 默认值；Daemon 为每个新建/恢复 session 注入独立 in-memory `SettingsManager`。GUI 使用 Fenwick tree 维护变高虚拟窗口并缓存有限 DOM，TUI 从尾部只格式化目标行窗；客户端 store reducer 保持不可变引用，流式帧不再复制完整历史。
 
 ## 重要约束
 
@@ -82,3 +83,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-20：Linux GUI 发行改为全量 zip（含创建桌面快捷方式脚本）与不含 Chromium 的 overlay zip；LLM 设置增加私有 Cookie 头以调用代理 API；主工作区初始纵向铺满窗口。
 - 2026-08-26：生产后台生命周期迁移到 systemd user service；GUI/TUI 自动安装、启用、重连但不再启停服务，legacy daemon 在首次迁移时经协议优雅退出，Electron smoke 继续使用隔离 supervisor。
 - 2026-08-26：根 session 目录、多会话创建/恢复与历史加载落地；GUI/TUI 取消三模式 composer，普通发送自动 follow-up，并提供逐条“继续排队/直接发送消息”。
+- 2026-08-26：共享设置接入自动 compact 开关/reserve/keepRecent；GUI/TUI 完成长历史窗口化，流式 GUI 按帧刷新，Pi transcript 不再合成 `[tool:*]`，终端 spinner 改为通用 ASCII 并补 GUI Emoji/Symbol 字体回退。

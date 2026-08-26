@@ -47,6 +47,9 @@ export class LlmSettingsService {
             thinking: config.model?.thinking ?? "off",
             customModel,
             permissionMode: config.permissions.mode,
+            autoCompactionEnabled: config.context.autoCompaction.enabled,
+            autoCompactionReserveTokens: config.context.autoCompaction.reserveTokens,
+            autoCompactionKeepRecentTokens: config.context.autoCompaction.keepRecentTokens,
             hasApiKey: await this.#hasApiKey(provider, providerConfig),
             hasCookie: await this.#hasCookie(provider, providerConfig),
         };
@@ -105,6 +108,14 @@ export class LlmSettingsService {
             ...currentConfig,
             model: { provider: update.provider, model: update.model, thinking: update.thinking },
             permissions: { ...currentConfig.permissions, mode: update.permissionMode },
+            context: {
+                ...currentConfig.context,
+                autoCompaction: {
+                    enabled: update.autoCompactionEnabled ?? currentConfig.context.autoCompaction.enabled,
+                    reserveTokens: update.autoCompactionReserveTokens ?? currentConfig.context.autoCompaction.reserveTokens,
+                    keepRecentTokens: update.autoCompactionKeepRecentTokens ?? currentConfig.context.autoCompaction.keepRecentTokens,
+                },
+            },
         }, this.#home);
         await this.#validateModel(nextModels, update.provider, update.model);
         if (update.apiKey || update.cookie) {

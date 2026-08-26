@@ -519,6 +519,24 @@ export class PsporeTuiApp {
       }
       return;
     }
+    if (action === "compact") {
+      if (parts.length < 3 || parts.length > 5) {
+        throw new Error("Usage: /config compact on|off [RESERVE_TOKENS] [KEEP_RECENT_TOKENS]");
+      }
+      const enabled = parseOnOff(parts[2], "/config compact");
+      const reserveTokens = parts[3] === undefined
+        ? current.autoCompactionReserveTokens
+        : parseCompactionTokens(parts[3], "reserve tokens");
+      const keepRecentTokens = parts[4] === undefined
+        ? current.autoCompactionKeepRecentTokens
+        : parseCompactionTokens(parts[4], "keep recent tokens");
+      await this.#saveSettings(updateFrom(current, {
+        autoCompactionEnabled: enabled,
+        autoCompactionReserveTokens: reserveTokens,
+        autoCompactionKeepRecentTokens: keepRecentTokens,
+      }));
+      return;
+    }
     if (action === "key") {
       if (parts.length !== 2) throw new Error("API keys are never accepted as command arguments; use /config key");
       const apiKey = await this.#view?.requestValue("API key (hidden; Esc cancels)", { secret: true });
@@ -853,6 +871,9 @@ function updateFrom(settings: LlmSettings, changes: Partial<LlmSettingsUpdate>):
     thinking: changes.thinking ?? settings.thinking,
     customModel: changes.customModel ?? settings.customModel,
     permissionMode: changes.permissionMode ?? settings.permissionMode,
+    autoCompactionEnabled: changes.autoCompactionEnabled ?? settings.autoCompactionEnabled,
+    autoCompactionReserveTokens: changes.autoCompactionReserveTokens ?? settings.autoCompactionReserveTokens,
+    autoCompactionKeepRecentTokens: changes.autoCompactionKeepRecentTokens ?? settings.autoCompactionKeepRecentTokens,
     ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
     ...(changes.cookie ? { cookie: changes.cookie } : {}),
     clearApiKey: changes.clearApiKey ?? false,
@@ -868,9 +889,24 @@ function settingsLines(settings: LlmSettings): string[] {
     `API        ${settings.api}`,
     `Thinking   ${settings.thinking}`,
     `Approvals  ${settings.permissionMode} — ${permissionModeSummary(settings.permissionMode)}`,
+    `Compact    ${settings.autoCompactionEnabled ? "on" : "off"} · reserve ${settings.autoCompactionReserveTokens} · keep ${settings.autoCompactionKeepRecentTokens}`,
     `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
     `Cookie     ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
     "",
     "Use /config wizard for guided setup, or /help for direct commands.",
   ];
+}
+
+function parseOnOff(value: string | undefined, label: string): boolean {
+  if (value === "on") return true;
+  if (value === "off") return false;
+  throw new Error(`${label} expects on or off`);
+}
+
+function parseCompactionTokens(value: string, label: string): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > 1_000_000) {
+    throw new Error(`${label} must be an integer from 1 to 1000000`);
+  }
+  return parsed;
 }

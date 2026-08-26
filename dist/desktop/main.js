@@ -263,7 +263,9 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       transcriptScrollable: Boolean(transcript && transcript.scrollHeight > transcript.clientHeight),
       codeContained: Boolean(code && code.scrollWidth > code.clientWidth && getComputedStyle(code).overflowX !== 'visible'),
       composerVisible: Boolean(composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight),
-      streamingVisible: Boolean(document.querySelector('.message.streaming'))
+      streamingVisible: Boolean(document.querySelector('.message.streaming')),
+      renderedMessages: document.querySelectorAll('#transcript > .message').length,
+      authoritativeMessages: 1007
     };
   })()`);
     const mainImage = await target.webContents.capturePage();
@@ -322,7 +324,10 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         return shown && document.querySelector('#settings-permission-warning')?.hidden === true;
       })(),
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
-      customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions'
+      customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions',
+      autoCompactionControls: document.querySelector('#settings-auto-compaction')?.checked === settings.autoCompactionEnabled
+        && Number(document.querySelector('#settings-compaction-reserve')?.value) === settings.autoCompactionReserveTokens
+        && Number(document.querySelector('#settings-compaction-keep-recent')?.value) === settings.autoCompactionKeepRecentTokens
     };
   })()`);
     await target.webContents.executeJavaScript("document.querySelector('#settings-close')?.click()");
@@ -506,6 +511,8 @@ function assertSmokeReport(report, fixture) {
         failures.push("selecting the bypass mode did not surface its risk warning");
     if (!report.settings.customBaseUrlEnabled || !report.settings.customApiEnabled)
         failures.push("custom OpenAI controls are not enabled correctly");
+    if (!report.settings.autoCompactionControls)
+        failures.push("auto-compaction controls do not reflect persisted settings");
     const expectedResponsive = [
         ["medium", report.responsive.medium, 1_440, 900],
         ["compact", report.responsive.compact, 1_180, 720],
@@ -542,6 +549,8 @@ function assertSmokeReport(report, fixture) {
             failures.push("composer is not fully visible");
         if (!report.mainVisual.streamingVisible)
             failures.push("streaming delta is not visible in the main capture");
+        if (report.mainVisual.authoritativeMessages < 1_000 || report.mainVisual.renderedMessages >= 40)
+            failures.push("long history was not virtualized");
         if (!report.probe.document.modalContained)
             failures.push("approval modal escapes the viewport");
         if (!report.probe.document.backgroundInert)

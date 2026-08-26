@@ -21,6 +21,9 @@ test("desktop settings persist model endpoint and API key without embedding the 
       thinking: "off",
       customModel: false,
       permissionMode: "ask_risky",
+      autoCompactionEnabled: true,
+      autoCompactionReserveTokens: 16_384,
+      autoCompactionKeepRecentTokens: 20_000,
       hasApiKey: false,
       hasCookie: false,
     });
@@ -61,6 +64,40 @@ test("desktop settings persist model endpoint and API key without embedding the 
     });
     assert.equal(cleared.hasApiKey, false);
     await assert.rejects(() => access(credentialPath), /ENOENT/);
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("auto-compaction thresholds round-trip through shared settings", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-compaction-settings-"));
+  try {
+    const { paths } = await initializePsporeHome(home);
+    const service = new LlmSettingsService(home, paths);
+    const current = await service.get();
+    const saved = await service.save({
+      provider: current.provider,
+      model: current.model,
+      baseUrl: current.baseUrl,
+      api: current.api,
+      thinking: current.thinking,
+      customModel: current.customModel,
+      permissionMode: current.permissionMode,
+      autoCompactionEnabled: false,
+      autoCompactionReserveTokens: 24_576,
+      autoCompactionKeepRecentTokens: 12_288,
+      clearApiKey: false,
+      clearCookie: false,
+    });
+    assert.equal(saved.autoCompactionEnabled, false);
+    assert.equal(saved.autoCompactionReserveTokens, 24_576);
+    assert.equal(saved.autoCompactionKeepRecentTokens, 12_288);
+    const config = JSON.parse(await readFile(paths.config, "utf8"));
+    assert.deepEqual(config.context.autoCompaction, {
+      enabled: false,
+      reserveTokens: 24_576,
+      keepRecentTokens: 12_288,
+    });
   } finally {
     await rm(home, { recursive: true, force: true });
   }

@@ -15,9 +15,11 @@ test("desktop store applies authoritative snapshot and coalesced deltas in seque
     versions: { pspore: "0.1.0", pi: "0.84.1", electron: "43.3.0", node: "24.19.0" },
   };
   store.applyBootstrap(bootstrap);
+  const kernelBeforeDelta = store.snapshot().kernel;
   store.applyFrame({ version: 1, kind: "delta", streamId: "stream", fromSeq: 5, seq: 7, sessionId: "main", text: "hello" });
   assert.equal(store.snapshot().streamingText["main"], "hello");
   assert.equal(store.snapshot().cursors["stream"], 7);
+  assert.equal(store.snapshot().kernel, kernelBeforeDelta, "streaming deltas must not clone the full history");
 
   store.applyFrame(eventFrame(8, "tool.started", {
     sessionId: "main",

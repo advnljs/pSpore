@@ -8,7 +8,10 @@ export class DesktopStore {
         notice: "正在启动 pSpore…",
     };
     snapshot() {
-        return structuredClone(this.#state);
+        // Reducers replace state immutably and already clone untrusted IPC payloads.
+        // Returning the current read model avoids cloning the complete transcript on
+        // every streaming delta; renderer code treats this value as read-only.
+        return this.#state;
     }
     applyBootstrap(bootstrap) {
         const protocol = bootstrap.snapshot

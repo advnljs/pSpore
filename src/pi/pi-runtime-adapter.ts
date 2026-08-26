@@ -9,6 +9,7 @@ import {
   createAgentSessionServices,
   ModelRuntime,
   SessionManager,
+  SettingsManager,
   type AgentSession,
   type AgentSessionEvent,
   type AgentSessionRuntime,
@@ -31,6 +32,7 @@ import type {
   SessionId,
   ToolGate,
 } from "../domain/runtime.js";
+import type { AutoCompactionConfig } from "../config/config.js";
 
 type Clock = () => Date;
 type IdFactory = () => string;
@@ -45,6 +47,7 @@ export interface PiRuntimeAdapterOptions {
   toolGate?: ToolGate;
   clock?: Clock;
   idFactory?: IdFactory;
+  autoCompaction?: AutoCompactionConfig;
 }
 
 interface SessionRecord {
@@ -71,6 +74,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #toolGate: ToolGate | undefined;
   readonly #clock: Clock;
   readonly #idFactory: IdFactory;
+  readonly #autoCompaction: AutoCompactionConfig | undefined;
   readonly #sessions = new Map<SessionId, SessionRecord>();
 
   private constructor(options: PiRuntimeAdapterOptions, modelRuntime: ModelRuntime) {
@@ -85,6 +89,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     this.#toolGate = options.toolGate;
     this.#clock = options.clock ?? (() => new Date());
     this.#idFactory = options.idFactory ?? randomUUID;
+    this.#autoCompaction = options.autoCompaction ? { ...options.autoCompaction } : undefined;
   }
 
   static async create(options: PiRuntimeAdapterOptions): Promise<PiRuntimeAdapter> {
@@ -332,6 +337,9 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
+        ...(this.#autoCompaction
+          ? { settingsManager: SettingsManager.inMemory({ compaction: { ...this.#autoCompaction } }) }
+          : {}),
         modelRuntime: this.#modelRuntime,
         resourceLoaderOptions: {
           noExtensions: true,
@@ -599,9 +607,12 @@ function messageText(message: unknown): string {
   return content
     .map((block) => {
       const value = asRecord(block);
-      if (typeof value["text"] === "string") return value["text"];
-      if (typeof value["thinking"] === "string") return value["thinking"];
-      if (value["type"] === "toolCall" && typeof value["name"] === "string") return `[tool:${value["name"]}]`;
+      // Tool calls and hidden reasoning have dedicated runtime events. Mixing
+      // synthetic markers into assistant prose leaks strings such as
+      // `[tool:shell]` into Markdown and persisted history.
+      if ((value["type"] === undefined || value["type"] === "text") && typeof value["text"] === "string") {
+        return value["text"];
+      }
       return "";
     })
     .filter(Boolean)

@@ -12,6 +12,9 @@ export interface LlmSettings {
     customModel: boolean;
     /** Daemon-wide approval policy; `allow_all` bypasses every approval prompt. */
     permissionMode: PermissionMode;
+    autoCompactionEnabled: boolean;
+    autoCompactionReserveTokens: number;
+    autoCompactionKeepRecentTokens: number;
     hasApiKey: boolean;
     hasCookie: boolean;
 }
@@ -23,6 +26,10 @@ export interface LlmSettingsUpdate {
     thinking: ThinkingLevel;
     customModel: boolean;
     permissionMode: PermissionMode;
+    /** Optional so a pre-upgrade GUI/TUI can save another setting without resetting compact values. */
+    autoCompactionEnabled?: boolean;
+    autoCompactionReserveTokens?: number;
+    autoCompactionKeepRecentTokens?: number;
     apiKey?: string;
     cookie?: string;
     clearApiKey: boolean;

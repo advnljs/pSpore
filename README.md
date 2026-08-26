@@ -43,6 +43,7 @@ p-spore config show
 p-spore config set deepseek deepseek-v4-flash off
 p-spore config set openai gpt-5.6-terra low
 p-spore config set custom-openai my-model https://gateway.example.com/v1 responses off
+p-spore config compact on 16384 20000  # trigger reserve / recent tokens kept
 p-spore config key                 # hidden TTY input, or piped from stdin
 p-spore config cookie              # optional Cookie header for an LLM proxy
 p-spore config clear-key
@@ -55,6 +56,10 @@ optional proxy cookies are written to `~/.pspore/credentials/<provider>.api-key`
 `<provider>.cookie` with mode `0600` and are never stored in `config.json`, sessions, or
 logs. The cookie is sent as an HTTP `Cookie` header when the model runtime calls the
 proxy. You can also supply credentials through the daemon's environment instead.
+
+Automatic context compaction is enabled by default. Adjust it in the desktop Settings
+dialog, with `/config compact on|off [RESERVE] [KEEP]` in the TUI, or with
+`p-spore config compact ...`; existing v1 config files receive the defaults automatically.
 
 ## Approvals
 

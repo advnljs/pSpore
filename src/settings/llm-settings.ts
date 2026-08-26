@@ -1,4 +1,5 @@
 import type { PermissionMode } from "../config/config.js";
+import { MAX_COMPACTION_TOKENS } from "./compaction-settings.js";
 
 export type ModelApi =
   | "provider-default"
@@ -20,6 +21,9 @@ export interface LlmSettings {
   customModel: boolean;
   /** Daemon-wide approval policy; `allow_all` bypasses every approval prompt. */
   permissionMode: PermissionMode;
+  autoCompactionEnabled: boolean;
+  autoCompactionReserveTokens: number;
+  autoCompactionKeepRecentTokens: number;
   hasApiKey: boolean;
   hasCookie: boolean;
 }
@@ -32,6 +36,10 @@ export interface LlmSettingsUpdate {
   thinking: ThinkingLevel;
   customModel: boolean;
   permissionMode: PermissionMode;
+  /** Optional so a pre-upgrade GUI/TUI can save another setting without resetting compact values. */
+  autoCompactionEnabled?: boolean;
+  autoCompactionReserveTokens?: number;
+  autoCompactionKeepRecentTokens?: number;
   apiKey?: string;
   cookie?: string;
   clearApiKey: boolean;
@@ -75,8 +83,11 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   const input = object(value, label);
   exactShape(
     input,
-    ["provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode", "clearApiKey", "clearCookie"],
-    ["apiKey", "cookie"],
+    [
+      "provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode",
+      "clearApiKey", "clearCookie",
+    ],
+    ["apiKey", "cookie", "autoCompactionEnabled", "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens"],
     label,
   );
   const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
@@ -101,6 +112,17 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   const clearCookie = booleanValue(input["clearCookie"], `${label}.clearCookie`);
   if (apiKey && clearApiKey) throw new Error(`${label} cannot set and clear the API key together`);
   if (cookie && clearCookie) throw new Error(`${label} cannot set and clear the cookie together`);
+  const autoCompactionEnabled = optionalBooleanValue(input["autoCompactionEnabled"], `${label}.autoCompactionEnabled`);
+  const autoCompactionReserveTokens = optionalBoundedPositiveInteger(
+    input["autoCompactionReserveTokens"],
+    `${label}.autoCompactionReserveTokens`,
+    MAX_COMPACTION_TOKENS,
+  );
+  const autoCompactionKeepRecentTokens = optionalBoundedPositiveInteger(
+    input["autoCompactionKeepRecentTokens"],
+    `${label}.autoCompactionKeepRecentTokens`,
+    MAX_COMPACTION_TOKENS,
+  );
   return {
     provider,
     model,
@@ -109,6 +131,9 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
     thinking: enumeration(input["thinking"], THINKING_LEVELS, `${label}.thinking`),
     customModel,
     permissionMode: enumeration(input["permissionMode"], PERMISSION_MODES, `${label}.permissionMode`),
+    ...(autoCompactionEnabled === undefined ? {} : { autoCompactionEnabled }),
+    ...(autoCompactionReserveTokens === undefined ? {} : { autoCompactionReserveTokens }),
+    ...(autoCompactionKeepRecentTokens === undefined ? {} : { autoCompactionKeepRecentTokens }),
     ...(apiKey ? { apiKey } : {}),
     ...(cookie ? { cookie } : {}),
     clearApiKey,
@@ -151,6 +176,21 @@ function optionalSecret(value: unknown, path: string): string | undefined {
 function booleanValue(value: unknown, path: string): boolean {
   if (typeof value !== "boolean") throw new Error(`${path} must be boolean`);
   return value;
+}
+
+function optionalBooleanValue(value: unknown, path: string): boolean | undefined {
+  return value === undefined ? undefined : booleanValue(value, path);
+}
+
+function boundedPositiveInteger(value: unknown, path: string, maximum: number): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0 || Number(value) > maximum) {
+    throw new Error(`${path} must be a positive integer no greater than ${maximum}`);
+  }
+  return Number(value);
+}
+
+function optionalBoundedPositiveInteger(value: unknown, path: string, maximum: number): number | undefined {
+  return value === undefined ? undefined : boundedPositiveInteger(value, path, maximum);
 }
 
 function modelIdentifier(value: unknown, path: string, allowSlash: boolean): string {

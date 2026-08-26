@@ -8,6 +8,10 @@ const NOW = "2026-08-10T08:30:00.000Z";
 export function createDesktopSmokeState(base: KernelState | null, includeApproval: boolean): KernelState {
   const seed = base ?? initialKernelState();
   const mainMessages: RuntimeMessage[] = [
+    ...Array.from({ length: 1_000 }, (_, index): RuntimeMessage => ({
+      role: index % 2 === 0 ? "user" : "assistant",
+      text: `restored history ${String(index + 1).padStart(4, "0")} · virtual rendering fixture`,
+    })),
     { role: "user", text: "请检查工作区、验证测试，并给出一个可以执行的结论。" },
     {
       role: "assistant",
@@ -62,6 +66,7 @@ export function createDesktopSmokeState(base: KernelState | null, includeApprova
     total: 35_700,
     costUsd: 0.042,
   });
+  main.rootSession = { title: "发布前检查", createdAt: NOW, updatedAt: NOW };
   const child = session("agent-resource-audit", "upstream-child", childMessages, "running", {
     input: 6_400,
     output: 980,

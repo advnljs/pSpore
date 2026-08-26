@@ -1,3 +1,4 @@
+import { MAX_COMPACTION_TOKENS } from "./compaction-settings.js";
 export const MODEL_APIS = [
     "provider-default",
     "openai-completions",
@@ -31,7 +32,10 @@ export function defaultModelFor(provider) {
 }
 export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
     const input = object(value, label);
-    exactShape(input, ["provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode", "clearApiKey", "clearCookie"], ["apiKey", "cookie"], label);
+    exactShape(input, [
+        "provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode",
+        "clearApiKey", "clearCookie",
+    ], ["apiKey", "cookie", "autoCompactionEnabled", "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens"], label);
     const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
     const model = modelIdentifier(input["model"], `${label}.model`, true);
     const baseUrl = optionalString(input["baseUrl"], `${label}.baseUrl`, 2_048);
@@ -61,6 +65,9 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         throw new Error(`${label} cannot set and clear the API key together`);
     if (cookie && clearCookie)
         throw new Error(`${label} cannot set and clear the cookie together`);
+    const autoCompactionEnabled = optionalBooleanValue(input["autoCompactionEnabled"], `${label}.autoCompactionEnabled`);
+    const autoCompactionReserveTokens = optionalBoundedPositiveInteger(input["autoCompactionReserveTokens"], `${label}.autoCompactionReserveTokens`, MAX_COMPACTION_TOKENS);
+    const autoCompactionKeepRecentTokens = optionalBoundedPositiveInteger(input["autoCompactionKeepRecentTokens"], `${label}.autoCompactionKeepRecentTokens`, MAX_COMPACTION_TOKENS);
     return {
         provider,
         model,
@@ -69,6 +76,9 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         thinking: enumeration(input["thinking"], THINKING_LEVELS, `${label}.thinking`),
         customModel,
         permissionMode: enumeration(input["permissionMode"], PERMISSION_MODES, `${label}.permissionMode`),
+        ...(autoCompactionEnabled === undefined ? {} : { autoCompactionEnabled }),
+        ...(autoCompactionReserveTokens === undefined ? {} : { autoCompactionReserveTokens }),
+        ...(autoCompactionKeepRecentTokens === undefined ? {} : { autoCompactionKeepRecentTokens }),
         ...(apiKey ? { apiKey } : {}),
         ...(cookie ? { cookie } : {}),
         clearApiKey,
@@ -109,6 +119,18 @@ function booleanValue(value, path) {
     if (typeof value !== "boolean")
         throw new Error(`${path} must be boolean`);
     return value;
+}
+function optionalBooleanValue(value, path) {
+    return value === undefined ? undefined : booleanValue(value, path);
+}
+function boundedPositiveInteger(value, path, maximum) {
+    if (!Number.isSafeInteger(value) || Number(value) <= 0 || Number(value) > maximum) {
+        throw new Error(`${path} must be a positive integer no greater than ${maximum}`);
+    }
+    return Number(value);
+}
+function optionalBoundedPositiveInteger(value, path, maximum) {
+    return value === undefined ? undefined : boundedPositiveInteger(value, path, maximum);
 }
 function modelIdentifier(value, path, allowSlash) {
     const identifier = optionalString(value, path, 128);

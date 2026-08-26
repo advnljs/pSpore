@@ -33,9 +33,18 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
       thinking: "low",
       customModel: false,
       permissionMode: "ask_risky",
+      autoCompactionEnabled: true,
+      autoCompactionReserveTokens: 16_384,
+      autoCompactionKeepRecentTokens: 20_000,
       hasApiKey: false,
       hasCookie: false,
     });
+
+    await captureStdout(() => runCli(["--home", home, "config", "compact", "off", "24576", "12288"]));
+    const compact = await service.get();
+    assert.equal(compact.autoCompactionEnabled, false);
+    assert.equal(compact.autoCompactionReserveTokens, 24_576);
+    assert.equal(compact.autoCompactionKeepRecentTokens, 12_288);
 
     await captureStdout(() => runCli([
       "--home",

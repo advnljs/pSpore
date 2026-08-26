@@ -1,6 +1,9 @@
 import type { ModelRef, ThinkingLevel } from "../domain/runtime.js";
 import type { McpServerConfig } from "../mcp/types.js";
 import type { HostPluginActivationConfig } from "../plugins/types.js";
+import { type AutoCompactionConfig } from "../settings/compaction-settings.js";
+export { DEFAULT_AUTO_COMPACTION, MAX_COMPACTION_TOKENS } from "../settings/compaction-settings.js";
+export type { AutoCompactionConfig } from "../settings/compaction-settings.js";
 export type PermissionMode = "deny" | "ask_all" | "ask_risky" | "allow_all";
 export interface PermissionRule {
     effect: "allow" | "ask" | "deny";
@@ -20,6 +23,7 @@ export interface PsporeConfig {
     context: {
         pinnedFiles: string[];
         maxPinnedTokens: number;
+        autoCompaction: AutoCompactionConfig;
     };
     permissions: {
         mode: PermissionMode;

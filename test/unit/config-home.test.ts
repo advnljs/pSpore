@@ -40,6 +40,33 @@ describe("config and home initialization", () => {
     );
   });
 
+  test("upgrades a config from before auto-compaction settings without a manual migration", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    const legacy = {
+      ...base,
+      context: {
+        pinnedFiles: base.context.pinnedFiles,
+        maxPinnedTokens: base.context.maxPinnedTokens,
+      },
+    };
+    assert.deepEqual(parseConfig(legacy, home).context.autoCompaction, {
+      enabled: true,
+      reserveTokens: 16_384,
+      keepRecentTokens: 20_000,
+    });
+    assert.throws(
+      () => parseConfig({
+        ...base,
+        context: {
+          ...base.context,
+          autoCompaction: { enabled: true, reserveTokens: 0, keepRecentTokens: 20_000 },
+        },
+      }, home),
+      /reserveTokens must be a positive/,
+    );
+  });
+
   test("strictly parses MCP transports without accepting inline secrets", () => {
     const home = "/tmp/example-home";
     const base = defaultConfig(home);

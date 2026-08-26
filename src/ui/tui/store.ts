@@ -33,7 +33,9 @@ export class TuiStore {
   };
 
   snapshot(): TuiStoreSnapshot {
-    return structuredClone(this.#state);
+    // Protocol reducers replace state immutably and clone IPC payloads at the
+    // boundary. Avoid copying every historical message on each terminal frame.
+    return this.#state;
   }
 
   applyHello(hello: ServerHelloFrame): void {

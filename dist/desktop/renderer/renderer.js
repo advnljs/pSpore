@@ -1,6 +1,7 @@
 /// <reference lib="DOM" />
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
+import { VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import { animateMessagesIn, animateTranscriptHero, hideOverlayMotion, introChoreography, nudgeElement, pulseStatus, showOverlayMotion, } from "./motion.js";
 import { DesktopStore } from "./store.js";
@@ -18,7 +19,18 @@ let savingSettings = false;
 let responsiveMode;
 let introPlayed = false;
 let lastConnectionPhase = "";
-const transcriptState = { sessionId: "", count: -1 };
+let renderFrame;
+let transcriptRenderFrame;
+const transcriptState = {
+    sessionId: "",
+    count: -1,
+    heights: new VirtualHeightIndex(180),
+    nodes: new Map(),
+    measureFrame: undefined,
+    messageSource: undefined,
+    items: [],
+    hasStreaming: false,
+};
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
 const elements = {
     appShell: byId("app-shell"),
@@ -94,6 +106,9 @@ const elements = {
     settingsPermissionMode: byId("settings-permission-mode"),
     settingsPermissionHelp: byId("settings-permission-help"),
     settingsPermissionWarning: byId("settings-permission-warning"),
+    settingsAutoCompaction: byId("settings-auto-compaction"),
+    settingsCompactionReserve: byId("settings-compaction-reserve"),
+    settingsCompactionKeepRecent: byId("settings-compaction-keep-recent"),
     settingsApiKey: byId("settings-api-key"),
     settingsKeyReveal: byId("settings-key-reveal"),
     settingsClearKey: byId("settings-clear-key"),
@@ -119,7 +134,7 @@ const unsubscribe = window.pspore.subscribe((frame) => {
         queuedFrames.push(frame);
     else {
         store.applyFrame(frame);
-        render();
+        scheduleRender();
     }
 });
 window.addEventListener("beforeunload", unsubscribe, { once: true });
@@ -221,6 +236,7 @@ function bindStaticActions() {
         event.preventDefault();
         elements.composerForm.requestSubmit();
     });
+    elements.transcript.addEventListener("scroll", scheduleTranscriptRender, { passive: true });
     elements.spawnForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const objective = elements.spawnObjective.value.trim();
@@ -337,6 +353,9 @@ function populateSettings(settings) {
     elements.settingsApi.value = settings.api;
     elements.settingsThinking.value = settings.thinking;
     elements.settingsPermissionMode.value = settings.permissionMode;
+    elements.settingsAutoCompaction.checked = settings.autoCompactionEnabled;
+    elements.settingsCompactionReserve.value = String(settings.autoCompactionReserveTokens);
+    elements.settingsCompactionKeepRecent.value = String(settings.autoCompactionKeepRecentTokens);
     configurePermissionFields();
     configureProviderFields(false);
     resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
@@ -353,6 +372,9 @@ async function saveSettings() {
         thinking: elements.settingsThinking.value,
         customModel: elements.settingsProvider.value === "custom-openai",
         permissionMode: elements.settingsPermissionMode.value,
+        autoCompactionEnabled: elements.settingsAutoCompaction.checked,
+        autoCompactionReserveTokens: elements.settingsCompactionReserve.valueAsNumber,
+        autoCompactionKeepRecentTokens: elements.settingsCompactionKeepRecent.valueAsNumber,
         ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
         ...(elements.settingsCookie.value ? { cookie: elements.settingsCookie.value } : {}),
         clearApiKey: elements.settingsClearKey.checked,
@@ -535,6 +557,23 @@ function render() {
     document.documentElement.dataset["approval"] = Object.keys(snapshot.kernel.approvals).length ? "visible" : "hidden";
     document.documentElement.dataset["connection"] = snapshot.connection.phase;
 }
+function scheduleRender() {
+    if (renderFrame !== undefined)
+        return;
+    renderFrame = requestAnimationFrame(() => {
+        renderFrame = undefined;
+        render();
+    });
+}
+function scheduleTranscriptRender() {
+    if (transcriptRenderFrame !== undefined)
+        return;
+    transcriptRenderFrame = requestAnimationFrame(() => {
+        transcriptRenderFrame = undefined;
+        if (initialized)
+            renderConversation(store.snapshot());
+    });
+}
 function renderHeader(snapshot) {
     const connection = snapshot.connection;
     elements.connectionBadge.className = `connection-badge ${connection.phase}`;
@@ -618,27 +657,138 @@ function renderConversation(snapshot) {
     const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
     const messages = session?.messages ?? [];
     const streaming = snapshot.streamingText[snapshot.selectedSessionId];
-    const content = messages.map((message) => renderMessage(message));
-    if (streaming)
-        content.push(renderStreamingMessage(streaming));
-    if (content.length === 0)
-        content.push(emptyTranscript(Boolean(child)));
     const sessionChanged = transcriptState.sessionId !== snapshot.selectedSessionId;
     const previousCount = transcriptState.count;
+    if (sessionChanged) {
+        if (transcriptState.measureFrame !== undefined)
+            cancelAnimationFrame(transcriptState.measureFrame);
+        transcriptState.heights = new VirtualHeightIndex(180);
+        transcriptState.nodes.clear();
+        transcriptState.messageSource = undefined;
+        transcriptState.items = [];
+        transcriptState.hasStreaming = false;
+    }
     transcriptState.sessionId = snapshot.selectedSessionId;
     transcriptState.count = messages.length;
+    if (messages.length === 0 && !streaming) {
+        transcriptState.heights.sync([]);
+        const empty = emptyTranscript(Boolean(child));
+        transcript.replaceChildren(empty);
+        if (sessionChanged)
+            animateTranscriptHero(empty.querySelector(":scope > div"));
+        return;
+    }
+    const hasStreaming = Boolean(streaming);
+    const messagesChanged = transcriptState.messageSource !== messages;
+    if (messagesChanged) {
+        transcriptState.messageSource = messages;
+        transcriptState.items = messages.map((message, index) => ({
+            key: messageVirtualKey(message, index),
+            message,
+        }));
+    }
+    if (messagesChanged || transcriptState.hasStreaming !== hasStreaming) {
+        transcriptState.hasStreaming = hasStreaming;
+        transcriptState.heights.sync([
+            ...transcriptState.items.map((item) => item.key),
+            ...(hasStreaming ? ["$stream"] : []),
+        ]);
+    }
+    const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
+    const viewportHeight = Math.max(1, transcript.clientHeight);
+    const shouldPin = sessionChanged || pinned;
+    const scrollTop = shouldPin
+        ? Math.max(0, transcriptState.heights.totalSize() - viewportHeight)
+        : transcript.scrollTop;
+    const range = transcriptState.heights.range(scrollTop, viewportHeight);
+    const content = [];
+    if (range.paddingStart > 0)
+        content.push(virtualSpacer(range.paddingStart, "start"));
+    const visibleMessages = [];
+    for (let index = range.start; index < range.end; index += 1) {
+        const item = transcriptState.items[index];
+        const isStreaming = hasStreaming && index === transcriptState.items.length;
+        if (!item && !isStreaming)
+            continue;
+        const key = isStreaming ? "$stream" : item?.key;
+        if (!key)
+            continue;
+        const node = isStreaming
+            ? renderStreamingMessage(streaming ?? "")
+            : cachedMessage(key, item?.message ?? { role: "assistant", text: "" });
+        node.dataset["virtualKey"] = key;
+        node.dataset["virtualIndex"] = String(index);
+        node.setAttribute("aria-posinset", String(index + 1));
+        node.setAttribute("aria-setsize", String(itemCount));
+        visibleMessages.push(node);
+        content.push(node);
+    }
+    if (range.paddingEnd > 0)
+        content.push(virtualSpacer(range.paddingEnd, "end"));
+    transcript.setAttribute("aria-busy", String(Boolean(streaming)));
     transcript.replaceChildren(...content);
     if (sessionChanged) {
-        animateMessagesIn(content.slice(0, 14).filter((node) => node.classList.contains("message")), true);
-        if (!streaming && messages.length === 0) {
-            animateTranscriptHero(transcript.querySelector(".empty-transcript > div"));
-        }
+        animateMessagesIn(visibleMessages.slice(-14), true);
     }
     else if (messages.length > previousCount) {
-        animateMessagesIn(content.slice(previousCount, messages.length), false);
+        animateMessagesIn(visibleMessages.filter((node) => Number(node.dataset["virtualIndex"]) >= previousCount), false);
     }
-    if (pinned)
-        requestAnimationFrame(() => transcript.scrollTo({ top: transcript.scrollHeight }));
+    if (shouldPin)
+        transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
+    scheduleTranscriptMeasurement(shouldPin);
+}
+function cachedMessage(key, message) {
+    const cached = transcriptState.nodes.get(key);
+    if (cached) {
+        transcriptState.nodes.delete(key);
+        transcriptState.nodes.set(key, cached);
+        return cached;
+    }
+    const node = renderMessage(message);
+    transcriptState.nodes.set(key, node);
+    while (transcriptState.nodes.size > 128) {
+        const oldest = transcriptState.nodes.keys().next().value;
+        if (oldest === undefined)
+            break;
+        transcriptState.nodes.delete(oldest);
+    }
+    return node;
+}
+function scheduleTranscriptMeasurement(shouldPin) {
+    if (transcriptState.measureFrame !== undefined)
+        cancelAnimationFrame(transcriptState.measureFrame);
+    transcriptState.measureFrame = requestAnimationFrame(() => {
+        transcriptState.measureFrame = undefined;
+        let changed = false;
+        for (const node of Array.from(elements.transcript.querySelectorAll("[data-virtual-key]"))) {
+            const key = node.dataset["virtualKey"];
+            if (!key)
+                continue;
+            const margin = Number.parseFloat(getComputedStyle(node).marginBottom) || 0;
+            changed = transcriptState.heights.update(key, node.offsetHeight + margin) || changed;
+        }
+        if (shouldPin)
+            elements.transcript.scrollTo({ top: elements.transcript.scrollHeight, behavior: "auto" });
+        if (changed)
+            scheduleTranscriptRender();
+    });
+}
+function virtualSpacer(height, edge) {
+    const spacer = element("div", `virtual-spacer ${edge}`);
+    spacer.style.height = `${Math.max(0, height)}px`;
+    spacer.setAttribute("aria-hidden", "true");
+    return spacer;
+}
+function messageVirtualKey(message, index) {
+    return `${index}:${message.role}:${message.text.length}:${textFingerprint(message.text)}`;
+}
+function textFingerprint(value) {
+    let hash = 2_166_136_261;
+    for (let index = 0; index < value.length; index += 1) {
+        hash ^= value.charCodeAt(index);
+        hash = Math.imul(hash, 16_777_619);
+    }
+    return (hash >>> 0).toString(36);
 }
 function renderMessageQueue(snapshot, session) {
     const queued = session?.queue.followUp ?? [];

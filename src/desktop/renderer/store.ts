@@ -36,7 +36,10 @@ export class DesktopStore {
   };
 
   snapshot(): DesktopStoreSnapshot {
-    return structuredClone(this.#state);
+    // Reducers replace state immutably and already clone untrusted IPC payloads.
+    // Returning the current read model avoids cloning the complete transcript on
+    // every streaming delta; renderer code treats this value as read-only.
+    return this.#state;
   }
 
   applyBootstrap(bootstrap: DesktopBootstrap): void {

@@ -1,7 +1,7 @@
 import { mkdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, ModelRuntime, SessionManager, } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
 export class PiRuntimeAdapter {
     #agentDir;
     #sessionRoot;
@@ -12,6 +12,7 @@ export class PiRuntimeAdapter {
     #toolGate;
     #clock;
     #idFactory;
+    #autoCompaction;
     #sessions = new Map();
     constructor(options, modelRuntime) {
         this.#agentDir = options.agentDir;
@@ -25,6 +26,7 @@ export class PiRuntimeAdapter {
         this.#toolGate = options.toolGate;
         this.#clock = options.clock ?? (() => new Date());
         this.#idFactory = options.idFactory ?? randomUUID;
+        this.#autoCompaction = options.autoCompaction ? { ...options.autoCompaction } : undefined;
     }
     static async create(options) {
         await mkdir(options.agentDir, { recursive: true, mode: 0o700 });
@@ -253,6 +255,9 @@ export class PiRuntimeAdapter {
             const services = await createAgentSessionServices({
                 cwd,
                 agentDir,
+                ...(this.#autoCompaction
+                    ? { settingsManager: SettingsManager.inMemory({ compaction: { ...this.#autoCompaction } }) }
+                    : {}),
                 modelRuntime: this.#modelRuntime,
                 resourceLoaderOptions: {
                     noExtensions: true,
@@ -481,12 +486,12 @@ function messageText(message) {
     return content
         .map((block) => {
         const value = asRecord(block);
-        if (typeof value["text"] === "string")
+        // Tool calls and hidden reasoning have dedicated runtime events. Mixing
+        // synthetic markers into assistant prose leaks strings such as
+        // `[tool:shell]` into Markdown and persisted history.
+        if ((value["type"] === undefined || value["type"] === "text") && typeof value["text"] === "string") {
             return value["text"];
-        if (typeof value["thinking"] === "string")
-            return value["thinking"];
-        if (value["type"] === "toolCall" && typeof value["name"] === "string")
-            return `[tool:${value["name"]}]`;
+        }
         return "";
     })
         .filter(Boolean)

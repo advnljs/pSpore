@@ -124,7 +124,7 @@
             </div>
           </header>
 
-          <div id="transcript" class="transcript" tabindex="0" role="log" aria-label="会话记录"></div>
+          <div id="transcript" class="transcript" tabindex="0" role="feed" aria-label="会话记录"></div>
 
           <div class="composer-wrap">
             <div id="notice-line" class="notice-line" role="status">正在启动…</div>
@@ -200,8 +200,8 @@
         <header class="settings-header">
           <div>
             
-            <h2 id="settings-title">模型设置</h2>
-            <p id="settings-description">配置本地 Daemon 使用的模型、接口与凭据。</p>
+            <h2 id="settings-title">设置</h2>
+            <p id="settings-description">配置系统服务使用的模型、上下文与凭据。</p>
           </div>
           <button id="settings-close" class="quiet-icon-button" type="button" aria-label="关闭设置">×</button>
         </header>
@@ -260,6 +260,19 @@
             <p id="settings-permission-warning" class="settings-danger-note" hidden>
               绕过模式下，读写文件、执行 Shell、sudo 与 MCP 调用都会以你当前登录用户的权限直接运行，不再询问。pSpore 不是沙箱，请只在你完全信任当前任务时开启。
             </p>
+          </section>
+
+          <section class="settings-section">
+            <div class="settings-section-title"><h3>自动压缩</h3><p>控制长会话何时 compact，以及压缩后保留多少最近上下文。</p></div>
+            <label class="checkbox-field">
+              <input id="settings-auto-compaction" name="autoCompactionEnabled" type="checkbox" />
+              <span><b>启用自动 compact</b><small>达到模型上下文上限前自动生成摘要并继续会话。</small></span>
+            </label>
+            <div class="field-grid two-columns">
+              <label><span>触发预留 tokens</span><input id="settings-compaction-reserve" name="autoCompactionReserveTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+              <label><span>保留最近 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+            </div>
+            <p class="settings-field-note">预留值越大越早触发；保留值越大，compact 后保留的近期对话越多。保存后由系统服务重启应用到所有 session。</p>
           </section>
 
           <section class="settings-section">
