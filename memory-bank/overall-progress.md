@@ -582,3 +582,21 @@
   - 最终本地产物：全量 zip 149M，SHA-256 `b4e5465109b386657fb1cc83ccb514af27e01481d0bfd3e64ff7147920510552`；overlay 29M，SHA-256 `16d620dd9f0ea9c148007d8ee9f7bf5e448612011bf53ba1e0ef1fcf36758a3c`；SEA CLI 140M，SHA-256 `b508219de7363d07b44e88489402249ba09c0256ebab416320bb27a3a73a7e84`，`version` 与 61 行 `--help` 自检通过。overlay 文件名扫描未发现 Electron/Chromium 运行时文件。
 - 当前状态：快捷方式与上一版跨版本升级目标均完成；构建/视觉验收进程已退出，本地 `release-dist/` 保留最新可运行目录和被忽略的发行产物。
 - 遗留问题：产品图标/WM_CLASS、GUI activity 中英混排、Markdown 外链与代码高亮等既有非本轮问题仍见 `todo.md`。
+
+## 2026-08-27 11:03 CST — `0.1.7` 发布候选、thinking 分流与 `v0.1.6 → 0.1.7` 覆盖升级
+
+- 阶段目标：把本周已完成的系统服务、多 session、统一发送、compact、流式/虚拟历史和安装升级修复作为新版本 `0.1.7` 发布；修正 reasoning 混入正文的问题，并用上周官方 `v0.1.6` 基线验证无 Chromium overlay。
+- 完成内容：
+  - 版本统一升到 `0.1.7`；增加自动测试，约束 `package.json`、`package-lock.json` 根版本和 `src/version.ts` 始终一致。
+  - `message.thinking.delta` 与正文 delta 在共享 reducer、Desktop IPC/bridge、GUI 和 TUI 中拆为独立通道；GUI 使用“思考中”临时面板，TUI 使用 `thought` gutter，`message.completed` / run settle / error / session replacement 后自动清除，不进入最终 Markdown 或历史。
+  - Release workflow 改为只接受匹配 package 版本的新 annotated `v*` tag；已有 tag/Release 时拒绝覆盖，普通 `main` push 只跑 CI。CLI、全量 zip、overlay zip 均生成并发布 SHA-256；预发行版本按 SemVer 后缀自动标记 prerelease。
+  - 本地发布脚本改为固定 `npm ci → npm run check → 完整打包 → 六项资产/可运行目录校验 → annotated tag push`，不再调用 `gh release upload --clobber`。
+- 修改文件：共享 protocol state、Desktop bridge/IPC/renderer/smoke、TUI store/view、相关 contract/unit/integration tests、版本与打包/Release 脚本、README/docs、同步构建的 `dist/` 与 memory-bank。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、135/135 测试和 production build 全绿；`release.yml` 通过 YAML parser，发布脚本通过 `bash -n`。
+  - `npm run test:electron` 通过 external/owned Daemon、`1920×1080` 主基准及 `1440×900`、`1180×720`；两份报告均为 `thinkingVisible=true`、`thinkingSeparate=true`、`thinkingHiddenAfterCompletion=true`、`legacyComposerModes=0`，1007 条权威历史只渲染 7 个可见消息节点。人工复核深/浅截图，运行态思考与正文分区，完成态思考区消失。
+  - 官方 `v0.1.6` tag 已拉取并确认指向上周提交 `98888cb9ee0c32f8ccd437bf7218e7437259a2db`。该 Release 创建于 8 月 21 日，但现有附件创建于 8 月 27 日，不能作为旧二进制基线；因此从 tag 的干净 detached worktree 执行 `npm ci` 和原版 `npm run package:desktop`，还原出自检为 `pSpore 0.1.6 / Electron 43.3.0 x64` 的全量安装。
+  - 对还原安装应用本地 `0.1.7` overlay 成功：版本变为 `pSpore 0.1.7`，Electron 保持 `43.3.0/x64`；`pspore-desktop`、`chrome-sandbox`、`libffmpeg.so` 的升级前后 SHA-256 分别保持 `57defb64…e973d`、`d7d2a29b…43cc9`、`d80e1fdb…ff03`，并生成 `.pspore-backup-*`。从升级目录直接启动 Daemon + GUI 后连接为 `connected`，`1920×1080` smoke 与 thinking/composer/虚拟历史断言全部通过。
+  - 本地 `0.1.7` 全套产物完成并通过三份 `sha256sum -c`：CLI `e6079825…f930`（146,148,544 bytes）、全量 zip `30eb5a98…950e`（155,294,013 bytes）、overlay `22774161…87b7`（29,767,197 bytes）；overlay manifest 为 `0.1.7 / Electron 43.3.0 / linux x64`，文件名扫描未发现 Electron/Chromium 运行时文件。
+- 当前状态：本地 `0.1.7` release candidate 与上周基线升级验收完成；尚待提交并推送 `main`、等待 CI、创建 `v0.1.7` annotated tag、等待 GitHub Release，并从远端重新下载资产做最终复验。
+- 遗留问题：旧 `v0.1.6` Release 附件已被历史流程覆盖，无法再作为上周原始二进制证据；本轮保持其现状、不再次覆盖，改以稳定 tag 源码还原。既有非本轮产品待办继续见 `todo.md`。

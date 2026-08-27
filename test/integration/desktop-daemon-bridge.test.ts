@@ -5,7 +5,7 @@ import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
 import { initialKernelState } from "../../src/kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../src/protocol/schema.js";
 
-test("desktop daemon bridge validates commands and coalesces contiguous deltas", async () => {
+test("desktop daemon bridge validates commands and coalesces text and thinking independently", async () => {
   const client = new FakeProtocolClient();
   const bridge = new DaemonBridge({
     socketPath: "/unused/daemon.sock",
@@ -19,19 +19,34 @@ test("desktop daemon bridge validates commands and coalesces contiguous deltas",
   bridge.start();
   await waitFor(() => bridge.bootstrap().connection.phase === "connected");
 
-  client.emit(event(1, "message.delta", { sessionId: "main", delta: "hel" }));
-  client.emit(event(2, "message.delta", { sessionId: "main", delta: "lo" }));
+  client.emit(event(1, "message.thinking.delta", { sessionId: "main", delta: "check " }));
+  client.emit(event(2, "message.thinking.delta", { sessionId: "main", delta: "facts" }));
+  client.emit(event(3, "message.delta", { sessionId: "main", delta: "hel" }));
+  client.emit(event(4, "message.delta", { sessionId: "main", delta: "lo" }));
   await new Promise((resolve) => setTimeout(resolve, 45));
-  const delta = frames.find((frame) => isRecord(frame) && frame["kind"] === "delta") as Record<string, unknown> | undefined;
-  assert.deepEqual(delta, {
-    version: 1,
-    kind: "delta",
-    streamId: "stream-1",
-    fromSeq: 1,
-    seq: 2,
-    sessionId: "main",
-    text: "hello",
-  });
+  const deltas = frames.filter((frame) => isRecord(frame) && frame["kind"] === "delta");
+  assert.deepEqual(deltas, [
+    {
+      version: 1,
+      kind: "delta",
+      streamId: "stream-1",
+      fromSeq: 1,
+      seq: 2,
+      sessionId: "main",
+      channel: "thinking",
+      text: "check facts",
+    },
+    {
+      version: 1,
+      kind: "delta",
+      streamId: "stream-1",
+      fromSeq: 3,
+      seq: 4,
+      sessionId: "main",
+      channel: "text",
+      text: "hello",
+    },
+  ]);
 
   await bridge.dispatch({ action: "resources.inspect", stagingName: "safe-skill" });
   assert.deepEqual(client.commands.at(-1), {

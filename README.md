@@ -174,7 +174,8 @@ This npm package is the CLI and does not bundle Electron. `p-spore desktop` work
 Electron is available in a source checkout; otherwise download the desktop zip from the
 project's GitHub Releases. The full zip includes Chromium and a clickable
 `创建桌面快捷方式.sh`. Later upgrades can use the smaller overlay zip, which installs
-a verified application payload while retaining the compatible Electron/Chromium runtime. The desktop app automatically
+a verified application payload while retaining the compatible Electron/Chromium runtime. Releases are immutable:
+each user-visible update gets a new SemVer tag instead of replacing an older asset. The desktop app automatically
 registers the same systemd user service and never ties the service lifetime to a window.
 
 ## Links

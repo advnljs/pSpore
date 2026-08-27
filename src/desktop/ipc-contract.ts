@@ -42,7 +42,16 @@ export type DesktopFrame =
   | { version: 1; kind: "connection"; connection: DesktopConnectionState }
   | { version: 1; kind: "snapshot"; snapshot: KernelState; cursors: Record<string, number> }
   | { version: 1; kind: "event"; event: EventEnvelope }
-  | { version: 1; kind: "delta"; streamId: string; fromSeq: number; seq: number; sessionId: string; text: string };
+  | {
+      version: 1;
+      kind: "delta";
+      streamId: string;
+      fromSeq: number;
+      seq: number;
+      sessionId: string;
+      channel: "text" | "thinking";
+      text: string;
+    };
 
 export type DesktopCommand =
   | { action: "prompt"; text: string; sessionId: string }

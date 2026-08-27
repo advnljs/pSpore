@@ -39,6 +39,7 @@ interface PendingDelta {
   fromSeq: number;
   seq: number;
   sessionId: string;
+  channel: "text" | "thinking";
   text: string;
 }
 
@@ -191,22 +192,37 @@ export class DaemonBridge {
     }
     this.#cursors = { ...this.#cursors, [event.streamId]: event.seq };
     const payload = event.payload as Record<string, unknown>;
-    if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-      this.#queueDelta(event.streamId, event.seq, payload["sessionId"], payload["delta"]);
+    const channel = event.type === "message.delta" ? "text"
+      : event.type === "message.thinking.delta" ? "thinking"
+        : undefined;
+    if (channel && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
+      this.#queueDelta(event.streamId, event.seq, payload["sessionId"], channel, payload["delta"]);
       return;
     }
     this.#flushDelta();
     this.#emit({ version: 1, kind: "event", event });
   }
 
-  #queueDelta(streamId: string, seq: number, sessionId: string, text: string): void {
+  #queueDelta(
+    streamId: string,
+    seq: number,
+    sessionId: string,
+    channel: "text" | "thinking",
+    text: string,
+  ): void {
     const pending = this.#pendingDelta;
-    if (pending && pending.streamId === streamId && pending.sessionId === sessionId && seq === pending.seq + 1) {
+    if (
+      pending
+      && pending.streamId === streamId
+      && pending.sessionId === sessionId
+      && pending.channel === channel
+      && seq === pending.seq + 1
+    ) {
       pending.seq = seq;
       pending.text += text;
     } else {
       this.#flushDelta();
-      this.#pendingDelta = { streamId, fromSeq: seq, seq, sessionId, text };
+      this.#pendingDelta = { streamId, fromSeq: seq, seq, sessionId, channel, text };
     }
     if (!this.#deltaTimer) this.#deltaTimer = setTimeout(() => this.#flushDelta(), 30);
   }

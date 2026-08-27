@@ -7,6 +7,7 @@ export interface DesktopStoreSnapshot {
     kernel: KernelState;
     cursors: Readonly<Record<string, number>>;
     streamingText: Readonly<Record<string, string>>;
+    streamingThinking: Readonly<Record<string, string>>;
     selectedSessionId: string;
     activities: readonly DesktopActivity[];
     notice: string;

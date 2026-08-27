@@ -1,12 +1,19 @@
 import { initialKernelState } from "../../kernel/state.js";
 export function initialProtocolUiState() {
-    return { kernel: initialKernelState(), cursors: {}, streamingText: {}, selectedSessionId: "main" };
+    return {
+        kernel: initialKernelState(),
+        cursors: {},
+        streamingText: {},
+        streamingThinking: {},
+        selectedSessionId: "main",
+    };
 }
 export function replaceProtocolSnapshot(current, kernel, cursors) {
     return {
         kernel: structuredClone(kernel),
         cursors: { ...cursors },
         streamingText: {},
+        streamingThinking: {},
         selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
     };
 }
@@ -23,13 +30,15 @@ export function applyProtocolDelta(current, delta) {
     if (delta.fromSeq !== previous + 1 || delta.seq < delta.fromSeq) {
         return { state: withGap(current, delta.streamId, previous + 1, delta.fromSeq), applied: false };
     }
+    const field = delta.channel === "thinking" ? "streamingThinking" : "streamingText";
+    const values = current[field];
     return {
         state: {
             ...current,
             cursors: { ...current.cursors, [delta.streamId]: delta.seq },
-            streamingText: {
-                ...current.streamingText,
-                [delta.sessionId]: `${current.streamingText[delta.sessionId] ?? ""}${delta.text}`,
+            [field]: {
+                ...values,
+                [delta.sessionId]: `${values[delta.sessionId] ?? ""}${delta.text}`,
             },
         },
         applied: true,
@@ -45,6 +54,7 @@ export function applyProtocolEvent(current, event) {
     const payload = asRecord(event.payload);
     let kernel = current.kernel;
     let streamingText = current.streamingText;
+    let streamingThinking = current.streamingThinking;
     if (event.type === "daemon.state") {
         const daemon = payload["daemon"];
         if (isRecord(daemon) && typeof daemon["phase"] === "string" && typeof payload["revision"] === "number") {
@@ -58,18 +68,12 @@ export function applyProtocolEvent(current, event) {
             revision: numericRevision(payload, kernel.revision),
             sessions: { ...kernel.sessions, [session.sessionId]: structuredClone(session) },
         };
-        if (event.type === "message.completed" || event.type === "run.settled") {
-            const next = { ...streamingText };
-            delete next[session.sessionId];
-            streamingText = next;
-        }
     }
     if (event.type === "session.closed" && typeof payload["sessionId"] === "string") {
         const sessions = { ...kernel.sessions };
         delete sessions[payload["sessionId"]];
-        const next = { ...streamingText };
-        delete next[payload["sessionId"]];
-        streamingText = next;
+        streamingText = withoutSession(streamingText, payload["sessionId"]);
+        streamingThinking = withoutSession(streamingThinking, payload["sessionId"]);
         kernel = { ...kernel, revision: numericRevision(payload, kernel.revision), sessions };
     }
     if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
@@ -77,6 +81,22 @@ export function applyProtocolEvent(current, event) {
             ...streamingText,
             [payload["sessionId"]]: `${streamingText[payload["sessionId"]] ?? ""}${payload["delta"]}`,
         };
+    }
+    if (event.type === "message.thinking.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
+        streamingThinking = {
+            ...streamingThinking,
+            [payload["sessionId"]]: `${streamingThinking[payload["sessionId"]] ?? ""}${payload["delta"]}`,
+        };
+    }
+    const streamSessionId = typeof payload["sessionId"] === "string" ? payload["sessionId"] : undefined;
+    const startsAssistantMessage = event.type === "message.started" && payload["role"] === "assistant";
+    const finishesStreaming = event.type === "message.completed"
+        || event.type === "run.settled"
+        || event.type === "runtime.error"
+        || event.type === "session.replaced";
+    if (streamSessionId && (startsAssistantMessage || finishesStreaming)) {
+        streamingText = withoutSession(streamingText, streamSessionId);
+        streamingThinking = withoutSession(streamingThinking, streamSessionId);
     }
     if (event.type === "approval.requested" && isRecord(payload["request"]) && typeof payload["request"]["id"] === "string") {
         const request = payload["request"];
@@ -131,11 +151,19 @@ export function applyProtocolEvent(current, event) {
             kernel,
             cursors: { ...current.cursors, [event.streamId]: event.seq },
             streamingText,
+            streamingThinking,
             selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
         },
         applied: true,
         ...(notificationNotice ? { notificationNotice } : {}),
     };
+}
+function withoutSession(values, sessionId) {
+    if (!(sessionId in values))
+        return values;
+    const next = { ...values };
+    delete next[sessionId];
+    return next;
 }
 function withGap(current, streamId, expected, received) {
     return { ...current, gap: { streamId, expected, received } };

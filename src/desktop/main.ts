@@ -56,6 +56,10 @@ interface SmokeReport {
     composerVisible: boolean;
     streamingVisible: boolean;
     streamingActive: boolean;
+    thinkingVisible: boolean;
+    thinkingSeparate: boolean;
+    thinkingHiddenAfterCompletion: boolean;
+    legacyComposerModes: number;
     virtualIndices: number[];
     scrollDistance: number;
     renderedMessages: number;
@@ -363,8 +367,19 @@ async function runSmoke(
       kind: "delta",
       streamId: "desktop-smoke",
       fromSeq: 13,
-      seq: 15,
+      seq: 14,
       sessionId: "main",
+      channel: "thinking",
+      text: "正在核对测试结果、运行时版本与升级边界。",
+    });
+    sendFrame(target, {
+      version: 1,
+      kind: "delta",
+      streamId: "desktop-smoke",
+      fromSeq: 15,
+      seq: 17,
+      sessionId: "main",
+      channel: "text",
       text: "正在归并最终证据；这段文字来自连续 streaming delta。",
     });
   }
@@ -383,6 +398,10 @@ async function runSmoke(
       composerVisible: Boolean(composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight),
       streamingVisible: Boolean(document.querySelector('.message.streaming')),
       streamingActive: transcript?.getAttribute('aria-busy') === 'true',
+      thinkingVisible: Boolean(document.querySelector('.thinking-stream')),
+      thinkingSeparate: Boolean(document.querySelector('.thinking-stream') && document.querySelector('.message.streaming > .message-body')),
+      thinkingHiddenAfterCompletion: false,
+      legacyComposerModes: document.querySelectorAll('#composer-mode, .mode-select').length,
       virtualIndices: Array.from(document.querySelectorAll('#transcript > .message')).map((node) => Number(node.dataset.virtualIndex)),
       scrollDistance: transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1,
       renderedMessages: document.querySelectorAll('#transcript > .message').length,
@@ -391,6 +410,11 @@ async function runSmoke(
   })()`);
   const mainImage = await target.webContents.capturePage();
   await writeFile(join(outputDirectory, "desktop-main-dark-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
+  if (fixture) {
+    sendFrame(target, smokeEvent(18, "message.completed", { sessionId: "main", role: "assistant", text: "最终证据已归并。" }));
+    await waitForRenderer(target, "!document.querySelector('.thinking-stream')", 5_000);
+    mainVisual.thinkingHiddenAfterCompletion = true;
+  }
   const darkTheme = await readThemeSnapshot(target);
   const typography: Record<string, number> = await target.webContents.executeJavaScript(`(() => {
     const size = (selector) => Number.parseFloat(getComputedStyle(document.querySelector(selector)).fontSize);
@@ -482,7 +506,7 @@ async function runSmoke(
       version: 1,
       kind: "snapshot",
       snapshot: createDesktopSmokeState(base.snapshot, true),
-      cursors: { ...base.cursors, "desktop-smoke": 15 },
+      cursors: { ...base.cursors, "desktop-smoke": 18 },
     });
     await waitForRenderer(target, "document.documentElement.dataset.approval === 'visible'", 5_000);
     await settlePaint();
@@ -637,6 +661,9 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.probe.document.codeContained) failures.push("long code did not exercise contained horizontal scrolling");
     if (!report.mainVisual.composerVisible || !report.probe.document.composerVisible) failures.push("composer is not fully visible");
     if (!report.mainVisual.streamingVisible) failures.push("streaming delta is not visible in the main capture");
+    if (!report.mainVisual.thinkingVisible || !report.mainVisual.thinkingSeparate) failures.push("thinking was not rendered separately from response text");
+    if (!report.mainVisual.thinkingHiddenAfterCompletion) failures.push("thinking did not hide after message completion");
+    if (report.mainVisual.legacyComposerModes !== 0) failures.push("legacy composer mode controls are still visible");
     if (report.mainVisual.authoritativeMessages < 1_000 || report.mainVisual.renderedMessages >= 40) failures.push("long history was not virtualized");
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
     if (!report.probe.document.backgroundInert) failures.push("approval modal did not make the background inert");

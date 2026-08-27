@@ -13,7 +13,7 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux x86_64 Electron unpacked dir 打包配置 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | `main` 或 `v*` tag 时构建 GUI 全量 zip 与 overlay zip 并直接上传到 GitHub Release |
+| `.github/workflows/release.yml` | 新 `v*` tag 上构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -45,7 +45,7 @@
 | `scripts/build-cli-binary.sh` | esbuild bundle + Node SEA 注入，产出本地 `release-dist/pspore-<version>-linux-x64` 独立 CLI 二进制并自检 |
 | `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内快捷方式安装器：生成稳定 XDG launcher、Desktop Entry 与私有启动日志 |
 | `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，自检后替换应用资源、保留回滚并重启匹配服务 |
-| `scripts/release.sh` | 本地发布辅助：复用 `build-cli-binary.sh` 生成 CLI 二进制 + 调用 `package-desktop.sh` 后上传 GitHub Release |
+| `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |
@@ -96,7 +96,7 @@
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
-- GUI 桌面包：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.zip`（含创建桌面快捷方式脚本）、`pspore-desktop-<version>-linux-x64-overlay.zip`（带 manifest 的完整应用 payload，不含 Electron/Chromium）与本地 CLI release 二进制 `release-dist/pspore-<version>-linux-x64`；全部产物被 Git 忽略。overlay 运行方式为 `./覆盖升级.sh /path/to/existing-install`，只复用精确兼容的 Linux x64 Electron。推送到 `main` 或匹配 `package.json` 的 `v*` tag 后，GitHub Actions 会构建同一桌面产物并直接上传到 `v<version>` GitHub Release。
+- GUI 桌面包：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.zip`（含创建桌面快捷方式脚本）、`pspore-desktop-<version>-linux-x64-overlay.zip`（带 manifest 的完整应用 payload，不含 Electron/Chromium）、本地 CLI `release-dist/pspore-<version>-linux-x64` 及三份 SHA-256；全部产物被 Git 忽略。overlay 运行方式为 `./覆盖升级.sh /path/to/existing-install`，只复用精确兼容的 Linux x64 Electron。`main` 只跑 CI；新 annotated `v<version>` tag 才创建一次不可变 GitHub Release。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

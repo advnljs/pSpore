@@ -66,6 +66,11 @@ if [[ "$BUILT_ELECTRON_VERSION" != "$ELECTRON_VERSION" || "$BUILT_ARCH" != "x64"
   echo "Error: built runtime ${BUILT_ELECTRON_VERSION}/${BUILT_ARCH} does not match overlay contract ${ELECTRON_VERSION}/x64"
   exit 1
 fi
+BUILT_APP_OUTPUT="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" "$UNPACKED_DIR/resources/app.asar/dist/cli/main.js" version)"
+if [[ "$BUILT_APP_OUTPUT" != "pSpore $VERSION" && "$BUILT_APP_OUTPUT" != "pSpore $VERSION "* ]]; then
+  echo "Error: built app version does not match package.json (${BUILT_APP_OUTPUT})"
+  exit 1
+fi
 
 STAGE_FULL="$DIST_DIR/staging-full/$FULL_NAME"
 mkdir -p "$STAGE_FULL"
@@ -209,3 +214,4 @@ echo "==> Full package: $FULL_ZIP ($(du -h "$FULL_ZIP" | cut -f1))"
 echo "==> Overlay package: $OVERLAY_ZIP ($(du -h "$OVERLAY_ZIP" | cut -f1))"
 echo "==> Runnable app dir: $DIST_DIR/$FULL_NAME"
 echo "==> CLI binary: $DIST_DIR/pspore-${VERSION}-linux-x64"
+echo "==> CLI checksum: $DIST_DIR/pspore-${VERSION}-linux-x64.sha256"

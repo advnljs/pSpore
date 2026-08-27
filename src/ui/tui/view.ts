@@ -332,6 +332,8 @@ function renderTranscriptWindow(
   }
   const activities = state.activities.filter((activity) => activity.sessionId === state.selectedSessionId).slice(-8);
   if (activities.length > 0) tail.push(...renderWorkSteps(activities, width, color, animationFrame), "");
+  const thinking = state.streamingThinking[state.selectedSessionId];
+  if (thinking) tail.push(...renderThinking(thinking, width, color), "");
   const streaming = state.streamingText[state.selectedSessionId];
   if (streaming) tail.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width, color));
   const childSelected = Object.values(state.kernel.agents).some((agent) => agent.sessionId === state.selectedSessionId);
@@ -383,6 +385,17 @@ function renderMessage(message: RuntimeMessage, width: number, color: boolean): 
   if (!text) return [];
   const wrapped = wrapTextWithAnsi(text, Math.max(1, width - visibleWidth(prefix)));
   return wrapped.map((line, index) => `${index === 0 ? prefix : continuation}${line}`);
+}
+
+function renderThinking(value: string, width: number, color: boolean): string[] {
+  const prefix = paint("thought".padEnd(ROLE_GUTTER), "faint", color);
+  const continuation = " ".repeat(Math.min(ROLE_GUTTER, width));
+  const wrapped = wrapTextWithAnsi(value.trim(), Math.max(1, width - visibleWidth(prefix)));
+  const lines = wrapped.map((line, index) => `${index === 0 ? prefix : continuation}${paint(line, "muted", color)}`);
+  return [
+    ...lines,
+    `${continuation}${paint("(auto-hidden when the response completes)", "faint", color)}`,
+  ];
 }
 
 function renderWorkSteps(
@@ -508,6 +521,7 @@ function activeWorkLabel(state: TuiStoreSnapshot, animationFrame: number): strin
   ));
   if (activity) return `${spinner} ${activity.label}`;
   if (state.streamingText[state.selectedSessionId]) return `${spinner} Writing response`;
+  if (state.streamingThinking[state.selectedSessionId]) return `${spinner} Thinking`;
   return `${spinner} Thinking`;
 }
 

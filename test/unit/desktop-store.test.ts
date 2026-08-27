@@ -16,8 +16,28 @@ test("desktop store applies authoritative snapshot and coalesced deltas in seque
   };
   store.applyBootstrap(bootstrap);
   const kernelBeforeDelta = store.snapshot().kernel;
-  store.applyFrame({ version: 1, kind: "delta", streamId: "stream", fromSeq: 5, seq: 7, sessionId: "main", text: "hello" });
+  store.applyFrame({
+    version: 1,
+    kind: "delta",
+    streamId: "stream",
+    fromSeq: 5,
+    seq: 6,
+    sessionId: "main",
+    channel: "thinking",
+    text: "private reasoning",
+  });
+  store.applyFrame({
+    version: 1,
+    kind: "delta",
+    streamId: "stream",
+    fromSeq: 7,
+    seq: 7,
+    sessionId: "main",
+    channel: "text",
+    text: "hello",
+  });
   assert.equal(store.snapshot().streamingText["main"], "hello");
+  assert.equal(store.snapshot().streamingThinking["main"], "private reasoning");
   assert.equal(store.snapshot().cursors["stream"], 7);
   assert.equal(store.snapshot().kernel, kernelBeforeDelta, "streaming deltas must not clone the full history");
 
@@ -62,6 +82,8 @@ test("desktop store applies authoritative snapshot and coalesced deltas in seque
   }));
   assert.equal(store.snapshot().activities.at(-1)?.label, "Cowork task failed");
   assert.equal(store.snapshot().activities.at(-1)?.status, "failed");
+  assert.equal(store.snapshot().streamingText["main"], undefined);
+  assert.equal(store.snapshot().streamingThinking["main"], undefined);
 });
 
 test("desktop store detects IPC ordering gaps and replaces stale state with a snapshot", () => {

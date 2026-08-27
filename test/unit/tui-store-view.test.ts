@@ -30,10 +30,10 @@ describe("TUI protocol store", () => {
       seq: 1,
       ts: "2026-08-09T00:00:01.000Z",
       durable: false,
-      type: "message.delta",
-      payload: { sessionId: "main", delta: "stream" },
+      type: "message.thinking.delta",
+      payload: { sessionId: "main", delta: "reasoning" },
     });
-    assert.equal(store.snapshot().streamingText["main"], "stream");
+    assert.equal(store.snapshot().streamingThinking["main"], "reasoning");
     assert.equal(store.snapshot().kernel, kernelBeforeDelta, "streaming must not clone the complete TUI history");
     store.applyEvent({
       v: 1,
@@ -42,24 +42,37 @@ describe("TUI protocol store", () => {
       streamId: "kernel",
       seq: 2,
       ts: "2026-08-09T00:00:02.000Z",
+      durable: false,
+      type: "message.delta",
+      payload: { sessionId: "main", delta: "stream" },
+    });
+    assert.equal(store.snapshot().streamingText["main"], "stream");
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "e-3",
+      streamId: "kernel",
+      seq: 3,
+      ts: "2026-08-09T00:00:03.000Z",
       durable: true,
       type: "session.closed",
       payload: { sessionId: "main", revision: 5 },
     });
     assert.equal(store.snapshot().kernel.sessions["main"], undefined);
     assert.equal(store.snapshot().streamingText["main"], undefined);
+    assert.equal(store.snapshot().streamingThinking["main"], undefined);
     store.applyEvent({
       v: 1,
       kind: "event",
-      id: "e-4",
+      id: "e-5",
       streamId: "kernel",
-      seq: 4,
-      ts: "2026-08-09T00:00:03.000Z",
+      seq: 5,
+      ts: "2026-08-09T00:00:05.000Z",
       durable: true,
       type: "run.settled",
       payload: {},
     });
-    assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 3, received: 4 });
+    assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 4, received: 5 });
   });
 
   test("routes selected child input to agent.send semantics instead of main", () => {
@@ -165,6 +178,52 @@ describe("TUI 160x45 snapshot", () => {
     const plain = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 160, 45, "", { color: false }).join("\n"));
     assert.match(plain, /1\. 继续排队 · first queued · \/send-now 1 直接发送消息/);
     assert.match(plain, /2\. 继续排队 · second queued · \/send-now 2 直接发送消息/);
+  });
+
+  test("renders thinking separately while streaming and hides it when the response completes", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "thinking-1",
+      streamId: "kernel",
+      seq: 1,
+      ts: "2026-08-09T00:00:01.000Z",
+      durable: false,
+      type: "message.thinking.delta",
+      payload: { sessionId: "main", delta: "inspect private evidence" },
+    });
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "text-2",
+      streamId: "kernel",
+      seq: 2,
+      ts: "2026-08-09T00:00:02.000Z",
+      durable: false,
+      type: "message.delta",
+      payload: { sessionId: "main", delta: "public answer" },
+    });
+    const streaming = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 96, 30, "", { color: false }).join("\n"));
+    assert.match(streaming, /thought\s+inspect private evidence/);
+    assert.match(streaming, /auto-hidden when the response completes/);
+    assert.match(streaming, /pSpore\s+public answer/);
+
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "completed-3",
+      streamId: "kernel",
+      seq: 3,
+      ts: "2026-08-09T00:00:03.000Z",
+      durable: true,
+      type: "message.completed",
+      payload: { sessionId: "main" },
+    });
+    const completed = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 96, 30, "", { color: false }).join("\n"));
+    assert.doesNotMatch(completed, /inspect private evidence/);
+    assert.equal(store.snapshot().streamingThinking["main"], undefined);
   });
 
   test("formats only the visible tail of a long restored history", () => {

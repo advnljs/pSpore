@@ -4,6 +4,7 @@ export interface ProtocolUiState {
     kernel: KernelState;
     cursors: Readonly<Record<string, number>>;
     streamingText: Readonly<Record<string, string>>;
+    streamingThinking: Readonly<Record<string, string>>;
     selectedSessionId: string;
     gap?: {
         streamId: string;
@@ -24,6 +25,7 @@ export declare function applyProtocolDelta(current: ProtocolUiState, delta: {
     fromSeq: number;
     seq: number;
     sessionId: string;
+    channel: "text" | "thinking";
     text: string;
 }): ProtocolApplyResult;
 export declare function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelope): ProtocolApplyResult;

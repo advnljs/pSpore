@@ -6,6 +6,7 @@ export interface ProtocolUiState {
   kernel: KernelState;
   cursors: Readonly<Record<string, number>>;
   streamingText: Readonly<Record<string, string>>;
+  streamingThinking: Readonly<Record<string, string>>;
   selectedSessionId: string;
   gap?: { streamId: string; expected: number; received: number };
 }
@@ -17,7 +18,13 @@ export interface ProtocolApplyResult {
 }
 
 export function initialProtocolUiState(): ProtocolUiState {
-  return { kernel: initialKernelState(), cursors: {}, streamingText: {}, selectedSessionId: "main" };
+  return {
+    kernel: initialKernelState(),
+    cursors: {},
+    streamingText: {},
+    streamingThinking: {},
+    selectedSessionId: "main",
+  };
 }
 
 export function replaceProtocolSnapshot(
@@ -29,6 +36,7 @@ export function replaceProtocolSnapshot(
     kernel: structuredClone(kernel),
     cursors: { ...cursors },
     streamingText: {},
+    streamingThinking: {},
     selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
   };
 }
@@ -41,20 +49,29 @@ export function selectProtocolSession(current: ProtocolUiState, id: string): Pro
 
 export function applyProtocolDelta(
   current: ProtocolUiState,
-  delta: { streamId: string; fromSeq: number; seq: number; sessionId: string; text: string },
+  delta: {
+    streamId: string;
+    fromSeq: number;
+    seq: number;
+    sessionId: string;
+    channel: "text" | "thinking";
+    text: string;
+  },
 ): ProtocolApplyResult {
   const previous = current.cursors[delta.streamId] ?? 0;
   if (delta.seq <= previous) return { state: current, applied: false };
   if (delta.fromSeq !== previous + 1 || delta.seq < delta.fromSeq) {
     return { state: withGap(current, delta.streamId, previous + 1, delta.fromSeq), applied: false };
   }
+  const field = delta.channel === "thinking" ? "streamingThinking" : "streamingText";
+  const values = current[field];
   return {
     state: {
       ...current,
       cursors: { ...current.cursors, [delta.streamId]: delta.seq },
-      streamingText: {
-        ...current.streamingText,
-        [delta.sessionId]: `${current.streamingText[delta.sessionId] ?? ""}${delta.text}`,
+      [field]: {
+        ...values,
+        [delta.sessionId]: `${values[delta.sessionId] ?? ""}${delta.text}`,
       },
     },
     applied: true,
@@ -71,6 +88,7 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
   const payload = asRecord(event.payload);
   let kernel = current.kernel;
   let streamingText = current.streamingText;
+  let streamingThinking = current.streamingThinking;
   if (event.type === "daemon.state") {
     const daemon = payload["daemon"];
     if (isRecord(daemon) && typeof daemon["phase"] === "string" && typeof payload["revision"] === "number") {
@@ -84,18 +102,12 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
       revision: numericRevision(payload, kernel.revision),
       sessions: { ...kernel.sessions, [session.sessionId]: structuredClone(session) },
     };
-    if (event.type === "message.completed" || event.type === "run.settled") {
-      const next = { ...streamingText };
-      delete next[session.sessionId];
-      streamingText = next;
-    }
   }
   if (event.type === "session.closed" && typeof payload["sessionId"] === "string") {
     const sessions = { ...kernel.sessions };
     delete sessions[payload["sessionId"]];
-    const next = { ...streamingText };
-    delete next[payload["sessionId"]];
-    streamingText = next;
+    streamingText = withoutSession(streamingText, payload["sessionId"]);
+    streamingThinking = withoutSession(streamingThinking, payload["sessionId"]);
     kernel = { ...kernel, revision: numericRevision(payload, kernel.revision), sessions };
   }
   if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
@@ -103,6 +115,22 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
       ...streamingText,
       [payload["sessionId"]]: `${streamingText[payload["sessionId"]] ?? ""}${payload["delta"]}`,
     };
+  }
+  if (event.type === "message.thinking.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
+    streamingThinking = {
+      ...streamingThinking,
+      [payload["sessionId"]]: `${streamingThinking[payload["sessionId"]] ?? ""}${payload["delta"]}`,
+    };
+  }
+  const streamSessionId = typeof payload["sessionId"] === "string" ? payload["sessionId"] : undefined;
+  const startsAssistantMessage = event.type === "message.started" && payload["role"] === "assistant";
+  const finishesStreaming = event.type === "message.completed"
+    || event.type === "run.settled"
+    || event.type === "runtime.error"
+    || event.type === "session.replaced";
+  if (streamSessionId && (startsAssistantMessage || finishesStreaming)) {
+    streamingText = withoutSession(streamingText, streamSessionId);
+    streamingThinking = withoutSession(streamingThinking, streamSessionId);
   }
   if (event.type === "approval.requested" && isRecord(payload["request"]) && typeof payload["request"]["id"] === "string") {
     const request = payload["request"] as unknown as KernelState["approvals"][string];
@@ -158,11 +186,19 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
       kernel,
       cursors: { ...current.cursors, [event.streamId]: event.seq },
       streamingText,
+      streamingThinking,
       selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
     },
     applied: true,
     ...(notificationNotice ? { notificationNotice } : {}),
   };
+}
+
+function withoutSession(values: Readonly<Record<string, string>>, sessionId: string): Readonly<Record<string, string>> {
+  if (!(sessionId in values)) return values;
+  const next = { ...values };
+  delete next[sessionId];
+  return next;
 }
 
 function withGap(current: ProtocolUiState, streamId: string, expected: number, received: number): ProtocolUiState {

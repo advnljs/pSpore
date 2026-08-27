@@ -18,6 +18,7 @@ export interface TuiStoreSnapshot {
   cursors: Readonly<Record<string, number>>;
   gap?: { streamId: string; expected: number; received: number };
   streamingText: Readonly<Record<string, string>>;
+  streamingThinking: Readonly<Record<string, string>>;
   activities: readonly CoworkActivity[];
   configuredModel?: ModelRef;
   notice: string;
@@ -106,6 +107,7 @@ function protocolState(state: TuiStoreSnapshot): ProtocolUiState {
     kernel: state.kernel,
     cursors: state.cursors,
     streamingText: state.streamingText,
+    streamingThinking: state.streamingThinking,
     selectedSessionId: state.selectedSessionId,
     ...(state.gap ? { gap: state.gap } : {}),
   };

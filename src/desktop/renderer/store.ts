@@ -21,6 +21,7 @@ export interface DesktopStoreSnapshot {
   kernel: KernelState;
   cursors: Readonly<Record<string, number>>;
   streamingText: Readonly<Record<string, string>>;
+  streamingThinking: Readonly<Record<string, string>>;
   selectedSessionId: string;
   activities: readonly DesktopActivity[];
   notice: string;
@@ -110,6 +111,7 @@ function protocolState(state: DesktopStoreSnapshot): ProtocolUiState {
     kernel: state.kernel,
     cursors: state.cursors,
     streamingText: state.streamingText,
+    streamingThinking: state.streamingThinking,
     selectedSessionId: state.selectedSessionId,
     ...(state.gap ? { gap: state.gap } : {}),
   };

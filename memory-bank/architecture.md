@@ -54,6 +54,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 23. GUI/TUI 不再各自解释原始 tool event；`CoworkActivity` 在共享 reducer 中按 `toolCallId` 合并 started/updated/completed，生成 cowork 语义标签、目标、状态、结果与耗时。技术详情在共享层统一脱敏、限深和限制为 8 KB，平台层仅决定视觉表现。
 24. 交互式根 session 通过私有原子 catalog 持久映射到 Pi JSONL，服务启动逐个 `resume`；普通输入由 Application 按运行状态自动选择 prompt/follow-up。follow-up 可通过重排 Pi 队列提升为内部 steer，但客户端只呈现“继续排队/直接发送消息”。
 25. 自动 compact 配置属于共享 `config.context.autoCompaction`，旧 v1 config 缺字段时读取 Pi 默认值；Daemon 为每个新建/恢复 session 注入独立 in-memory `SettingsManager`。GUI 使用 Fenwick tree 维护变高虚拟窗口并缓存有限 DOM，TUI 从尾部只格式化目标行窗；客户端 store reducer 保持不可变引用，流式帧不再复制完整历史。
+26. assistant 正文与 reasoning 使用独立的 transient stream channel；共享 reducer 分别维护 `streamingText` / `streamingThinking`，正文完成、run settle、错误或 session replacement 时同时清理，thinking 不写入最终消息历史。发行版本按 SemVer 递增，只有匹配版本的新 annotated tag 能创建一次 GitHub Release，任何既有 tag/Release 都拒绝覆盖。
 
 ## 重要约束
 
@@ -85,3 +86,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-26：根 session 目录、多会话创建/恢复与历史加载落地；GUI/TUI 取消三模式 composer，普通发送自动 follow-up，并提供逐条“继续排队/直接发送消息”。
 - 2026-08-26：共享设置接入自动 compact 开关/reserve/keepRecent；GUI/TUI 完成长历史窗口化，流式 GUI 按帧刷新，Pi transcript 不再合成 `[tool:*]`，终端 spinner 改为通用 ASCII 并补 GUI Emoji/Symbol 字体回退。
 - 2026-08-27：Linux zip 安装改为 Desktop Entry → 稳定 XDG launcher → 当前安装目录的间接启动链，消除 `Path="..."` 误解析并增加私有滚动日志；overlay 改为带 manifest 的完整应用 payload，在复用 Electron/Chromium 前校验精确运行时、架构和目录摘要，原子替换并保留回滚目录。变高历史禁用 CSS smooth scroll，避免自动跟随 1000+ 条历史时停在中段。
+- 2026-08-27：thinking delta 与正文 delta 在 GUI/TUI 中拆为两个临时通道，正文完成后自动隐藏 reasoning；发行流程改为 SemVer 新版本 → annotated tag → 不可覆盖 GitHub Release，并为 CLI、全量桌面包和 overlay 各生成 SHA-256。

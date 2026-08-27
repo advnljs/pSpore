@@ -552,6 +552,11 @@ select {
 .message details summary { padding: 11px 14px; cursor: pointer; color: var(--muted); font: 12.5px/1 var(--font-mono); }
 .message details summary:hover { color: var(--text-soft); }
 .message details pre { margin: 0; border-width: 1px 0 0; border-radius: 0 0 var(--radius-md) var(--radius-md); max-height: 360px; }
+.thinking-stream { margin: 0 0 12px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border-soft)); border-radius: var(--radius-sm); background: color-mix(in srgb, var(--surface-soft) 88%, var(--accent-soft)); overflow: hidden; }
+.thinking-stream > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 11px; border-bottom: 1px solid var(--border-soft); }
+.thinking-stream > header strong { color: var(--muted); font: 650 11.5px/1 var(--font-mono); letter-spacing: 0.08em; }
+.thinking-stream > header span { color: var(--faint); font: 11px/1 var(--font-mono); }
+.thinking-stream-body { max-height: 180px; padding: 10px 12px; overflow: auto; color: var(--muted); font: 12.5px/1.65 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .stream-cursor { display: inline-block; width: 7px; height: 15px; margin-left: 4px; vertical-align: -2px; background: var(--accent); animation: blink 1s step-end infinite; }
 
 .composer-wrap { position: relative; padding: 0 20px 16px; background: linear-gradient(180deg, transparent, var(--surface) 18%); }

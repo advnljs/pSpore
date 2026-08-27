@@ -27,6 +27,7 @@ fi
 
 mkdir -p "$DIST_DIR"
 rm -f "$DIST_DIR/$BINARY_NAME" \
+  "$DIST_DIR/$BINARY_NAME.sha256" \
   "$DIST_DIR/pspore-bundle.cjs" "$DIST_DIR/pspore.blob" "$DIST_DIR/sea-config.json"
 
 # ─── Bundle with esbuild ──────────────────────────────────────────
@@ -81,6 +82,11 @@ HOUT=$("$DIST_DIR/$BINARY_NAME" --help 2>&1) || {
   exit 1
 }
 echo "    --help: OK ($(echo "$HOUT" | wc -l) lines)"
+
+(
+  cd "$DIST_DIR"
+  sha256sum "$BINARY_NAME" > "$BINARY_NAME.sha256"
+)
 
 rm -f "$DIST_DIR/pspore-bundle.cjs" "$DIST_DIR/pspore.blob" "$DIST_DIR/sea-config.json"
 

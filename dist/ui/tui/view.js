@@ -264,6 +264,9 @@ function renderTranscriptWindow(state, width, color, animationFrame, rows, offse
     const activities = state.activities.filter((activity) => activity.sessionId === state.selectedSessionId).slice(-8);
     if (activities.length > 0)
         tail.push(...renderWorkSteps(activities, width, color, animationFrame), "");
+    const thinking = state.streamingThinking[state.selectedSessionId];
+    if (thinking)
+        tail.push(...renderThinking(thinking, width, color), "");
     const streaming = state.streamingText[state.selectedSessionId];
     if (streaming)
         tail.push(...renderMessage({ role: "assistant(streaming)", text: streaming }, width, color));
@@ -319,6 +322,16 @@ function renderMessage(message, width, color) {
         return [];
     const wrapped = wrapTextWithAnsi(text, Math.max(1, width - visibleWidth(prefix)));
     return wrapped.map((line, index) => `${index === 0 ? prefix : continuation}${line}`);
+}
+function renderThinking(value, width, color) {
+    const prefix = paint("thought".padEnd(ROLE_GUTTER), "faint", color);
+    const continuation = " ".repeat(Math.min(ROLE_GUTTER, width));
+    const wrapped = wrapTextWithAnsi(value.trim(), Math.max(1, width - visibleWidth(prefix)));
+    const lines = wrapped.map((line, index) => `${index === 0 ? prefix : continuation}${paint(line, "muted", color)}`);
+    return [
+        ...lines,
+        `${continuation}${paint("(auto-hidden when the response completes)", "faint", color)}`,
+    ];
 }
 function renderWorkSteps(activities, width, color, animationFrame) {
     const lines = [paint("WORK STEPS", "section", color)];
@@ -413,6 +426,8 @@ function activeWorkLabel(state, animationFrame) {
         return `${spinner} ${activity.label}`;
     if (state.streamingText[state.selectedSessionId])
         return `${spinner} Writing response`;
+    if (state.streamingThinking[state.selectedSessionId])
+        return `${spinner} Thinking`;
     return `${spinner} Thinking`;
 }
 function hasMotion(state) {

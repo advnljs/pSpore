@@ -116,7 +116,7 @@ export function validateEventEnvelope(value: unknown): EventEnvelope {
   const type = boundedString(event["type"], "event.type", 128);
   if (!EVENT_TYPES.has(type)) throw new Error(`Event type is not allowlisted: ${type}`);
   const payload = record(event["payload"], "event.payload");
-  if (type === "message.delta") {
+  if (type === "message.delta" || type === "message.thinking.delta") {
     identifier(payload["sessionId"], "event.payload.sessionId");
     boundedString(payload["delta"], "event.payload.delta", MAX_STRING_LENGTH, true);
   }

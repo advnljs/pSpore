@@ -52,9 +52,17 @@
 - 2026-08-17 界面优化：GUI 与 TUI 一起做；重塑视觉识别，但保留既有信息架构、功能面与验收基准（桌面 `1920×1080`，TUI `160×45`）。
 - 视觉识别统一为 "spore print"：暖土/暖纸底色，骨白（深色）或墨色（浅色）只用于主操作与焦点，饱和色仅承担状态语义（moss 存活/成功、honey 等待/审批、rust 失败、lichen 用户）；GUI 与 TUI 共用同一套语义色映射。
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
-- GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium）并直接上传到 `v<version>` GitHub Release。
-- 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成与 GitHub Release 完全一致的全套可执行产物到 `release-dist/`：Node SEA 独立 CLI 二进制 `pspore-<version>-linux-x64`、全量 zip、overlay zip 及对应 sha256，以及解包后可直接运行的可执行二进制目录 `release-dist/pspore-desktop-<version>-linux-x64/`（由脚本自动从 staging 复制，等价于 release.sh 解压结果）。每次阶段性代码改动完成后都要重新打包，保证 `release-dist/` 始终对应最新工作树代码；这些产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
+- GitHub Actions 只在与 `package.json` 版本一致的不可变 `v*` tag 上构建 Linux x86_64 CLI、GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium），并创建一次对应 GitHub Release；普通 `main` push 只运行 CI，不得上传或覆盖 Release 资产。
+- 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成与 GitHub Release 完全一致的全套可执行产物到 `release-dist/`：Node SEA 独立 CLI 二进制 `pspore-<version>-linux-x64`、全量 zip、overlay zip 及三者各自的 sha256，以及解包后可直接运行的可执行二进制目录 `release-dist/pspore-desktop-<version>-linux-x64/`（由脚本自动从 staging 复制，等价于 release.sh 解压结果）。每次阶段性代码改动完成后都要重新打包，保证 `release-dist/` 始终对应最新工作树代码；这些产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
 - 2026-08-26 用户要求确认不含 Chromium 的升级包能否从上一版本升级到当前版本；本轮验收必须使用真实 GitHub `v0.1.5` 全量发行物直接升级到 `0.1.6`，验证版本、Electron 运行时保持不变和 GUI 启动。overlay 必须在写入前严格校验 Electron 精确版本、Linux/x64 与 payload hash，不兼容时拒绝并提示使用全量包。
+- 2026-08-27 `0.1.7` 发布前必须使用 GitHub 上周不可变 `v0.1.6` tag（提交 `98888cb`）对应的完整安装基线，应用 `0.1.7` overlay，验证应用版本更新、Electron/Chromium 未替换、服务连接及 `1920×1080` GUI 启动。由于旧 `v0.1.6` 二进制资产曾被错误覆盖，基线须从官方 tag 源码还原构建并记录这一事实。
+
+## 版本与发布规则（2026-08-27 用户要求）
+
+- 每次包含用户可见功能或修复的新发行都必须先更新版本号，并推送独立 GitHub Release；不得继续复用已经发布的版本号或用 `--clobber` 替换历史资产。
+- 版本采用 SemVer，并按本次发行中最大的变化决定：向后兼容的修复/小改动升 PATCH，向后兼容的重要功能升 MINOR，不兼容的公开接口、数据或部署变化升 MAJOR；预发行使用标准 `-alpha` / `-beta` / `-rc` 后缀。本次按用户指定从 `0.1.6` 升到 `0.1.7`。
+- `package.json`、`package-lock.json`、`src/version.ts` 与 `v<version>` tag 必须一致。Release 只允许由该 tag 触发；tag 或 GitHub Release 已存在时流程必须失败并要求再次升版，历史 tag、Release 和资产均保持不可变。
+- 新版本提交先推送 `main` 并通过 CI，再创建和推送 annotated `v<version>` tag；tag 工作流必须再次执行检查、打包、发布完整资产及 SHA-256，发布后从 GitHub 重新下载校验。
 
 ## 设计验收标准
 
@@ -81,8 +89,8 @@
 - 裸跑 `p-spore` 且未配置模型时，必须直接给出配置引导入口并在 TTY 下 y/n 询问；引导必须是 CLI 原生命令（`setup`），不能只存在于 TUI 内，且必须出现在 `--help` 列表中。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
-- 推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 后，CI 必须构建 `pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并直接上传到 `v<version>` GitHub Release。
-- 本地打包验收：`release-dist/` 下必须同时存在全量 zip、overlay zip、对应 sha256 文件与可执行的 `pspore-<version>-linux-x64`；二进制能通过 `version` 与 `--help` 自检，且 `git status` 不得出现任何打包产物。
+- 推送 `main` 后 CI 必须检查源码、测试和 `dist` 一致性；推送匹配 `package.json` 的新 `v*` tag 后，Release workflow 必须构建 CLI、`pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并创建新的 `v<version>` GitHub Release，已有 Release 时必须拒绝覆盖。
+- 本地打包验收：`release-dist/` 下必须同时存在全量 zip、overlay zip、三份对应 sha256 文件与可执行的 `pspore-<version>-linux-x64`；二进制能通过 `version` 与 `--help` 自检，且 `git status` 不得出现任何打包产物。
 
 ## GUI 交互与视觉（2026-08-22 用户要求）
 
@@ -100,6 +108,7 @@
 - 每条 follow-up 排队消息必须使用用户语言展示“继续排队/直接发送消息”；底层 `steer` 术语不直接暴露，使用户可把该消息提前送入当前任务。
 - 自动 compact 的 token 长度必须能在共享设置中调整，并由 GUI/TUI/CLI 使用同一持久配置。
 - 优化 Markdown 流式输出；正文不得再显示适配器生成的 `[tool:shell]` 等占位字符，并改善 Unicode/emoji 字体回退。
+- reasoning/thinking 必须使用独立的临时流式通道，与 assistant 正文分区展示；正文 `message.completed` 或 run 结束后自动隐藏，不得混入最终 Markdown、持久化历史或工具输出。GUI 使用中文“思考中”区块，TUI 使用独立 `thought` gutter。
 - 修复 Linux 桌面快捷方式：应用菜单与桌面入口必须能稳定启动，并提供可诊断的 launcher 日志。
 - GUI session 历史使用真实窗口化虚拟渲染；TUI 只格式化当前可见历史窗口，避免长历史全量重建。
 - 本轮默认客户端仍为 PC；Electron 视觉主基准保持 `1920×1080`，TUI 保持 `160×45`。

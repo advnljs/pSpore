@@ -657,6 +657,7 @@ function renderConversation(snapshot) {
     const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
     const messages = session?.messages ?? [];
     const streaming = snapshot.streamingText[snapshot.selectedSessionId];
+    const thinking = snapshot.streamingThinking[snapshot.selectedSessionId];
     const sessionChanged = transcriptState.sessionId !== snapshot.selectedSessionId;
     const previousCount = transcriptState.count;
     if (sessionChanged) {
@@ -670,7 +671,7 @@ function renderConversation(snapshot) {
     }
     transcriptState.sessionId = snapshot.selectedSessionId;
     transcriptState.count = messages.length;
-    if (messages.length === 0 && !streaming) {
+    if (messages.length === 0 && !streaming && !thinking) {
         transcriptState.heights.sync([]);
         const empty = emptyTranscript(Boolean(child));
         transcript.replaceChildren(empty);
@@ -678,7 +679,7 @@ function renderConversation(snapshot) {
             animateTranscriptHero(empty.querySelector(":scope > div"));
         return;
     }
-    const hasStreaming = Boolean(streaming);
+    const hasStreaming = Boolean(streaming || thinking);
     const messagesChanged = transcriptState.messageSource !== messages;
     if (messagesChanged) {
         transcriptState.messageSource = messages;
@@ -714,7 +715,7 @@ function renderConversation(snapshot) {
         if (!key)
             continue;
         const node = isStreaming
-            ? renderStreamingMessage(streaming ?? "")
+            ? renderStreamingMessage(streaming ?? "", thinking ?? "")
             : cachedMessage(key, item?.message ?? { role: "assistant", text: "" });
         node.dataset["virtualKey"] = key;
         node.dataset["virtualIndex"] = String(index);
@@ -725,7 +726,7 @@ function renderConversation(snapshot) {
     }
     if (range.paddingEnd > 0)
         content.push(virtualSpacer(range.paddingEnd, "end"));
-    transcript.setAttribute("aria-busy", String(Boolean(streaming)));
+    transcript.setAttribute("aria-busy", String(hasStreaming));
     transcript.replaceChildren(...content);
     if (sessionChanged) {
         animateMessagesIn(visibleMessages.slice(-14), true);
@@ -868,15 +869,34 @@ function renderMessage(message) {
     }
     return article;
 }
-function renderStreamingMessage(value) {
+function renderStreamingMessage(value, thinking) {
     const article = element("article", "message assistant streaming");
     const meta = element("div", "message-meta");
     const label = element("span");
-    label.textContent = "pSpore · streaming";
+    label.textContent = value ? "pSpore · streaming" : "pSpore · thinking";
     meta.append(element("i", "role-dot"), label);
-    const body = element("div", "message-body markdown");
-    appendMarkdownWithTrailing(body, value, element("i", "stream-cursor"));
-    article.append(meta, body);
+    article.append(meta);
+    if (thinking) {
+        const reasoning = element("section", "thinking-stream");
+        reasoning.setAttribute("aria-label", "思考过程");
+        const heading = element("header");
+        const title = element("strong");
+        title.textContent = "思考中";
+        const hint = element("span");
+        hint.textContent = "回复完成后自动隐藏";
+        heading.append(title, hint);
+        const body = element("div", "thinking-stream-body");
+        body.append(text(thinking));
+        if (!value)
+            body.append(element("i", "stream-cursor"));
+        reasoning.append(heading, body);
+        article.append(reasoning);
+    }
+    if (value) {
+        const body = element("div", "message-body markdown");
+        appendMarkdownWithTrailing(body, value, element("i", "stream-cursor"));
+        article.append(body);
+    }
     return article;
 }
 function renderActivities(activities) {

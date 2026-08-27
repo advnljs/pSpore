@@ -14,6 +14,7 @@ export interface TuiStoreSnapshot {
         received: number;
     };
     streamingText: Readonly<Record<string, string>>;
+    streamingThinking: Readonly<Record<string, string>>;
     activities: readonly CoworkActivity[];
     configuredModel?: ModelRef;
     notice: string;

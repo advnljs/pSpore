@@ -46,6 +46,7 @@ export type DesktopFrame = {
     fromSeq: number;
     seq: number;
     sessionId: string;
+    channel: "text" | "thinking";
     text: string;
 };
 export type DesktopCommand = {

@@ -12,8 +12,8 @@ usage() {
   cat <<EOF
 Usage: $0 <version> [--prerelease]
 
-Produces a standalone Linux x86_64 CLI binary via Node SEA and uploads
-it to a GitHub release. No Node.js runtime required by end users.
+Builds the complete Linux x86_64 release, creates an immutable version tag,
+and pushes it. The tag-triggered GitHub Actions workflow publishes the assets.
 
 Examples:
   $0 0.1.0
@@ -30,6 +30,13 @@ EOF
 
 if [[ -z "$VERSION" ]]; then
   usage
+fi
+if [[ -n "$PRERELEASE" && "$PRERELEASE" != "--prerelease" ]]; then
+  usage
+fi
+if [[ "$PRERELEASE" == "--prerelease" && "$VERSION" != *-* ]]; then
+  echo "Error: --prerelease requires a SemVer prerelease suffix such as -rc.1"
+  exit 1
 fi
 
 if ! command -v gh &>/dev/null; then
@@ -54,143 +61,56 @@ fi
 
 TAG="v${VERSION}"
 BINARY_NAME="pspore-${VERSION}-linux-x64"
+PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+
+if [[ "$PACKAGE_VERSION" != "$VERSION" ]]; then
+  echo "Error: requested version ${VERSION} does not match package.json ${PACKAGE_VERSION}"
+  exit 1
+fi
+if git show-ref --verify --quiet "refs/tags/$TAG" \
+  || git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1 \
+  || gh release view "$TAG" >/dev/null 2>&1; then
+  echo "Error: immutable release ${TAG} already exists. Bump the SemVer version instead of overwriting it."
+  exit 1
+fi
 
 echo "==> Building release ${TAG}"
 
-# ─── Install & Build ───────────────────────────────────────────────
+# ─── Install, verify, and package ─────────────────────────────────
 echo "--- npm ci"
-npm ci 2>/dev/null || npm install
+npm ci
 
-echo "--- npm run build"
-npm run build
+echo "--- npm run check"
+npm run check
 
-# ─── Prepare output dir ───────────────────────────────────────────
 rm -rf "$DIST_DIR"
-mkdir -p "$DIST_DIR"
-
-# ─── Standalone CLI binary ───────────────────────────────────────
-echo "--- Building standalone CLI release binary"
-bash "$REPO_ROOT/scripts/build-cli-binary.sh" "$VERSION"
-
-# ─── Electron Desktop zips ────────────────────────────────────────
 FULL_ZIP_NAME="pspore-desktop-${VERSION}-linux-x64.zip"
 OVERLAY_ZIP_NAME="pspore-desktop-${VERSION}-linux-x64-overlay.zip"
-FULL_ZIP_PATH=""
-OVERLAY_ZIP_PATH=""
-if [[ -d "dist/desktop" ]]; then
-  echo "--- Building Electron desktop zips"
-  bash "$REPO_ROOT/scripts/package-desktop.sh" "$VERSION"
-  if [[ -f "$DIST_DIR/$FULL_ZIP_NAME" ]]; then
-    FULL_ZIP_PATH="$DIST_DIR/$FULL_ZIP_NAME"
-  fi
-  if [[ -f "$DIST_DIR/$OVERLAY_ZIP_NAME" ]]; then
-    OVERLAY_ZIP_PATH="$DIST_DIR/$OVERLAY_ZIP_NAME"
-  fi
-fi
+echo "--- Building Electron desktop zips and standalone CLI"
+bash "$REPO_ROOT/scripts/package-desktop.sh" "$VERSION"
 
-# ─── Tag & Release ────────────────────────────────────────────────
-if git rev-parse "$TAG" >/dev/null 2>&1; then
-  echo "--- Tag ${TAG} already exists"
-else
-  echo "--- Tagging ${TAG}"
-  git tag -a "$TAG" -m "Release ${TAG}"
-fi
-git push origin "$TAG"
-
-UPLOAD_FILES=("$DIST_DIR/$BINARY_NAME")
-if [[ -n "$FULL_ZIP_PATH" ]]; then
-  UPLOAD_FILES+=("$FULL_ZIP_PATH")
-fi
-if [[ -n "$FULL_ZIP_PATH" && -f "$FULL_ZIP_PATH.sha256" ]]; then
-  UPLOAD_FILES+=("$FULL_ZIP_PATH.sha256")
-fi
-if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
-  UPLOAD_FILES+=("$OVERLAY_ZIP_PATH")
-fi
-if [[ -n "$OVERLAY_ZIP_PATH" && -f "$OVERLAY_ZIP_PATH.sha256" ]]; then
-  UPLOAD_FILES+=("$OVERLAY_ZIP_PATH.sha256")
-fi
-
-echo "--- Creating GitHub release"
-  if gh release view "$TAG" >/dev/null 2>&1; then
-    echo "Release ${TAG} already exists; uploading artifacts"
-    gh release upload "$TAG" "${UPLOAD_FILES[@]}" --clobber
-    echo ""
-  echo "==> Release ${TAG} updated!"
-  echo "    Artifacts:"
-  echo "      - $BINARY_NAME (standalone CLI)"
-  if [[ -n "$FULL_ZIP_PATH" ]]; then
-    echo "      - $FULL_ZIP_NAME (desktop zip with shortcut script)"
-  fi
-  if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
-    echo "      - $OVERLAY_ZIP_NAME (overlay upgrade without Chromium)"
-  fi
-  echo "    View: gh release view ${TAG}"
-  echo "==> Done."
-  exit 0
-fi
-
-RELEASE_NOTES="## pSpore ${TAG}
-
-### Downloads
-
-| File | Description |
-|------|-------------|
-| \`${BINARY_NAME}\` | Standalone CLI binary (no Node.js required) |
-| \`${FULL_ZIP_NAME}\` | Desktop GUI zip (includes Chromium; run 创建桌面快捷方式.sh) |
-| \`${OVERLAY_ZIP_NAME}\` | Verified app-payload upgrade (no Electron/Chromium runtime) |
-
-### CLI Binary
-
-\`\`\`bash
-chmod +x ${BINARY_NAME}
-./${BINARY_NAME} version
-sudo mv ${BINARY_NAME} /usr/local/bin/pspore
-pspore init && pspore doctor
-\`\`\`
-
-### Desktop App (full zip)
-
-\`\`\`bash
-unzip ${FULL_ZIP_NAME}
-cd pspore-desktop-${VERSION}-linux-x64
-./创建桌面快捷方式.sh
-\`\`\`
-
-### Overlay upgrade (no Chromium)
-
-\`\`\`bash
-mkdir pspore-overlay-${VERSION}
-unzip ${OVERLAY_ZIP_NAME} -d pspore-overlay-${VERSION}
-./pspore-overlay-${VERSION}/覆盖升级.sh /path/to/existing-install
-\`\`\`
-
-### Platform
-
-- Linux x86_64
-"
-
-GH_ARGS=(
-  "$TAG"
-  --title "pSpore ${TAG}"
-  --notes "$RELEASE_NOTES"
+REQUIRED_ASSETS=(
+  "$DIST_DIR/$BINARY_NAME"
+  "$DIST_DIR/$BINARY_NAME.sha256"
+  "$DIST_DIR/$FULL_ZIP_NAME"
+  "$DIST_DIR/$FULL_ZIP_NAME.sha256"
+  "$DIST_DIR/$OVERLAY_ZIP_NAME"
+  "$DIST_DIR/$OVERLAY_ZIP_NAME.sha256"
 )
-
-if [[ "$PRERELEASE" == "--prerelease" ]]; then
-  GH_ARGS+=(--prerelease)
+for asset in "${REQUIRED_ASSETS[@]}"; do
+  if [[ ! -f "$asset" ]]; then
+    echo "Error: release package is missing ${asset}"
+    exit 1
+  fi
+done
+if [[ ! -x "$DIST_DIR/pspore-desktop-${VERSION}-linux-x64/pspore-desktop" ]]; then
+  echo "Error: runnable desktop package is missing"
+  exit 1
 fi
 
-gh release create "${GH_ARGS[@]}" "${UPLOAD_FILES[@]}"
-
-echo ""
-echo "==> Release ${TAG} published!"
-echo "    Artifacts:"
-echo "      - $BINARY_NAME (standalone CLI)"
-if [[ -n "$FULL_ZIP_PATH" ]]; then
-  echo "      - $FULL_ZIP_NAME (desktop zip with shortcut script)"
-fi
-if [[ -n "$OVERLAY_ZIP_PATH" ]]; then
-  echo "      - $OVERLAY_ZIP_NAME (overlay upgrade without Chromium)"
-fi
-echo "    View: gh release view ${TAG}"
-echo "==> Done."
+# ─── Immutable tag; GitHub Actions publishes the release ─────────
+echo "--- Tagging ${TAG}"
+git tag -a "$TAG" -m "Release ${TAG}"
+git push origin "$TAG"
+echo "==> Tag ${TAG} pushed. GitHub Actions is building the immutable Release assets."
+echo "    Track: gh run list --workflow 'Release desktop' --branch ${TAG}"

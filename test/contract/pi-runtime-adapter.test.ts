@@ -8,6 +8,8 @@ import {
   InMemoryCredentialStore,
   fauxAssistantMessage,
   fauxProvider,
+  fauxText,
+  fauxThinking,
   fauxToolCall,
 } from "@earendil-works/pi-ai";
 import { defineTool, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
@@ -92,6 +94,35 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal(snapshot.messages.at(-1)?.text, "second turn");
     assert.ok(snapshot.usage.cacheWrite > 0);
     assert.ok(snapshot.usage.cacheRead > 0);
+  });
+
+  test("emits thinking on its own transient channel and keeps it out of persisted prose", async () => {
+    const { adapter, faux, root } = await fixture({ tokensPerSecond: 1_000 });
+    faux.setResponses([
+      fauxAssistantMessage([
+        fauxThinking("private chain of thought"),
+        fauxText("public final answer"),
+      ]),
+    ]);
+    await adapter.create({ ...spec(root), thinking: "medium" as const });
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+
+    await adapter.prompt("main", "reason separately");
+    await adapter.waitForIdle("main");
+
+    const thinking = events
+      .filter((event) => event.type === "message.thinking.delta")
+      .map((event) => String(event.payload["delta"] ?? ""))
+      .join("");
+    const text = events
+      .filter((event) => event.type === "message.delta")
+      .map((event) => String(event.payload["delta"] ?? ""))
+      .join("");
+    assert.equal(thinking, "private chain of thought");
+    assert.equal(text, "public final answer");
+    assert.equal(adapter.snapshot("main").messages.at(-1)?.text, "public final answer");
+    assert.doesNotMatch(adapter.snapshot("main").messages.at(-1)?.text ?? "", /private chain/);
   });
 
   test("rebinds subscriptions after new-session and fork replacement", async () => {
