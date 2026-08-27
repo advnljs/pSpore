@@ -30,7 +30,8 @@
 | P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | `main` 只跑 CI；匹配 package 的新 `v*` tag 构建 CLI、全量/overlay zip 并创建不可变 Release，拒绝覆盖历史版本 |
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
 | P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
-| P0 | 发布并远端复验新会话 JSONL/直接发送展示修复 `v0.1.11` | In Progress | 本地实现、140 项检查、Electron smoke、真实服务和新会话创建已通过 | 提交/push `main` 并等 CI，推送 annotated `v0.1.11`，从 Release 重新下载六项资产复验 |
+| P0 | 发布并远端复验新会话 JSONL/直接发送展示修复 `v0.1.11` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为 annotated tag `v0.1.11`，远端三份 SHA-256、SEA/包内 CLI、Electron runtime 与 overlay manifest 均通过 |
+| P2 | 消除 GitHub Actions Node 20 action runtime 弃用告警 | Todo | CI/Release 当前仍成功，官方 runner 将 `actions/{checkout,setup-node,cache}@v4` 强制运行在 Node 24 | 后续独立核对各 action 的官方新版并最小升级 workflow，不与本轮功能修复混做 |
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |
 | P1 | 统一发送与排队消息直接发送 | Done | 无 | 普通发送由 Application 自动 prompt/follow-up；每条队列项只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |

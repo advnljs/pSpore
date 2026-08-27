@@ -653,5 +653,10 @@
   - `PSPORE_KEEP_SMOKE=1 npm run test:electron` 通过：PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`；在 `tool.completed` frame 发出前已断言直接发送队列卡可见，follow-up 同时显示。人工复核暗色主截图，队列卡没有遮挡 transcript/composer。
   - `npm run package:desktop` 通过并生成 `0.1.11` 全套本地产物；三份 `sha256sum -c` 成功。SEA CLI/full zip/overlay SHA-256 分别为 `cb761694…f5579`、`bf9d4fad…da65c`、`9a291677…a6108`，overlay manifest 为 `0.1.11 / Electron 43.3.0 / linux x64`。
   - 真实 X11 GUI 已切换到 `release-dist/pspore-desktop-0.1.11-linux-x64`；`pspore.service` 为 `enabled/active/ready`。通过包内 CLI 在现有用户配置中新建 `session-7d96ddfb-f680-452a-a43a-5e6dd02d8a13` 成功，对应 catalog JSONL 已立即存在，mode `0600`、Pi header version `3`、cwd 为当前 workspace。
-- 当前状态：本地实现、自动/视觉/真实配置验证、构建与打包完成；等待提交/push、CI、`v0.1.11` Release 与远端资产复验。
-- 遗留问题：真实验证新增了一个标题为“0.1.11 会话兼容性验证”的空会话，保留给用户直接确认新建/切换行为；既有非本轮待办继续见 `todo.md`。
+- Git/发行验证：
+  - 功能与记忆提交 `2d5a416` 已 push 到 `origin/main`，主分支 CI run `33078288862` 成功，包含完整检查及 committed `dist` 一致性验证。
+  - `scripts/release.sh 0.1.11` 再次通过 140/140 检查、打包与 SEA 自检，创建并推送 annotated tag `v0.1.11`；远端 tag object 为 `c617e615…81d31`，peeled commit 精确为 `2d5a416…d53ba`。
+  - Release desktop run `33078693382` 成功并创建非 draft、非 prerelease 的不可覆盖 Release。六项资产已从 GitHub 重新下载到独立临时目录，三份随包 `sha256sum -c` 全部通过；远端 CLI/full zip/overlay SHA-256 分别为 `dd046ac3…f8126`、`4630945f…a8311`、`f00af54b…50172`。
+  - 远端 SEA CLI 为 `0.1.11 / Pi 0.84.1 / Node 24.19.0`；远端 full zip 包内 CLI 为 `0.1.11 / Pi 0.84.1 / Node 24.18.1`，Electron 运行时为 `43.3.0 / linux / x64`；overlay manifest 为 `0.1.11 / Electron 43.3.0 / linux / x64`，payload SHA-256 为 `e688a3d0…9fa2f`。
+- 当前状态：新会话 JSONL 修复、直接发送消息即时展示、`0.1.11` 本地/CI/不可变远端发行及真实最新 GUI/服务均已完成并验证。
+- 遗留问题：真实验证新增了一个标题为“0.1.11 会话兼容性验证”的空会话，保留给用户直接确认新建/切换行为；GitHub Actions 报告官方 action 仍以 Node 20 为目标的弃用告警，已登记 `todo.md`，不影响本轮检查/发行成功；既有非本轮待办继续见 `todo.md`。
