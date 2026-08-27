@@ -631,7 +631,9 @@
 - 验证方式与结果：
   - `npm run check` 通过：严格 typecheck、137/137 测试和 production build。
   - `npm run test:electron` 通过：PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`；新增滚动三段断言与双主题、设置、排版、owned/external Daemon、重连、IPC allowlist 全绿。
-  - `npm run package:desktop` 通过，生成 `0.1.10` SEA CLI、全量 zip、overlay zip、三份 SHA-256 与可运行目录；三份 `sha256sum -c` 全部成功。全量 zip SHA-256 为 `51fea6d6…db3a5`，overlay 为 `ec70b64d…882d3`，CLI 版本输出 `pSpore 0.1.10 (Pi 0.84.1, Node 24.19.0)`。
-  - 从 `release-dist/pspore-desktop-0.1.10-linux-x64/pspore-desktop` 在真实 X11 会话启动；真实 `pspore.service` 已更新到该目录，状态 `enabled/active`，PID 181954，Daemon `ready`，`WorkingDirectory=/home/ljdavns/.pspore/workspace`。
-- 当前状态：本地代码、构建、滚动交互、完整发行包和真实运行实例均已验证；等待提交/push、CI、`v0.1.10` Release 与远端资产复验。
+  - 规范化 `scripts/release.sh 0.1.10` 再次通过 `npm ci → npm run check → 完整打包`；本地三份 `sha256sum -c` 成功。SEA CLI SHA-256 为 `a6de58e6…27da1b`，全量 zip 为 `76aabd9d…e0b791`，overlay 为 `2a2296f9…b26e4e`；CLI 输出 `pSpore 0.1.10 (Pi 0.84.1, Node 24.19.0)`。
+  - 从 `release-dist/pspore-desktop-0.1.10-linux-x64/pspore-desktop` 在真实 X11 会话启动；真实 `pspore.service` 已更新到该目录，状态 `enabled/active`，PID 201877，Daemon `ready`，`WorkingDirectory=/home/ljdavns/.pspore/workspace`。
+  - commit `f6c29f8` 已推送 `main`；CI run `33051992448` success，包含 typecheck/test/build 与提交态 `dist` 一致性校验。annotated tag `v0.1.10` 的 object 为 `eab1bd7…12f2`，peeled commit 为 `f6c29f8…882c`；Release workflow run `33052377059` success。
+  - GitHub Release `v0.1.10` 已发布并从远端重新下载六项资产；三份随包 SHA-256 校验全部成功。远端 CLI/全量 zip/overlay digest 分别为 `7ca4554e…b6c86`、`f21d3ccd…98385`、`e68f1438…c603e`；SEA CLI 与包内 CLI 均为 `0.1.10`，包内运行时为 Electron `43.3.0`、Node `24.18.1`、Linux x64，overlay manifest 为 `0.1.10 / 43.3.0 / linux x64`。
+- 当前状态：聊天历史滚动修复、`0.1.10` 本地与远端不可变发行、真实最新 GUI/服务全部完成并验证。
 - 遗留问题：既有非本轮产品待办继续见 `todo.md`；MESA performance warning 不影响功能，未为本轮擅自修改系统 sysctl。

@@ -29,7 +29,7 @@
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | `main` 只跑 CI；匹配 package 的新 `v*` tag 构建 CLI、全量/overlay zip 并创建不可变 Release，拒绝覆盖历史版本 |
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
-| P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | In Progress | 本地修复、137 项检查、Electron smoke、完整打包与真实服务已通过 | 提交/push `main` 并等 CI，推送 annotated `v0.1.10`，从 Release 重新下载六项资产复验 |
+| P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |
 | P1 | 统一发送与排队消息直接发送 | Done | 无 | 普通发送由 Application 自动 prompt/follow-up；每条队列项只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |
