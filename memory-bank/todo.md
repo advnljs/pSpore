@@ -28,7 +28,7 @@
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | `main` 只跑 CI；匹配 package 的新 `v*` tag 构建 CLI、全量/overlay zip 并创建不可变 Release，拒绝覆盖历史版本 |
-| P0 | 发布并远端复验 `v0.1.7` | In Progress | 本地候选与 `v0.1.6 → 0.1.7` 实际升级已通过 | 提交/push `main` 并等 CI，推送 annotated tag，等 Release 后重新下载六项资产并在第二份 `v0.1.6` 基线上复验 |
+| P0 | 发布并远端复验 `v0.1.8` | In Progress | 远端不可变 `v0.1.7` tag 的 workflow 因 shallow checkout 误判 annotated tag 而失败；本地 `0.1.8` 服务修复、全套产物和 Electron smoke 已通过 | 提交/push `main` 并等 CI，推送新 annotated `v0.1.8` tag，等 Release 后重新下载六项资产并复验 |
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |
 | P1 | 统一发送与排队消息直接发送 | Done | 无 | 普通发送由 Application 自动 prompt/follow-up；每条队列项只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |

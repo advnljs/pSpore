@@ -13,7 +13,7 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux x86_64 Electron unpacked dir 打包配置 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | 新 `v*` tag 上构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
+| `.github/workflows/release.yml` | 完整检出 annotated `v*` tag object，构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -85,7 +85,7 @@
 - 全量阶段检查：`npm run check`
 - 源码 CLI：`npm run dev -- <command>`；构建后 CLI：`node dist/cli/main.js <command>`。
 - 初始化：`npm run dev -- init`。
-- 系统服务：`npm run dev -- service install|status|restart|logs|stop|uninstall`；生产 GUI/TUI 会自动 `enable --now`，退出壳层不停止服务。
+- 系统服务：`npm run dev -- service install|status|restart|logs|stop|uninstall`；生产 GUI/TUI 会自动 `enable --now`，退出壳层不停止服务。unit 生成入口为 `src/service/system-service.ts`，可用 `systemd-analyze --user verify pspore.service` 验证兼容性。
 - 前台服务进程：`npm run dev -- daemon`；仅用于 systemd/诊断，SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。

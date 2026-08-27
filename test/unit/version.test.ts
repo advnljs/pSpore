@@ -16,3 +16,8 @@ test("release version stays aligned across source and package manifests", async 
   assert.equal(lockManifest.version, PSPORE_VERSION);
   assert.equal(lockManifest.packages?.[""]?.version, PSPORE_VERSION);
 });
+
+test("release checkout preserves annotated tag objects", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  assert.match(workflow, /uses: actions\/checkout@v4\n\s+with:\n(?:\s+#.*\n)*\s+fetch-depth: 0\n\s+fetch-tags: true/);
+});

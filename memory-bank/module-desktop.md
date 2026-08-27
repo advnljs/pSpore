@@ -61,6 +61,7 @@ preload 仅暴露：
 - reasoning 使用独立的“思考中”临时面板，正文仍走 Markdown renderer；两者可同时可见但不混排，`message.completed` 或 run 结束后面板自动移除，且不进入历史消息 DOM 缓存。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home，再安装/更新 systemd user unit 并 `enable --now`；renderer 只连接 UDS。退出只关闭 bridge，不停止服务。smoke 路径显式绕过 systemd，防止测试污染真实用户服务。
+- systemd directive 必须按各自语法生成：`ExecStart`/`Environment` 可逐参数加引号，`WorkingDirectory` 不得用同一个整值 quoting helper；systemd 245 会把该引号当成路径字节并报“path is not absolute”。路径保留合法空格，只对 `%` specifier 做 `%%` 转义。
 - renderer 通过语义色变量提供持久化深色/浅色主题，默认浅色（白天模式），localStorage 键 `pspore.desktop.theme` 可覆盖；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
 - 视觉语言为 "cobalt paper"（2026-08-22 重构，替代旧 "spore print"）：浅色为默认主题——冷白纸面 `#f4f7fb` + 白面板 + 深藏青墨字 `#16243d`，主强调色是钴蓝 `#2563eb`（仅用于主按钮、焦点环、选中态、链接、用户消息）；深色是去饱和板岩藏青 `#0b1119` 底 + 分层表面 + 发丝级边框，单一克制蓝 `#5f8dff`，无渐变光晕（避免廉价感/广告感）。语义色：`--live` 存活/成功、`--honey` 等待与审批告警、`--rust` 失败、`--lichen` 用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。topbar 无卡片化（透明浮于 canvas），panel 用发丝边框替代重阴影。
 - composer 键盘行为：Enter 直接发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 插入换行；`event.isComposing` 时忽略（中文输入法合成回车不发送）。发送按钮 kbd 提示为 `↵`。
@@ -77,7 +78,7 @@ preload 仅暴露：
 - smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，报告同时覆盖 thinking/正文分区及完成后隐藏、旧三模式 composer 不存在、外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
 - GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（完整应用 payload，不含 Electron/Chromium）；版本与 npm/package 对齐。快捷方式先安装 `XDG_DATA_HOME/pspore/bin/pspore-desktop-launcher`，安装路径单独保存并将 stdout/stderr 追加到 `XDG_STATE_HOME/pspore/desktop-launcher.log`，Desktop Entry 不再写错误的带引号 `Path`。
 - overlay 携带 `overlay-manifest.json`、`payload/resources/{app.asar,app.asar.unpacked,app-update.yml}` 与 updater；只接受 manifest 中 Electron 精确版本和 Linux/x64 匹配的完整安装，使用目标 Electron-as-Node 计算目录 SHA-256、执行升级前后 CLI 自检、保留 `.pspore-backup-*`，并重启 ExecStart 指向同一安装目录的 pSpore systemd user unit。
-- 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir），会生成 CLI、全量 zip、overlay zip 及三份 SHA-256。普通 `main` push 只运行 CI；只有与 package 版本一致的新 annotated `v*` tag 才触发 `Release desktop` 创建一次不可变 GitHub Release，已有 tag/Release 时拒绝覆盖。
+- 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir），会生成 CLI、全量 zip、overlay zip 及三份 SHA-256。普通 `main` push 只运行 CI；只有与 package 版本一致的新 annotated `v*` tag 才触发 `Release desktop` 创建一次不可变 GitHub Release，已有 tag/Release 时拒绝覆盖。Release checkout 使用完整 history/tags，确保 annotated tag object 不被浅检出替换成 peeled commit。
 - 主工作区使用 `body` flex + `.app-shell` 纵向拉伸，初始加载即铺满窗口高度。
 
 ## 常见修改点

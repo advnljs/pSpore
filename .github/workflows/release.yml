@@ -23,6 +23,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The default shallow tag checkout materializes refs/tags/<name> as
+          # the peeled commit, which makes an annotated tag look lightweight.
+          fetch-depth: 0
+          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4

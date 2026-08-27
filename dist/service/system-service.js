@@ -167,7 +167,7 @@ export function renderSystemdUserUnit(home, spec) {
         "[Service]",
         "Type=simple",
         `ExecStart=${command}`,
-        `WorkingDirectory=${systemdQuote(workingDirectory)}`,
+        `WorkingDirectory=${systemdPath(workingDirectory)}`,
         `Environment=${systemdQuote(`PSPORE_HOME=${resolve(home)}`)}`,
         ...environment,
         "UMask=0077",
@@ -195,6 +195,22 @@ export function systemdQuote(value) {
         throw new Error("System service arguments cannot contain control characters");
     }
     return `"${value.replaceAll("%", "%%").replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+}
+/**
+ * Path-valued directives do not use ExecStart's command-line quoting rules.
+ * In particular, systemd 245 treats surrounding quotes as literal path bytes,
+ * so an otherwise absolute WorkingDirectory becomes invalid. Spaces are valid
+ * unquoted in this directive; percent signs still need escaping as specifiers.
+ */
+function systemdPath(value) {
+    if (/\s$/u.test(value))
+        throw new Error("System service paths cannot end with whitespace");
+    if (/[\r\n\u0000]/u.test(value))
+        throw new Error("System service paths cannot contain newlines or NUL");
+    if (/[\u0001-\u0008\u000b\u000c\u000e-\u001f\u007f]/u.test(value)) {
+        throw new Error("System service paths cannot contain control characters");
+    }
+    return value.replaceAll("%", "%%");
 }
 async function runSystemCommand(executable, args) {
     try {

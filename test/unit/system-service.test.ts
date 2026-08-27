@@ -18,10 +18,12 @@ test("renders a restartable private user service without invoking a shell", () =
   const unit = renderSystemdUserUnit("/home/user/.pspore", {
     executable: "/opt/pSpore 100%/pspore-desktop",
     args: ["/opt/pSpore/resources/app.asar/dist/cli/main.js", "--home", "/home/user/.pspore", "daemon"],
-    workingDirectory: "/home/user/.pspore/workspace",
+    workingDirectory: "/home/user/.pspore work 100%/workspace",
     environment: { ELECTRON_RUN_AS_NODE: "1" },
   });
   assert.match(unit, /ExecStart="\/opt\/pSpore 100%%\/pspore-desktop"/);
+  assert.match(unit, /^WorkingDirectory=\/home\/user\/\.pspore work 100%%\/workspace$/m);
+  assert.doesNotMatch(unit, /^WorkingDirectory="/m);
   assert.match(unit, /Environment="ELECTRON_RUN_AS_NODE=1"/);
   assert.match(unit, /Environment="PSPORE_HOME=\/home\/user\/\.pspore"/);
   assert.match(unit, /Restart=always/);
