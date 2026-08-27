@@ -1,7 +1,7 @@
 /// <reference lib="DOM" />
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
-import { VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
+import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import { animateMessagesIn, animateTranscriptHero, hideOverlayMotion, introChoreography, nudgeElement, pulseStatus, showOverlayMotion, } from "./motion.js";
 import { DesktopStore } from "./store.js";
@@ -30,6 +30,7 @@ const transcriptState = {
     messageSource: undefined,
     items: [],
     hasStreaming: false,
+    followTail: true,
 };
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
 const elements = {
@@ -236,7 +237,7 @@ function bindStaticActions() {
         event.preventDefault();
         elements.composerForm.requestSubmit();
     });
-    elements.transcript.addEventListener("scroll", scheduleTranscriptRender, { passive: true });
+    elements.transcript.addEventListener("scroll", handleTranscriptScroll, { passive: true });
     elements.spawnForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const objective = elements.spawnObjective.value.trim();
@@ -574,6 +575,10 @@ function scheduleTranscriptRender() {
             renderConversation(store.snapshot());
     });
 }
+function handleTranscriptScroll() {
+    transcriptState.followTail = isScrollNearEnd(elements.transcript.scrollHeight, elements.transcript.scrollTop, elements.transcript.clientHeight);
+    scheduleTranscriptRender();
+}
 function renderHeader(snapshot) {
     const connection = snapshot.connection;
     elements.connectionBadge.className = `connection-badge ${connection.phase}`;
@@ -654,7 +659,6 @@ function renderConversation(snapshot) {
     elements.compact.disabled = !connected || Boolean(child) || !session;
     renderMessageQueue(snapshot, child ? undefined : session);
     const transcript = elements.transcript;
-    const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
     const messages = session?.messages ?? [];
     const streaming = snapshot.streamingText[snapshot.selectedSessionId];
     const thinking = snapshot.streamingThinking[snapshot.selectedSessionId];
@@ -668,6 +672,7 @@ function renderConversation(snapshot) {
         transcriptState.messageSource = undefined;
         transcriptState.items = [];
         transcriptState.hasStreaming = false;
+        transcriptState.followTail = true;
     }
     transcriptState.sessionId = snapshot.selectedSessionId;
     transcriptState.count = messages.length;
@@ -697,7 +702,7 @@ function renderConversation(snapshot) {
     }
     const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
     const viewportHeight = Math.max(1, transcript.clientHeight);
-    const shouldPin = sessionChanged || pinned;
+    const shouldPin = transcriptState.followTail;
     const scrollTop = shouldPin
         ? Math.max(0, transcriptState.heights.totalSize() - viewportHeight)
         : transcript.scrollTop;
@@ -736,7 +741,7 @@ function renderConversation(snapshot) {
     }
     if (shouldPin)
         transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
-    scheduleTranscriptMeasurement(shouldPin);
+    scheduleTranscriptMeasurement();
 }
 function cachedMessage(key, message) {
     const cached = transcriptState.nodes.get(key);
@@ -755,7 +760,7 @@ function cachedMessage(key, message) {
     }
     return node;
 }
-function scheduleTranscriptMeasurement(shouldPin) {
+function scheduleTranscriptMeasurement() {
     if (transcriptState.measureFrame !== undefined)
         cancelAnimationFrame(transcriptState.measureFrame);
     transcriptState.measureFrame = requestAnimationFrame(() => {
@@ -768,8 +773,9 @@ function scheduleTranscriptMeasurement(shouldPin) {
             const margin = Number.parseFloat(getComputedStyle(node).marginBottom) || 0;
             changed = transcriptState.heights.update(key, node.offsetHeight + margin) || changed;
         }
-        if (shouldPin)
+        if (transcriptState.followTail) {
             elements.transcript.scrollTo({ top: elements.transcript.scrollHeight, behavior: "auto" });
+        }
         if (changed)
             scheduleTranscriptRender();
     });

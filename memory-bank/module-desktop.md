@@ -19,7 +19,7 @@
 - `src/service/system-service.ts`：生产桌面/TUI 共用；自动注册、启用并连接 systemd user service，窗口退出不停止服务。
 - `src/daemon/supervisor.ts`：只用于 Electron smoke 的隔离临时 Daemon；`src/desktop/daemon-supervisor.ts` 保留测试兼容导出。
 - `src/settings/llm-settings*.ts`、`compaction-settings.ts`：GUI/TUI/CLI 共用严格设置 decoder/service；验证并原子持久化 Provider、模型、Base URL、自动 compact 阈值、自定义兼容 API 与私有 API Key 引用，保存前用 Pi `ModelRuntime` 验证模型可解析。
-- `src/ui/shared/virtual-list.ts`：GUI 变高历史窗口索引；Fenwick tree 提供 `O(log n)` 视口定位与测量更新。
+- `src/ui/shared/virtual-list.ts`：GUI 变高历史窗口索引；Fenwick tree 提供 `O(log n)` 视口定位与测量更新，`isScrollNearEnd` 统一判定是否恢复尾部跟随。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
 - `src/ui/shared/activity.ts`：与 TUI 共享的 cowork 活动归一、工具事件合并、语义摘要、结果/耗时与脱敏详情。
 - `security.ts`：BrowserWindow security flags、严格 CSP 与 exact local navigation 检查。
@@ -58,6 +58,7 @@ preload 仅暴露：
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - 设置弹层含“自动压缩”区，配置 `enabled/reserveTokens/keepRecentTokens`；旧客户端未发送这些可选 IPC 字段时保持当前值，避免 overlay 升级窗口重置配置。
 - transcript 只创建变高虚拟窗口中的消息节点，完成消息 DOM 使用 128 项 LRU 缓存；streaming frame 合并到下一 animation frame。renderer/store 返回不可变当前引用，不在每个 delta 上 `structuredClone` 全历史。
+- transcript 使用显式 `followTail` 状态：首次进入/切换 session 默认贴底，滚离底部 24px 以上即暂停；浏览历史期间普通 render、异步高度测量与 streaming delta 都不得修改用户滚动位置，重新到达底部后才恢复自动跟随。高度测量回调必须读取最新状态，不能捕获上一帧的贴底布尔值。
 - reasoning 使用独立的“思考中”临时面板，正文仍走 Markdown renderer；两者可同时可见但不混排，`message.completed` 或 run 结束后面板自动移除，且不进入历史消息 DOM 缓存。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home，再安装/更新 systemd user unit 并 `enable --now`；renderer 只连接 UDS。退出只关闭 bridge，不停止服务。smoke 路径显式绕过 systemd，防止测试污染真实用户服务。
@@ -75,7 +76,7 @@ preload 仅暴露：
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
 - API Key 与 Cookie 保存到 `credentials/<provider>.api-key` 与 `<provider>.cookie` 且 mode `0600`；`models.json` 只存私有文件读取引用，Cookie 写入 `headers.Cookie`。renderer 始终只看见 `hasApiKey` / `hasCookie`。
-- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，报告同时覆盖 thinking/正文分区及完成后隐藏、旧三模式 composer 不存在、外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
+- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，并实测上滚后静置不回底、streaming delta 不抢位置、回到底部后新消息恢复尾随。报告同时覆盖 thinking/正文分区及完成后隐藏、旧三模式 composer 不存在、外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
 - GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（完整应用 payload，不含 Electron/Chromium）；版本与 npm/package 对齐。快捷方式先安装 `XDG_DATA_HOME/pspore/bin/pspore-desktop-launcher`，安装路径单独保存并将 stdout/stderr 追加到 `XDG_STATE_HOME/pspore/desktop-launcher.log`，Desktop Entry 不再写错误的带引号 `Path`。
 - overlay 携带 `overlay-manifest.json`、`payload/resources/{app.asar,app.asar.unpacked,app-update.yml}` 与 updater；只接受 manifest 中 Electron 精确版本和 Linux/x64 匹配的完整安装，使用目标 Electron-as-Node 计算目录 SHA-256、执行升级前后 CLI 自检、保留 `.pspore-backup-*`，并重启 ExecStart 指向同一安装目录的 pSpore systemd user unit。
 - 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir），会生成 CLI、全量 zip、overlay zip 及三份 SHA-256。普通 `main` push 只运行 CI；只有与 package 版本一致的新 annotated `v*` tag 才触发 `Release desktop` 创建一次不可变 GitHub Release，已有 tag/Release 时拒绝覆盖。Release 通过 `git ls-remote` 核对 origin 的 tag object、`^{}` peeled commit 与 `GITHUB_SHA`，不使用 checkout 覆盖后的本地 tag ref 判断类型。

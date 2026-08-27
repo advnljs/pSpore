@@ -6,6 +6,11 @@ export interface VirtualRange {
     totalSize: number;
 }
 /**
+ * Reports whether a scroll viewport is close enough to its lower boundary to
+ * keep following newly appended content. Non-scrollable viewports are at end.
+ */
+export declare function isScrollNearEnd(scrollHeight: number, scrollTop: number, clientHeight: number, threshold?: number): boolean;
+/**
  * Variable-height list index backed by a Fenwick tree. Message measurements are
  * retained by stable key, while viewport lookup and height updates stay O(log n).
  */

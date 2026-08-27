@@ -617,3 +617,21 @@
   - `npm run test:electron` 通过：PC 主基准 `1920×1080`，并补测 `1440×900`、`1180×720`，双主题、设置、排版、owned/external Daemon、重连与 IPC allowlist 全绿。
 - 当前状态：本地 `0.1.9` 修复、真实服务与 GUI、完整构建/打包/视觉验收均通过；等待提交/push `main`、CI、新 annotated tag、GitHub Release 与远端资产复验。
 - 遗留问题：`v0.1.7`、`v0.1.8` 保留不可变失败 tag 且没有 Release；不移动、不删除、不覆盖。既有非本轮待办继续见 `todo.md`。
+
+## 2026-08-27 15:56 CST — 修复聊天历史强制贴底并准备 `0.1.10`
+
+- 阶段目标：聊天窗口首次默认贴底，但允许用户稳定上滚浏览；浏览期间无新消息或收到新输出都不得自动回底，用户回到底部后恢复尾随。
+- 完成内容：
+  - renderer 增加独立 `followTail` 状态，session 切换时默认开启；scroll 事件通过 24px 边界判断暂停/恢复尾随，不再在每次 render 中用瞬时位置重新推断。
+  - transcript 高度测量 RAF 不再捕获上一帧 `shouldPin`，而是执行时读取最新尾随意图，消除用户上滚与旧测量回调之间的竞态。
+  - Electron smoke 的 1007 条长历史 fixture 增加三段真实交互：上滚静置保持位置、浏览时收到 streaming delta 保持位置、回到底部后完成消息继续贴底。
+  - 用户可见修复按 SemVer 升 PATCH `0.1.10`；源码、lockfile 与 `dist/` 已同步。
+  - 上一阶段 `v0.1.9` GitHub Release 已成功发布；重新下载六项资产后三份 `sha256sum -c` 全部成功，SEA CLI 与桌面包内 CLI 均为 `0.1.9`，包内 Electron 为 `43.3.0/x64`。
+- 修改文件：`src/desktop/renderer/renderer.ts`、`src/ui/shared/virtual-list.ts`、`src/desktop/main.ts`、`test/unit/virtual-list.test.ts`、版本文件、同步 `dist/` 与相关 `memory-bank/*`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、137/137 测试和 production build。
+  - `npm run test:electron` 通过：PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`；新增滚动三段断言与双主题、设置、排版、owned/external Daemon、重连、IPC allowlist 全绿。
+  - `npm run package:desktop` 通过，生成 `0.1.10` SEA CLI、全量 zip、overlay zip、三份 SHA-256 与可运行目录；三份 `sha256sum -c` 全部成功。全量 zip SHA-256 为 `51fea6d6…db3a5`，overlay 为 `ec70b64d…882d3`，CLI 版本输出 `pSpore 0.1.10 (Pi 0.84.1, Node 24.19.0)`。
+  - 从 `release-dist/pspore-desktop-0.1.10-linux-x64/pspore-desktop` 在真实 X11 会话启动；真实 `pspore.service` 已更新到该目录，状态 `enabled/active`，PID 181954，Daemon `ready`，`WorkingDirectory=/home/ljdavns/.pspore/workspace`。
+- 当前状态：本地代码、构建、滚动交互、完整发行包和真实运行实例均已验证；等待提交/push、CI、`v0.1.10` Release 与远端资产复验。
+- 遗留问题：既有非本轮产品待办继续见 `todo.md`；MESA performance warning 不影响功能，未为本轮擅自修改系统 sysctl。

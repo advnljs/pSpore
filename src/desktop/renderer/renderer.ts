@@ -16,7 +16,7 @@ import {
   shortId,
   terminalAgentStatus,
 } from "../../ui/shared/presentation.js";
-import { VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
+import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import type {
   DesktopCommand,
   DesktopFrame,
@@ -62,6 +62,7 @@ interface TranscriptRenderState {
   messageSource: readonly RuntimeMessage[] | undefined;
   items: Array<{ key: string; message: RuntimeMessage }>;
   hasStreaming: boolean;
+  followTail: boolean;
 }
 
 const transcriptState: TranscriptRenderState = {
@@ -73,6 +74,7 @@ const transcriptState: TranscriptRenderState = {
   messageSource: undefined,
   items: [],
   hasStreaming: false,
+  followTail: true,
 };
 
 type Theme = "dark" | "light";
@@ -281,7 +283,7 @@ function bindStaticActions(): void {
     event.preventDefault();
     elements.composerForm.requestSubmit();
   });
-  elements.transcript.addEventListener("scroll", scheduleTranscriptRender, { passive: true });
+  elements.transcript.addEventListener("scroll", handleTranscriptScroll, { passive: true });
   elements.spawnForm.addEventListener("submit", (event) => {
     event.preventDefault();
     const objective = elements.spawnObjective.value.trim();
@@ -621,6 +623,15 @@ function scheduleTranscriptRender(): void {
   });
 }
 
+function handleTranscriptScroll(): void {
+  transcriptState.followTail = isScrollNearEnd(
+    elements.transcript.scrollHeight,
+    elements.transcript.scrollTop,
+    elements.transcript.clientHeight,
+  );
+  scheduleTranscriptRender();
+}
+
 function renderHeader(snapshot: DesktopStoreSnapshot): void {
   const connection = snapshot.connection;
   elements.connectionBadge.className = `connection-badge ${connection.phase}`;
@@ -711,7 +722,6 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   renderMessageQueue(snapshot, child ? undefined : session);
 
   const transcript = elements.transcript;
-  const pinned = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 120;
   const messages = session?.messages ?? [];
   const streaming = snapshot.streamingText[snapshot.selectedSessionId];
   const thinking = snapshot.streamingThinking[snapshot.selectedSessionId];
@@ -724,6 +734,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     transcriptState.messageSource = undefined;
     transcriptState.items = [];
     transcriptState.hasStreaming = false;
+    transcriptState.followTail = true;
   }
   transcriptState.sessionId = snapshot.selectedSessionId;
   transcriptState.count = messages.length;
@@ -753,7 +764,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   }
   const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
   const viewportHeight = Math.max(1, transcript.clientHeight);
-  const shouldPin = sessionChanged || pinned;
+  const shouldPin = transcriptState.followTail;
   const scrollTop = shouldPin
     ? Math.max(0, transcriptState.heights.totalSize() - viewportHeight)
     : transcript.scrollTop;
@@ -786,7 +797,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     animateMessagesIn(visibleMessages.filter((node) => Number(node.dataset["virtualIndex"]) >= previousCount), false);
   }
   if (shouldPin) transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
-  scheduleTranscriptMeasurement(shouldPin);
+  scheduleTranscriptMeasurement();
 }
 
 function cachedMessage(key: string, message: RuntimeMessage): HTMLElement {
@@ -806,7 +817,7 @@ function cachedMessage(key: string, message: RuntimeMessage): HTMLElement {
   return node;
 }
 
-function scheduleTranscriptMeasurement(shouldPin: boolean): void {
+function scheduleTranscriptMeasurement(): void {
   if (transcriptState.measureFrame !== undefined) cancelAnimationFrame(transcriptState.measureFrame);
   transcriptState.measureFrame = requestAnimationFrame(() => {
     transcriptState.measureFrame = undefined;
@@ -817,7 +828,9 @@ function scheduleTranscriptMeasurement(shouldPin: boolean): void {
       const margin = Number.parseFloat(getComputedStyle(node).marginBottom) || 0;
       changed = transcriptState.heights.update(key, node.offsetHeight + margin) || changed;
     }
-    if (shouldPin) elements.transcript.scrollTo({ top: elements.transcript.scrollHeight, behavior: "auto" });
+    if (transcriptState.followTail) {
+      elements.transcript.scrollTo({ top: elements.transcript.scrollHeight, behavior: "auto" });
+    }
     if (changed) scheduleTranscriptRender();
   });
 }

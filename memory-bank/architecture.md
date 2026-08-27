@@ -56,6 +56,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 25. 自动 compact 配置属于共享 `config.context.autoCompaction`，旧 v1 config 缺字段时读取 Pi 默认值；Daemon 为每个新建/恢复 session 注入独立 in-memory `SettingsManager`。GUI 使用 Fenwick tree 维护变高虚拟窗口并缓存有限 DOM，TUI 从尾部只格式化目标行窗；客户端 store reducer 保持不可变引用，流式帧不再复制完整历史。
 26. assistant 正文与 reasoning 使用独立的 transient stream channel；共享 reducer 分别维护 `streamingText` / `streamingThinking`，正文完成、run settle、错误或 session replacement 时同时清理，thinking 不写入最终消息历史。发行版本按 SemVer 递增，只有匹配版本的新 annotated tag 能创建一次 GitHub Release，任何既有 tag/Release 都拒绝覆盖。
 27. systemd unit 按 directive 语法分别序列化：`ExecStart`/`Environment` 使用 systemd command quoting，`WorkingDirectory` 使用未包裹整值引号的绝对路径并转义 `%` specifier，以兼容 systemd 245。Release 通过 origin 的 tag object + `^{}` peeled commit 双引用验证 annotated tag 及目标提交，不信任 checkout 写入的同名本地 tag ref。
+28. GUI 虚拟历史的尾随意图是 renderer 独立状态，不从每次 render 的瞬时 `scrollTop` 反复推导；用户滚离底部即暂停，异步测量读取最新意图，用户回到底部才恢复，使普通重渲染和流式增量都不能覆盖历史浏览位置。
 
 ## 重要约束
 
@@ -89,3 +90,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-27：Linux zip 安装改为 Desktop Entry → 稳定 XDG launcher → 当前安装目录的间接启动链，消除 `Path="..."` 误解析并增加私有滚动日志；overlay 改为带 manifest 的完整应用 payload，在复用 Electron/Chromium 前校验精确运行时、架构和目录摘要，原子替换并保留回滚目录。变高历史禁用 CSS smooth scroll，避免自动跟随 1000+ 条历史时停在中段。
 - 2026-08-27：thinking delta 与正文 delta 在 GUI/TUI 中拆为两个临时通道，正文完成后自动隐藏 reasoning；发行流程改为 SemVer 新版本 → annotated tag → 不可覆盖 GitHub Release，并为 CLI、全量桌面包和 overlay 各生成 SHA-256。
 - 2026-08-27：修复 systemd 245 将 `WorkingDirectory="/absolute/path"` 视为非绝对路径的问题，路径 directive 改用无整值引号的绝对路径；Release annotated tag 校验改为直接读取 origin tag object 与 peeled commit，规避 `actions/checkout` 覆盖本地 tag ref。
+- 2026-08-27：GUI transcript 改用显式尾随状态，消除上一帧异步测量把用户上滚位置重新拉到底部的竞态；Electron smoke 覆盖静置浏览、浏览时新 delta 与回底恢复三段交互。

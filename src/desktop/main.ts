@@ -64,6 +64,10 @@ interface SmokeReport {
     scrollDistance: number;
     renderedMessages: number;
     authoritativeMessages: number;
+    historyBrowseRequestedTop: number;
+    historyBrowseAfterIdleTop: number;
+    historyBrowseAfterDeltaTop: number;
+    tailDistanceAfterReturn: number;
   };
   responsive: {
     medium: ResponsiveLayoutProbe;
@@ -405,14 +409,55 @@ async function runSmoke(
       virtualIndices: Array.from(document.querySelectorAll('#transcript > .message')).map((node) => Number(node.dataset.virtualIndex)),
       scrollDistance: transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1,
       renderedMessages: document.querySelectorAll('#transcript > .message').length,
-      authoritativeMessages: 1007
+      authoritativeMessages: 1007,
+      historyBrowseRequestedTop: -1,
+      historyBrowseAfterIdleTop: -1,
+      historyBrowseAfterDeltaTop: -1,
+      tailDistanceAfterReturn: -1
     };
   })()`);
   const mainImage = await target.webContents.capturePage();
   await writeFile(join(outputDirectory, "desktop-main-dark-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
   if (fixture) {
-    sendFrame(target, smokeEvent(18, "message.completed", { sessionId: "main", role: "assistant", text: "最终证据已归并。" }));
+    mainVisual.historyBrowseRequestedTop = await target.webContents.executeJavaScript(`(() => {
+      const transcript = document.querySelector('#transcript');
+      if (!transcript) return -1;
+      transcript.scrollTop = Math.max(0, transcript.scrollHeight - transcript.clientHeight - Math.max(600, transcript.clientHeight));
+      transcript.dispatchEvent(new Event('scroll'));
+      return transcript.scrollTop;
+    })()`);
+    await settlePaint();
+    mainVisual.historyBrowseAfterIdleTop = await target.webContents.executeJavaScript(
+      "document.querySelector('#transcript')?.scrollTop ?? -1",
+    );
+    sendFrame(target, {
+      version: 1,
+      kind: "delta",
+      streamId: "desktop-smoke",
+      fromSeq: 18,
+      seq: 19,
+      sessionId: "main",
+      channel: "text",
+      text: " 浏览历史期间的新输出不应抢走滚动位置。",
+    });
+    await settlePaint();
+    mainVisual.historyBrowseAfterDeltaTop = await target.webContents.executeJavaScript(
+      "document.querySelector('#transcript')?.scrollTop ?? -1",
+    );
+    await target.webContents.executeJavaScript(`(() => {
+      const transcript = document.querySelector('#transcript');
+      if (!transcript) return;
+      transcript.scrollTop = transcript.scrollHeight;
+      transcript.dispatchEvent(new Event('scroll'));
+    })()`);
+    await settlePaint();
+    sendFrame(target, smokeEvent(20, "message.completed", { sessionId: "main", role: "assistant", text: "最终证据已归并。" }));
     await waitForRenderer(target, "!document.querySelector('.thinking-stream')", 5_000);
+    await settlePaint();
+    mainVisual.tailDistanceAfterReturn = await target.webContents.executeJavaScript(`(() => {
+      const transcript = document.querySelector('#transcript');
+      return transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1;
+    })()`);
     mainVisual.thinkingHiddenAfterCompletion = true;
   }
   const darkTheme = await readThemeSnapshot(target);
@@ -506,7 +551,7 @@ async function runSmoke(
       version: 1,
       kind: "snapshot",
       snapshot: createDesktopSmokeState(base.snapshot, true),
-      cursors: { ...base.cursors, "desktop-smoke": 18 },
+      cursors: { ...base.cursors, "desktop-smoke": 20 },
     });
     await waitForRenderer(target, "document.documentElement.dataset.approval === 'visible'", 5_000);
     await settlePaint();
@@ -665,6 +710,16 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.mainVisual.thinkingHiddenAfterCompletion) failures.push("thinking did not hide after message completion");
     if (report.mainVisual.legacyComposerModes !== 0) failures.push("legacy composer mode controls are still visible");
     if (report.mainVisual.authoritativeMessages < 1_000 || report.mainVisual.renderedMessages >= 40) failures.push("long history was not virtualized");
+    if (report.mainVisual.historyBrowseRequestedTop <= 0) failures.push("history scroll fixture did not move above the transcript tail");
+    if (Math.abs(report.mainVisual.historyBrowseAfterIdleTop - report.mainVisual.historyBrowseRequestedTop) > 64) {
+      failures.push("transcript snapped to the tail without a new message");
+    }
+    if (Math.abs(report.mainVisual.historyBrowseAfterDeltaTop - report.mainVisual.historyBrowseAfterIdleTop) > 64) {
+      failures.push("streaming output stole the history browsing position");
+    }
+    if (report.mainVisual.tailDistanceAfterReturn < 0 || report.mainVisual.tailDistanceAfterReturn > 32) {
+      failures.push("transcript did not resume tail following after returning to the bottom");
+    }
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
     if (!report.probe.document.backgroundInert) failures.push("approval modal did not make the background inert");
     if (report.probe.document.focusLabel !== "拒绝") failures.push("approval modal did not receive deterministic focus");

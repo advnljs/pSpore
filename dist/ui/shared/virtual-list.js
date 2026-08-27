@@ -1,4 +1,15 @@
 /**
+ * Reports whether a scroll viewport is close enough to its lower boundary to
+ * keep following newly appended content. Non-scrollable viewports are at end.
+ */
+export function isScrollNearEnd(scrollHeight, scrollTop, clientHeight, threshold = 24) {
+    if (![scrollHeight, scrollTop, clientHeight, threshold].every(Number.isFinite))
+        return false;
+    const maximumTop = Math.max(0, scrollHeight - Math.max(0, clientHeight));
+    const currentTop = Math.min(maximumTop, Math.max(0, scrollTop));
+    return maximumTop - currentTop <= Math.max(0, threshold);
+}
+/**
  * Variable-height list index backed by a Fenwick tree. Message measurements are
  * retained by stable key, while viewport lookup and height updates stay O(log n).
  */

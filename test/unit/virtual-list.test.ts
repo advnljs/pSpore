@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { VirtualHeightIndex } from "../../src/ui/shared/virtual-list.js";
+import { isScrollNearEnd, VirtualHeightIndex } from "../../src/ui/shared/virtual-list.js";
+
+test("scroll end detection pauses history following until the viewport returns to the tail", () => {
+  assert.equal(isScrollNearEnd(2_000, 1_000, 800), false);
+  assert.equal(isScrollNearEnd(2_000, 1_176, 800), true);
+  assert.equal(isScrollNearEnd(2_000, 1_200, 800), true);
+  assert.equal(isScrollNearEnd(600, 0, 800), true);
+  assert.equal(isScrollNearEnd(Number.NaN, 0, 800), false);
+});
 
 test("virtual height index bounds a 10000-message transcript to the viewport", () => {
   const index = new VirtualHeightIndex(100);

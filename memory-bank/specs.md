@@ -113,4 +113,5 @@
 - reasoning/thinking 必须使用独立的临时流式通道，与 assistant 正文分区展示；正文 `message.completed` 或 run 结束后自动隐藏，不得混入最终 Markdown、持久化历史或工具输出。GUI 使用中文“思考中”区块，TUI 使用独立 `thought` gutter。
 - 修复 Linux 桌面快捷方式：应用菜单与桌面入口必须能稳定启动，并提供可诊断的 launcher 日志。
 - GUI session 历史使用真实窗口化虚拟渲染；TUI 只格式化当前可见历史窗口，避免长历史全量重建。
+- GUI 聊天历史首次进入或切换 session 时默认滚动到底部；用户向上滚动后必须保持浏览位置，无新消息时不得自行回底，收到 streaming delta/新回复时也不得抢走位置；只有用户重新滚动到最底部后才恢复后续消息自动跟随。
 - 本轮默认客户端仍为 PC；Electron 视觉主基准保持 `1920×1080`，TUI 保持 `160×45`。
