@@ -564,3 +564,21 @@
   - `npm run package:desktop` 通过并刷新本地产物：全量 zip 149M（sha256 `3c56e6d5…23180878`）、overlay 23M（sha256 `dc65c344…569424f`）、140M SEA CLI（`version` 与 61 行 `--help` 自检通过）及可执行目录；均位于被 Git 忽略的 `release-dist/`。
 - 当前状态：源码与 `dist/` 已同步构建；compact/Markdown/虚拟历史阶段完成，尚未启动真实用户 service。
 - 遗留问题：Linux 快捷方式、overlay 跨版本升级验证与最终完整打包/系统服务端到端验收仍待后续阶段。
+
+## 2026-08-27 09:40 CST — Linux 快捷方式与 `v0.1.5 → 0.1.6` 无 Chromium 升级
+
+- 阶段目标：修复 zip 内 `.desktop` 无法启动的问题，并确认不含 Chromium 的 overlay 能从上一版真实发行物安全升级到当前版本。
+- 完成内容：
+  - 快捷方式安装器不再直接把安装目录和错误的 `Path="..."` 写进 Desktop Entry；改为固定 XDG launcher + `0600` 安装路径记录，launcher 进入真实安装目录后启动 GUI，并将诊断写到 `XDG_STATE_HOME/pspore/desktop-launcher.log`（1 MiB 轮转、右键可打开日志）。
+  - overlay 从单个盲覆盖 `app.asar` 改为完整应用 payload（`app.asar`、`app.asar.unpacked`、`app-update.yml`），仍不包含 Electron/Chromium。manifest 固定应用版本、Electron 精确版本、Linux/x64 与目录 SHA-256；updater 使用目标 Electron-as-Node 验证兼容性和 payload，升级前后执行 CLI 自检，原子替换顶层资源，保留 `.pspore-backup-*` 并重启匹配的 systemd unit。
+  - 修复 Electron ASAR hook 对完整性校验的干扰（hash 时 `process.noAsar=true`）；修复虚拟历史仍使用 CSS smooth scroll 导致 1007 条历史自动尾随停在中段的问题，改为即时窗口定位。smoke 不再要求长代码块与 streaming 尾部同时存在于同一虚拟 DOM 窗口，而是在独立捕获状态验证两者。
+  - GitHub Release notes、本地 release 脚本、README 与中文项目说明已同步新的执行方式和兼容门禁。
+- 修改文件：`scripts/linux/create-desktop-shortcut.sh`、`scripts/linux/apply-overlay-upgrade.sh`、`scripts/package-desktop.sh`、`scripts/release.sh`、`.github/workflows/release.yml`、`src/desktop/main.ts`、`src/desktop/renderer/styles.css`、`test/integration/release-scripts.test.ts`、同步 `dist/`、README/docs 与 memory-bank。
+- 验证方式与结果：
+  - 新增 3 项发行脚本集成测试：稳定 launcher/日志、完整 payload 替换+回滚+服务重启、篡改 payload 写入前拒绝；最终 `npm run check` 通过 TypeScript 检查、132/132 测试与生产构建。
+  - 旧脚本生成的 `Path="..."` 被 `desktop-file-validate` 明确警告为非绝对路径；新脚本在安装目录含空格和 `%` 时通过 validator，并由隔离 XDG/HOME 下的 `gtk-launch pSpore.desktop` 实际启动到 launcher 日志。
+  - 下载 GitHub `v0.1.5` 全量 zip 并通过其 SHA-256；旧目录实测 `pSpore 0.1.5 / Electron 43.3.0 x64`。应用当前 29M overlay 后变为 `pSpore 0.1.6`，Electron 仍为 `43.3.0/x64`；从该升级目录执行 Electron smoke 通过 owned Daemon、connected、1920×1080、1007 条权威历史仅 7 个消息 DOM、streaming 可见且尾部距离 0。
+  - `npm run test:electron` 通过 external/owned Daemon、1920×1080 主基准、1440×900、1180×720、双主题、设置、安全与重连；人工复核升级目录的 1920×1080 明/暗截图，无明显溢出、遮挡或旧界面。
+  - 最终本地产物：全量 zip 149M，SHA-256 `b4e5465109b386657fb1cc83ccb514af27e01481d0bfd3e64ff7147920510552`；overlay 29M，SHA-256 `16d620dd9f0ea9c148007d8ee9f7bf5e448612011bf53ba1e0ef1fcf36758a3c`；SEA CLI 140M，SHA-256 `b508219de7363d07b44e88489402249ba09c0256ebab416320bb27a3a73a7e84`，`version` 与 61 行 `--help` 自检通过。overlay 文件名扫描未发现 Electron/Chromium 运行时文件。
+- 当前状态：快捷方式与上一版跨版本升级目标均完成；构建/视觉验收进程已退出，本地 `release-dist/` 保留最新可运行目录和被忽略的发行产物。
+- 遗留问题：产品图标/WM_CLASS、GUI activity 中英混排、Markdown 外链与代码高亮等既有非本轮问题仍见 `todo.md`。

@@ -8,6 +8,7 @@ EXPECTED_VERSION="${1:-}"
 ELECTRON_BUILDER_VERSION="${ELECTRON_BUILDER_VERSION:-26.15.3}"
 DIST_DIR="$REPO_ROOT/release-dist"
 VERSION="$(node -p "require('./package.json').version")"
+ELECTRON_VERSION="$(node -p "require('./package.json').devDependencies.electron")"
 FULL_NAME="pspore-desktop-${VERSION}-linux-x64"
 OVERLAY_NAME="pspore-desktop-${VERSION}-linux-x64-overlay"
 FULL_ZIP="$DIST_DIR/${FULL_NAME}.zip"
@@ -16,6 +17,10 @@ UNPACKED_DIR="$DIST_DIR/electron-out/linux-unpacked"
 
 if [[ -n "$EXPECTED_VERSION" && "$EXPECTED_VERSION" != "$VERSION" ]]; then
   echo "Error: package.json version ${VERSION} does not match expected ${EXPECTED_VERSION}"
+  exit 1
+fi
+if [[ ! "$ELECTRON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: devDependencies.electron must be an exact version for overlay compatibility (found ${ELECTRON_VERSION})"
   exit 1
 fi
 
@@ -55,6 +60,12 @@ if [[ ! -f "$UNPACKED_DIR/resources/app.asar" ]]; then
   echo "Error: unpacked app is missing resources/app.asar"
   exit 1
 fi
+BUILT_ELECTRON_VERSION="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" -p 'process.versions.electron')"
+BUILT_ARCH="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" -p 'process.arch')"
+if [[ "$BUILT_ELECTRON_VERSION" != "$ELECTRON_VERSION" || "$BUILT_ARCH" != "x64" ]]; then
+  echo "Error: built runtime ${BUILT_ELECTRON_VERSION}/${BUILT_ARCH} does not match overlay contract ${ELECTRON_VERSION}/x64"
+  exit 1
+fi
 
 STAGE_FULL="$DIST_DIR/staging-full/$FULL_NAME"
 mkdir -p "$STAGE_FULL"
@@ -70,25 +81,70 @@ pSpore Desktop ${VERSION}
 
 升级
 请使用较小的 overlay 压缩包 pspore-desktop-${VERSION}-linux-x64-overlay.zip。
-把它解压到本安装目录（与 pspore-desktop 同一层）覆盖 resources/app.asar，
-或运行其中的「覆盖升级.sh」。overlay 不含 Chromium/Electron 运行时。
+解压后运行其中的「覆盖升级.sh」并选择本安装目录。升级脚本会校验
+Electron/架构与 payload，保留可回滚备份，并重启匹配的后台服务。
+overlay 只含应用 payload，不含 Chromium/Electron 运行时。
 EOF
 
 STAGE_OVERLAY="$DIST_DIR/staging-overlay"
-mkdir -p "$STAGE_OVERLAY/resources"
-cp -a "$UNPACKED_DIR/resources/app.asar" "$STAGE_OVERLAY/resources/app.asar"
+mkdir -p "$STAGE_OVERLAY/payload"
+cp -a "$UNPACKED_DIR/resources" "$STAGE_OVERLAY/payload/resources"
+node - "$STAGE_OVERLAY/payload" "$VERSION" "$BUILT_ELECTRON_VERSION" "$BUILT_ARCH" <<'NODE' > "$STAGE_OVERLAY/overlay-manifest.json"
+const { createHash } = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const [rootArgument, appVersion, electronVersion, arch] = process.argv.slice(2);
+const root = path.resolve(rootArgument);
+const files = [];
+function walk(directory, prefix = "") {
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })
+    .sort((a, b) => Buffer.from(a.name).compare(Buffer.from(b.name)))) {
+    const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+    const absolute = path.join(directory, entry.name);
+    if (entry.isDirectory()) walk(absolute, relative);
+    else if (entry.isFile()) files.push([relative, absolute]);
+    else throw new Error(`unsupported payload entry: ${relative}`);
+  }
+}
+walk(root);
+const hash = createHash("sha256");
+for (const [relative, absolute] of files) {
+  const data = fs.readFileSync(absolute);
+  hash.update(relative, "utf8");
+  hash.update("\0");
+  hash.update(String(data.length), "utf8");
+  hash.update("\0");
+  hash.update(data);
+  hash.update("\0");
+}
+process.stdout.write(`${JSON.stringify({
+  schemaVersion: 1,
+  appVersion,
+  electronVersion,
+  platform: "linux",
+  arch,
+  payloadSha256: hash.digest("hex"),
+}, null, 2)}\n`);
+NODE
 install -m 0755 "$REPO_ROOT/scripts/linux/apply-overlay-upgrade.sh" "$STAGE_OVERLAY/覆盖升级.sh"
 cat > "$STAGE_OVERLAY/覆盖升级说明.txt" <<EOF
 pSpore Desktop ${VERSION} overlay
 
-本压缩包只包含应用代码（resources/app.asar），不含 Chromium 等固定运行时。
+本压缩包只包含应用 payload（app.asar、必要的 unpacked 文件与更新元数据），
+不包含 Electron/Chromium 固定运行时。
 
 覆盖升级
 1. 先已有一次完整安装（全量 zip）
-2. 将本压缩包解压到安装目录，与 pspore-desktop 可执行文件同一层
-3. 或运行：./覆盖升级.sh /path/to/${FULL_NAME}
+2. 关闭当前桌面窗口并解压本升级包
+3. 运行：./覆盖升级.sh /path/to/已有安装目录
 
-解压后 resources/app.asar 会被新版本替换，桌面快捷方式可继续使用。
+脚本只接受 Linux x64 且 Electron ${BUILT_ELECTRON_VERSION} 完全相同的安装，自动校验
+payload、自检新版本、保留 resources/.pspore-backup-* 回滚备份，并重启匹配的
+systemd 用户服务。运行时不匹配时请下载全量 zip。
+
+能否从某个旧版本覆盖升级由目标安装的 Electron、平台和架构决定；脚本会在
+写入前完成判定，不兼容时不会改动现有安装。
 EOF
 
 echo "--- zipping full desktop package"

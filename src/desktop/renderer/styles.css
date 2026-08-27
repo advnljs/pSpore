@@ -446,7 +446,7 @@ select {
 .status-chip.running { border-color: color-mix(in srgb, var(--live) 38%, var(--border)); color: var(--live); background: var(--live-soft); }
 .status-chip.failed { border-color: color-mix(in srgb, var(--rust) 38%, var(--border)); color: var(--rust); background: var(--rust-soft); }
 
-.transcript { min-height: 0; overflow: auto; padding: 32px clamp(24px, 4vw, 72px) 36px; scroll-behavior: smooth; scroll-padding-block: 24px; }
+.transcript { min-height: 0; overflow: auto; padding: 32px clamp(24px, 4vw, 72px) 36px; scroll-behavior: auto; scroll-padding-block: 24px; }
 .virtual-spacer { width: 1px; min-height: 0; margin: 0 auto; pointer-events: none; }
 .empty-transcript { min-height: 100%; display: grid; place-items: center; color: var(--muted); }
 .empty-transcript > div { max-width: 520px; }

@@ -138,7 +138,7 @@ RELEASE_NOTES="## pSpore ${TAG}
 |------|-------------|
 | \`${BINARY_NAME}\` | Standalone CLI binary (no Node.js required) |
 | \`${FULL_ZIP_NAME}\` | Desktop GUI zip (includes Chromium; run 创建桌面快捷方式.sh) |
-| \`${OVERLAY_ZIP_NAME}\` | Overlay upgrade zip (app.asar only, no Chromium) |
+| \`${OVERLAY_ZIP_NAME}\` | Verified app-payload upgrade (no Electron/Chromium runtime) |
 
 ### CLI Binary
 
@@ -160,8 +160,9 @@ cd pspore-desktop-${VERSION}-linux-x64
 ### Overlay upgrade (no Chromium)
 
 \`\`\`bash
-unzip ${OVERLAY_ZIP_NAME} -d /path/to/pspore-desktop-${VERSION}-linux-x64
-# or: ./覆盖升级.sh /path/to/existing-install
+mkdir pspore-overlay-${VERSION}
+unzip ${OVERLAY_ZIP_NAME} -d pspore-overlay-${VERSION}
+./pspore-overlay-${VERSION}/覆盖升级.sh /path/to/existing-install
 \`\`\`
 
 ### Platform

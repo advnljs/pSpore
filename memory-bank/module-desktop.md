@@ -73,8 +73,9 @@ preload 仅暴露：
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
 - API Key 与 Cookie 保存到 `credentials/<provider>.api-key` 与 `<provider>.cookie` 且 mode `0600`；`models.json` 只存私有文件读取引用，Cookie 写入 `headers.Cookie`。renderer 始终只看见 `hasApiKey` / `hasCookie`。
-- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，报告同时覆盖外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。
-- GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（仅 `resources/app.asar`，不含 Chromium）；版本与 npm/package 对齐。
+- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，报告同时覆盖外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
+- GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（完整应用 payload，不含 Electron/Chromium）；版本与 npm/package 对齐。快捷方式先安装 `XDG_DATA_HOME/pspore/bin/pspore-desktop-launcher`，安装路径单独保存并将 stdout/stderr 追加到 `XDG_STATE_HOME/pspore/desktop-launcher.log`，Desktop Entry 不再写错误的带引号 `Path`。
+- overlay 携带 `overlay-manifest.json`、`payload/resources/{app.asar,app.asar.unpacked,app-update.yml}` 与 updater；只接受 manifest 中 Electron 精确版本和 Linux/x64 匹配的完整安装，使用目标 Electron-as-Node 计算目录 SHA-256、执行升级前后 CLI 自检、保留 `.pspore-backup-*`，并重启 ExecStart 指向同一安装目录的 pSpore systemd user unit。
 - 打包入口是 `npm run package:desktop`（`scripts/package-desktop.sh` + `electron-builder.yml` linux dir）。GitHub Actions `Release desktop` 在推送到 `main` 或 `v*` tag 时构建这两个 zip，并直接上传到 `v<version>` GitHub Release（已有 Release 则覆盖同名资产）。
 - 主工作区使用 `body` flex + `.app-shell` 纵向拉伸，初始加载即铺满窗口高度。
 

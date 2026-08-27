@@ -54,6 +54,7 @@
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
 - GitHub Actions 在推送到 `main` 或与 `package.json` 版本一致的 `v*` tag 时，自动构建 Linux x86_64 GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium）并直接上传到 `v<version>` GitHub Release。
 - 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成与 GitHub Release 完全一致的全套可执行产物到 `release-dist/`：Node SEA 独立 CLI 二进制 `pspore-<version>-linux-x64`、全量 zip、overlay zip 及对应 sha256，以及解包后可直接运行的可执行二进制目录 `release-dist/pspore-desktop-<version>-linux-x64/`（由脚本自动从 staging 复制，等价于 release.sh 解压结果）。每次阶段性代码改动完成后都要重新打包，保证 `release-dist/` 始终对应最新工作树代码；这些产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
+- 2026-08-26 用户要求确认不含 Chromium 的升级包能否从上一版本升级到当前版本；本轮验收必须使用真实 GitHub `v0.1.5` 全量发行物直接升级到 `0.1.6`，验证版本、Electron 运行时保持不变和 GUI 启动。overlay 必须在写入前严格校验 Electron 精确版本、Linux/x64 与 payload hash，不兼容时拒绝并提示使用全量包。
 
 ## 设计验收标准
 

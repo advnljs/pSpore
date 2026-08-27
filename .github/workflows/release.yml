@@ -94,8 +94,8 @@ jobs:
             "" \
             "### Overlay upgrade" \
             "" \
-            "\`${OVERLAY_ZIP}\` contains only \`resources/app.asar\` (no Chromium)." \
-            "Extract it into an existing install directory, or run \`覆盖升级.sh\`." \
+            "\`${OVERLAY_ZIP}\` contains the verified app payload but no Electron/Chromium runtime." \
+            "Extract it, then run \`./覆盖升级.sh /path/to/existing-install\`; incompatible runtimes are rejected before changes." \
             "" \
             "SHA-256 checksums: ${FULL_ZIP}.sha256 and ${OVERLAY_ZIP}.sha256" \
             "" \

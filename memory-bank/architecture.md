@@ -84,3 +84,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-26：生产后台生命周期迁移到 systemd user service；GUI/TUI 自动安装、启用、重连但不再启停服务，legacy daemon 在首次迁移时经协议优雅退出，Electron smoke 继续使用隔离 supervisor。
 - 2026-08-26：根 session 目录、多会话创建/恢复与历史加载落地；GUI/TUI 取消三模式 composer，普通发送自动 follow-up，并提供逐条“继续排队/直接发送消息”。
 - 2026-08-26：共享设置接入自动 compact 开关/reserve/keepRecent；GUI/TUI 完成长历史窗口化，流式 GUI 按帧刷新，Pi transcript 不再合成 `[tool:*]`，终端 spinner 改为通用 ASCII 并补 GUI Emoji/Symbol 字体回退。
+- 2026-08-27：Linux zip 安装改为 Desktop Entry → 稳定 XDG launcher → 当前安装目录的间接启动链，消除 `Path="..."` 误解析并增加私有滚动日志；overlay 改为带 manifest 的完整应用 payload，在复用 Electron/Chromium 前校验精确运行时、架构和目录摘要，原子替换并保留回滚目录。变高历史禁用 CSS smooth scroll，避免自动跟随 1000+ 条历史时停在中段。
