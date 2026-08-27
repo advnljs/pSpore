@@ -1,4 +1,4 @@
-import { mkdir, realpath } from "node:fs/promises";
+import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -33,6 +33,7 @@ import type {
   ToolGate,
 } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
+import { resolveSessionFile } from "../sessions/session-file.js";
 
 type Clock = () => Date;
 type IdFactory = () => string;
@@ -117,7 +118,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   async resume(spec: ResumeSessionSpec): Promise<AgentHandle> {
     this.#assertNewSession(spec.sessionId);
     const normalized = await this.#normalizeSpec(spec);
-    const sessionFile = await realpath(spec.sessionFile);
+    const sessionFile = await resolveSessionFile(spec.sessionFile, { allowMissing: true });
     const sessionDir = join(this.#sessionRoot, normalized.workspaceId);
     await mkdir(sessionDir, { recursive: true, mode: 0o700 });
     const sessionManager = SessionManager.open(sessionFile, sessionDir, normalized.cwd);
@@ -313,6 +314,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       agentDir: this.#agentDir,
       sessionManager,
     });
+    await this.#materializeSessionManager(runtime.session.sessionManager);
     const record: SessionRecord = {
       spec,
       runtime,
@@ -324,8 +326,25 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     };
     this.#sessions.set(spec.sessionId, record);
     this.#bind(record, runtime.session, false);
-    runtime.setRebindSession(async (session) => this.#bind(record, session, true));
+    runtime.setRebindSession(async (session) => {
+      await this.#materializeSessionManager(session.sessionManager);
+      this.#bind(record, session, true);
+    });
     return this.#handle(record);
+  }
+
+  async #materializeSessionManager(sessionManager: SessionManager): Promise<void> {
+    const sessionFile = sessionManager.getSessionFile();
+    if (!sessionFile) return;
+    const contents = [sessionManager.getHeader(), ...sessionManager.getEntries()]
+      .map((entry) => JSON.stringify(entry))
+      .join("\n") + "\n";
+    try {
+      await writeFile(sessionFile, contents, { flag: "wx", mode: 0o600 });
+    } catch (error) {
+      if (!isNodeError(error) || error.code !== "EEXIST") throw error;
+    }
+    sessionManager.setSessionFile(await resolveSessionFile(sessionFile));
   }
 
   #runtimeFactory(spec: AgentSessionSpec): CreateAgentSessionRuntimeFactory {
@@ -582,6 +601,10 @@ function toRuntimeMessage(message: unknown): RuntimeMessage {
     role: typeof candidate["role"] === "string" ? candidate["role"] : "unknown",
     text: messageText(message),
   };
+}
+
+function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function messagePayload(message: unknown): Record<string, unknown> {

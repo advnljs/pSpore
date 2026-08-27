@@ -637,3 +637,21 @@
   - GitHub Release `v0.1.10` 已发布并从远端重新下载六项资产；三份随包 SHA-256 校验全部成功。远端 CLI/全量 zip/overlay digest 分别为 `7ca4554e…b6c86`、`f21d3ccd…98385`、`e68f1438…c603e`；SEA CLI 与包内 CLI 均为 `0.1.10`，包内运行时为 Electron `43.3.0`、Node `24.18.1`、Linux x64，overlay manifest 为 `0.1.10 / 43.3.0 / linux x64`。
 - 当前状态：聊天历史滚动修复、`0.1.10` 本地与远端不可变发行、真实最新 GUI/服务全部完成并验证。
 - 遗留问题：既有非本轮产品待办继续见 `todo.md`；MESA performance warning 不影响功能，未为本轮擅自修改系统 sysctl。
+
+## 2026-08-27 21:38 CST — 修复新会话 JSONL 缺失与直接发送消息延迟展示并准备 `0.1.11`
+
+- 阶段目标：兼容 Pi 延迟创建 session JSONL 的行为，修复桌面新建会话 `realpath ENOENT`；让已提升为直接发送的消息在当前 tool 结束前立即可见。
+- 完成内容：
+  - 定位到 Pi `v0.84.1` 的 `SessionManager.create/newSession` 会先返回目标路径，默认延迟到首次 assistant 持久化才创建文件；原 `SessionCatalog.add/touch` 立即 `realpath`，因此新会话在 catalog 注册前失败。
+  - 新增 `resolveSessionFile`：已有文件保持 realpath/regular file 校验；缺失叶只在 canonical parent 安全且仍位于 session root 时接受，非 JSONL、越界、symlink 逃逸仍 fail closed。
+  - Pi adapter 在 create/resume/session rebind 后，以 `wx` 和 `0600` 写入 manager 当前 header/entries，再重载 manager，既让 catalog 可立即注册，也不留下会令 Pi 首次 `_persist(..., wx)` 冲突的空文件；catalog 中缺失的安全旧 JSONL 可在恢复时生成有效 header。
+  - GUI `messageQueue` 同时渲染 `queue.steering` 和 `queue.followUp`。直接发送项在当前 tool 尚未完成时显示“直接发送消息”，普通项仍显示“继续排队/直接发送消息”，不暴露内部 `steer` 术语。
+  - 用户可见修复按 SemVer 升 PATCH `0.1.11`，源码、lockfile 与 `dist/` 同步。
+- 修改文件：`src/sessions/session-file.ts`、`src/sessions/session-catalog.ts`、`src/pi/pi-runtime-adapter.ts`、`src/desktop/renderer/{renderer.ts,styles.css}`、`src/desktop/{main.ts,smoke-fixture.ts}`、相关 contract/unit tests、版本文件、同步 `dist/` 与 `memory-bank/*`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、140/140 测试和 production build；Pi contract 覆盖新 session 文件立即物化及删除后 resume 自动重建，catalog 测试覆盖安全缺失叶与越界拒绝。
+  - `PSPORE_KEEP_SMOKE=1 npm run test:electron` 通过：PC 主基准 `1920×1080`，补测 `1440×900`、`1180×720`；在 `tool.completed` frame 发出前已断言直接发送队列卡可见，follow-up 同时显示。人工复核暗色主截图，队列卡没有遮挡 transcript/composer。
+  - `npm run package:desktop` 通过并生成 `0.1.11` 全套本地产物；三份 `sha256sum -c` 成功。SEA CLI/full zip/overlay SHA-256 分别为 `cb761694…f5579`、`bf9d4fad…da65c`、`9a291677…a6108`，overlay manifest 为 `0.1.11 / Electron 43.3.0 / linux x64`。
+  - 真实 X11 GUI 已切换到 `release-dist/pspore-desktop-0.1.11-linux-x64`；`pspore.service` 为 `enabled/active/ready`。通过包内 CLI 在现有用户配置中新建 `session-7d96ddfb-f680-452a-a43a-5e6dd02d8a13` 成功，对应 catalog JSONL 已立即存在，mode `0600`、Pi header version `3`、cwd 为当前 workspace。
+- 当前状态：本地实现、自动/视觉/真实配置验证、构建与打包完成；等待提交/push、CI、`v0.1.11` Release 与远端资产复验。
+- 遗留问题：真实验证新增了一个标题为“0.1.11 会话兼容性验证”的空会话，保留给用户直接确认新建/切换行为；既有非本轮待办继续见 `todo.md`。

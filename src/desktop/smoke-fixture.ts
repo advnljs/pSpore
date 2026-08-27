@@ -67,6 +67,10 @@ export function createDesktopSmokeState(base: KernelState | null, includeApprova
     costUsd: 0.042,
   });
   main.rootSession = { title: "发布前检查", createdAt: NOW, updatedAt: NOW };
+  main.queue = {
+    steering: ["工具完成后先核对公开 API。"],
+    followUp: ["最后补充发布摘要。"],
+  };
   const child = session("agent-resource-audit", "upstream-child", childMessages, "running", {
     input: 6_400,
     output: 980,

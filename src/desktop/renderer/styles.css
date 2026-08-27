@@ -563,6 +563,7 @@ select {
 .notice-line { height: 26px; padding: 5px 3px 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-queue { display: flex; flex-direction: column; gap: 6px; max-height: 142px; margin: 0 0 8px; overflow: auto; }
 .queue-message { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 8px 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.queue-message.direct { grid-template-columns: auto minmax(0, 1fr); border-color: color-mix(in srgb, var(--honey) 42%, var(--border-soft)); }
 .queue-message > span { color: var(--honey); font: 600 11px/1 var(--font-mono); white-space: nowrap; }
 .queue-message > p { min-width: 0; margin: 0; color: var(--text-soft); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-message > button { min-height: 28px; padding: 4px 8px; font-size: 11.5px; }

@@ -856,14 +856,28 @@ function textFingerprint(value: string): string {
 }
 
 function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: AgentSnapshot | undefined): void {
+  const direct = session?.queue.steering ?? [];
   const queued = session?.queue.followUp ?? [];
-  elements.messageQueue.hidden = queued.length === 0;
-  if (queued.length === 0) {
+  elements.messageQueue.hidden = direct.length + queued.length === 0;
+  if (direct.length + queued.length === 0) {
     elements.messageQueue.replaceChildren();
     return;
   }
-  const nodes = queued.map((message, index) => {
+  const directNodes = direct.map((message) => {
+    const row = element("article", "queue-message direct");
+    row.dataset["queueMode"] = "direct";
+    const state = element("span");
+    state.textContent = "直接发送消息";
+    state.title = "等待当前工具步骤结束后发送";
+    const copy = element("p");
+    copy.textContent = message;
+    copy.title = message;
+    row.append(state, copy);
+    return row;
+  });
+  const queuedNodes = queued.map((message, index) => {
     const row = element("article", "queue-message");
+    row.dataset["queueMode"] = "follow-up";
     const state = element("span");
     state.textContent = "继续排队";
     const copy = element("p");
@@ -880,7 +894,7 @@ function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: AgentSnapsh
     row.append(state, copy, sendNow);
     return row;
   });
-  elements.messageQueue.replaceChildren(...nodes);
+  elements.messageQueue.replaceChildren(...directNodes, ...queuedNodes);
 }
 
 const MAIN_SESSION_EXAMPLES = [

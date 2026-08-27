@@ -1,6 +1,7 @@
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import { isAbsolute, join, relative } from "node:path";
+import { join } from "node:path";
 import { atomicWriteJson } from "../storage/atomic.js";
+import { resolveSessionFile } from "./session-file.js";
 export class SessionCatalog {
     #path;
     #sessionsRoot;
@@ -136,15 +137,7 @@ export class SessionCatalog {
         };
     }
     async #sessionFile(path) {
-        const resolved = await realpath(path);
-        const rel = relative(this.#sessionsRoot, resolved);
-        if (!rel || rel.startsWith("..") || isAbsolute(rel) || !resolved.endsWith(".jsonl")) {
-            throw new Error(`Session file must be a JSONL file inside the session root: ${path}`);
-        }
-        const info = await stat(resolved);
-        if (!info.isFile())
-            throw new Error(`Session file is not a regular file: ${path}`);
-        return resolved;
+        return resolveSessionFile(path, { root: this.#sessionsRoot, allowMissing: true });
     }
     #mutate(operation) {
         const task = this.#tail.then(async () => {

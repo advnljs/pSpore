@@ -28,6 +28,19 @@ test("persists root session metadata and derives a stable title from the first p
   assert.equal((await stat(fixture.options.path)).mode & 0o777, 0o600);
 });
 
+test("retains a safe missing Pi JSONL path so the runtime can recreate it", async () => {
+  const fixture = await catalogFixture();
+  const sessionFile = join(fixture.workspaceSessions, "deferred-session.jsonl");
+  const catalog = await SessionCatalog.open(fixture.options);
+  const created = await catalog.add({ id: "deferred", sessionFile, cwd: fixture.cwd });
+  assert.equal(created.sessionFile, sessionFile);
+  assert.equal((await SessionCatalog.open(fixture.options)).get("deferred")?.sessionFile, sessionFile);
+  await assert.rejects(
+    catalog.add({ id: "outside-missing", sessionFile: join(fixture.root, "outside-missing.jsonl"), cwd: fixture.cwd }),
+    /inside the session root/,
+  );
+});
+
 test("migrates only the most recent legacy JSONL as main and rejects paths outside the session root", async () => {
   const fixture = await catalogFixture();
   const older = join(fixture.workspaceSessions, "older.jsonl");

@@ -106,8 +106,10 @@
 - 自动注册用户级系统服务并启用开机自启；完整功能常驻服务独立于 GUI/TUI 生命周期，GUI/TUI 只作为可重连壳层。
 - 用系统服务替代由 GUI/TUI 临时托管、退出即停止且容易失联的 daemon；异常退出必须由服务管理器自动拉起。
 - 支持多个根 session、新建 session、跨客户端选择，以及服务每次启动时恢复历史 session 和历史消息。
+- 新建根 session 返回前必须把 Pi JSONL 物化为私有 `0600` 文件；兼容 catalog 中父目录仍安全存在但 JSONL 叶文件缺失的旧状态，启动恢复时自动重建有效 Pi session header。越界路径、非 JSONL、父目录缺失或 symlink 逃逸仍须拒绝。
 - 普通发送不再展示 prompt/steer/follow-up 三模式：会话空闲时开始新 turn，仍在执行时自动进入 follow-up 队列。
 - 每条 follow-up 排队消息必须使用用户语言展示“继续排队/直接发送消息”；底层 `steer` 术语不直接暴露，使用户可把该消息提前送入当前任务。
+- 提升为“直接发送消息”的队列项必须在当前 tool 尚未完成时立即继续显示，不能等 tool result 后才以正文消息出现；可提示等待当前工具步骤，但不得向用户暴露底层 `steer` 术语。
 - 自动 compact 的 token 长度必须能在共享设置中调整，并由 GUI/TUI/CLI 使用同一持久配置。
 - 优化 Markdown 流式输出；正文不得再显示适配器生成的 `[tool:shell]` 等占位字符，并改善 Unicode/emoji 字体回退。
 - reasoning/thinking 必须使用独立的临时流式通道，与 assistant 正文分区展示；正文 `message.completed` 或 run 结束后自动隐藏，不得混入最终 Markdown、持久化历史或工具输出。GUI 使用中文“思考中”区块，TUI 使用独立 `thought` gutter。

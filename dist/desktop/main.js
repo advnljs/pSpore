@@ -229,11 +229,14 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         await waitForRenderer(target, "document.documentElement.dataset.connection === 'connected'", 5_000);
         reconnectVerified = true;
     }
+    let directQueueVisibleBeforeToolCompletion = false;
     if (fixture) {
         const base = daemonBridge.bootstrap();
         const cursors = { ...base.cursors, "desktop-smoke": 10 };
         sendFrame(target, { version: 1, kind: "snapshot", snapshot: createDesktopSmokeState(base.snapshot, false), cursors });
         sendFrame(target, smokeEvent(11, "tool.started", { sessionId: "main", toolName: "shell", command: "npm run check" }));
+        await waitForRenderer(target, "Boolean(document.querySelector('#message-queue [data-queue-mode=direct]'))", 5_000);
+        directQueueVisibleBeforeToolCompletion = true;
         sendFrame(target, smokeEvent(12, "tool.completed", {
             sessionId: "main",
             toolName: "shell",
@@ -287,7 +290,9 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       historyBrowseRequestedTop: -1,
       historyBrowseAfterIdleTop: -1,
       historyBrowseAfterDeltaTop: -1,
-      tailDistanceAfterReturn: -1
+      tailDistanceAfterReturn: -1,
+      directQueueVisibleBeforeToolCompletion: ${directQueueVisibleBeforeToolCompletion},
+      followUpQueueVisible: Boolean(document.querySelector('#message-queue [data-queue-mode="follow-up"]'))
     };
   })()`);
     const mainImage = await target.webContents.capturePage();
@@ -631,6 +636,10 @@ function assertSmokeReport(report, fixture) {
         if (report.mainVisual.tailDistanceAfterReturn < 0 || report.mainVisual.tailDistanceAfterReturn > 32) {
             failures.push("transcript did not resume tail following after returning to the bottom");
         }
+        if (!report.mainVisual.directQueueVisibleBeforeToolCompletion)
+            failures.push("direct-send queue was hidden until tool completion");
+        if (!report.mainVisual.followUpQueueVisible)
+            failures.push("follow-up queue is not visible alongside direct-send messages");
         if (!report.probe.document.modalContained)
             failures.push("approval modal escapes the viewport");
         if (!report.probe.document.backgroundInert)

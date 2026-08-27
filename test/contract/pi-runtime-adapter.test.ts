@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
@@ -70,6 +70,33 @@ const spec = (cwd: string) => ({
 });
 
 describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
+  test("materializes a private Pi JSONL file before returning a new session", async () => {
+    const { adapter, root } = await fixture();
+    const handle = await adapter.create(spec(root));
+    assert.ok(handle.sessionFile);
+    assert.equal((await stat(handle.sessionFile)).mode & 0o777, 0o600);
+    const firstLine = (await readFile(handle.sessionFile, "utf8")).split("\n")[0];
+    assert.ok(firstLine);
+    const header = JSON.parse(firstLine) as { type?: string; cwd?: string };
+    assert.equal(header.type, "session");
+    assert.equal(header.cwd, root);
+  });
+
+  test("recreates a missing cataloged Pi JSONL file when resuming", async () => {
+    const { adapter, faux, root } = await fixture();
+    const handle = await adapter.create(spec(root));
+    assert.ok(handle.sessionFile);
+    await adapter.dispose("main");
+    await rm(handle.sessionFile);
+
+    faux.setResponses([fauxAssistantMessage("continued after repair")]);
+    await adapter.resume({ ...spec(root), sessionId: "restored", sessionFile: handle.sessionFile });
+    assert.equal((await stat(handle.sessionFile)).mode & 0o777, 0o600);
+    await adapter.prompt("restored", "continue");
+    await adapter.waitForIdle("restored");
+    assert.equal(adapter.snapshot("restored").messages.at(-1)?.text, "continued after repair");
+  });
+
   test("maps streaming, settled and provider cache usage without leaking Pi objects", async () => {
     const { adapter, faux, root } = await fixture();
     faux.setResponses([fauxAssistantMessage("hello from faux"), fauxAssistantMessage("second turn")]);
