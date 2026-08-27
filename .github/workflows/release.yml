@@ -23,11 +23,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          # The default shallow tag checkout materializes refs/tags/<name> as
-          # the peeled commit, which makes an annotated tag look lightweight.
-          fetch-depth: 0
-          fetch-tags: true
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -60,8 +55,15 @@ jobs:
             echo "Immutable releases must run from a v* tag, not ${GITHUB_REF_TYPE}:${GITHUB_REF_NAME}"
             exit 1
           fi
-          if [[ "$(git cat-file -t "refs/tags/${GITHUB_REF_NAME}")" != "tag" ]]; then
+          TAG_REF="refs/tags/${GITHUB_REF_NAME}"
+          REMOTE_TAG_OBJECT="$(git ls-remote --tags origin "$TAG_REF" | awk 'NR == 1 { print $1 }')"
+          REMOTE_PEELED_COMMIT="$(git ls-remote --tags origin "${TAG_REF}^{}" | awk 'NR == 1 { print $1 }')"
+          if [[ -z "$REMOTE_TAG_OBJECT" || -z "$REMOTE_PEELED_COMMIT" ]]; then
             echo "Release tag ${GITHUB_REF_NAME} must be annotated"
+            exit 1
+          fi
+          if [[ "$REMOTE_PEELED_COMMIT" != "$GITHUB_SHA" ]]; then
+            echo "Release tag ${GITHUB_REF_NAME} does not point to workflow commit ${GITHUB_SHA}"
             exit 1
           fi
           TAG_VERSION="${GITHUB_REF_NAME#v}"

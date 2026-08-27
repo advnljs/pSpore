@@ -13,7 +13,7 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux x86_64 Electron unpacked dir 打包配置 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | 完整检出 annotated `v*` tag object，构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
+| `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag object/peeled commit，构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |

@@ -63,8 +63,8 @@
 - 版本采用 SemVer，并按本次发行中最大的变化决定：向后兼容的修复/小改动升 PATCH，向后兼容的重要功能升 MINOR，不兼容的公开接口、数据或部署变化升 MAJOR；预发行使用标准 `-alpha` / `-beta` / `-rc` 后缀。本次按用户指定从 `0.1.6` 升到 `0.1.7`。
 - `package.json`、`package-lock.json`、`src/version.ts` 与 `v<version>` tag 必须一致。Release 只允许由该 tag 触发；tag 或 GitHub Release 已存在时流程必须失败并要求再次升版，历史 tag、Release 和资产均保持不可变。
 - 新版本提交先推送 `main` 并通过 CI，再创建和推送 annotated `v<version>` tag；tag 工作流必须再次执行检查、打包、发布完整资产及 SHA-256，发布后从 GitHub 重新下载校验。
-- 2026-08-27 继续处理桌面启动失败：必须兼容本机 systemd 245，生成的 `WorkingDirectory=` 不得因整值引号而被判定为非绝对路径；修复后须以真实用户服务验证 `enabled`、`active`、Daemon `ready`。远端 `v0.1.7` tag 已存在且其 Release 失败，按不可变规则改发 PATCH `0.1.8`，不得移动或覆盖 `v0.1.7`。
-- Release workflow 检出 tag 时必须保留 annotated tag object，不能让浅克隆把 `refs/tags/<version>` 物化成 peeled commit 后误判为 lightweight tag。
+- 2026-08-27 继续处理桌面启动失败：必须兼容本机 systemd 245，生成的 `WorkingDirectory=` 不得因整值引号而被判定为非绝对路径；修复后须以真实用户服务验证 `enabled`、`active`、Daemon `ready`。远端 `v0.1.7`、`v0.1.8` tag 已存在且其 Release 均失败，按不可变规则改发 PATCH `0.1.9`，不得移动或覆盖已有 tag。
+- Release workflow 必须直接核对 origin 上同时存在 annotated tag object 与 `^{}` peeled commit，并验证 peeled commit 等于 `GITHUB_SHA`；不能信任 `actions/checkout` 写入本地的 tag ref，因为该 action 会在 tag event 中用 peeled commit 覆盖同名本地 ref。
 
 ## 设计验收标准
 

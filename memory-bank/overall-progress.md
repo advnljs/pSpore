@@ -601,19 +601,19 @@
 - 当前状态：本地 `0.1.7` release candidate 与上周基线升级验收完成；尚待提交并推送 `main`、等待 CI、创建 `v0.1.7` annotated tag、等待 GitHub Release，并从远端重新下载资产做最终复验。
 - 遗留问题：旧 `v0.1.6` Release 附件已被历史流程覆盖，无法再作为上周原始二进制证据；本轮保持其现状、不再次覆盖，改以稳定 tag 源码还原。既有非本轮产品待办继续见 `todo.md`。
 
-## 2026-08-27 15:18 CST — 修复 systemd 245 用户服务启动并准备 `0.1.8`
+## 2026-08-27 15:18 CST — 修复 systemd 245 用户服务启动并准备 `0.1.9`
 
 - 阶段目标：修复 `pspore.service` 的 bad unit file setting，让发行目录桌面应用能自动安装并启动真实用户服务；修通新版本 Release 的 annotated tag 校验。
 - 完成内容：
   - 定位到 systemd 245 将 `WorkingDirectory="/home/ljdavns/.pspore/workspace"` 的整值引号视为路径字符，从而判定路径不是绝对路径；`WorkingDirectory` 改为 directive 专用的无整值引号绝对路径序列化，并继续将 `%` 转义为 `%%`。`ExecStart` 与 `Environment` 保持安全的逐参数 quoting。
   - 回归测试覆盖无引号 `WorkingDirectory`、路径空格和 `%`，并保留命令/环境转义与无 Shell 启动断言。
-  - 远端不可变 `v0.1.7` annotated tag 的 Release workflow 因默认 shallow checkout 把 tag ref 物化为 peeled commit 而失败；Release checkout 改为 `fetch-depth: 0` + `fetch-tags: true`，新增配置回归断言。
-  - 因远端 `v0.1.7` tag 已存在且不得移动，版本统一升到 PATCH `0.1.8`，同步 `package.json`、lockfile、`src/version.ts` 与 `dist/`。
+  - 远端不可变 `v0.1.7` annotated tag 的 Release workflow 因 checkout 把 tag ref 物化为 peeled commit 而失败；`fetch-depth: 0` + `fetch-tags: true` 仍会被 action 最后的 commit refspec 覆盖，`v0.1.8` 实跑捕获相同失败。最终改为直接读取 origin 的 tag object 与 `^{}` peeled commit，并验证 peeled commit 等于 `GITHUB_SHA`，新增配置回归断言。
+  - 因远端 `v0.1.7`、`v0.1.8` tag 已存在且不得移动，版本统一升到 PATCH `0.1.9`，同步 `package.json`、lockfile、`src/version.ts` 与 `dist/`。
 - 修改文件：`src/service/system-service.ts`、`test/unit/system-service.test.ts`、`.github/workflows/release.yml`、`test/unit/version.test.ts`、版本文件、同步构建的 `dist/` 与相关 `memory-bank/*`。
 - 验证方式与结果：
   - 针对性测试 6/6 通过；`npm run check` 通过严格 typecheck、136/136 测试和 production build。
-  - `npm run package:desktop` 通过，生成 `0.1.8` SEA CLI、全量 zip、overlay zip、三份 SHA-256 与可运行目录；三份 `sha256sum -c` 全部成功。全量 zip SHA-256 为 `6e831f47…2d8ba8`，overlay 为 `eb6e2484…e76a7`。
-  - 从 `release-dist/pspore-desktop-0.1.8-linux-x64/pspore-desktop` 在真实 X11 会话启动后，unit 自动更新为 `WorkingDirectory=/home/ljdavns/.pspore/workspace`；`systemd-analyze --user verify pspore.service` 无错误，service 为 `enabled/active`，主进程 PID 88263，Daemon `ready`，GUI 使用最新工作树产物运行。
+  - `npm run package:desktop` 通过，生成 `0.1.9` SEA CLI、全量 zip、overlay zip、三份 SHA-256 与可运行目录；三份 `sha256sum -c` 全部成功。CLI SHA-256 为 `511f7840…3b932`，全量 zip 为 `f922e42d…f6d9a`，overlay 为 `fd346a08…91135`。
+  - 从 `release-dist/pspore-desktop-0.1.9-linux-x64/pspore-desktop` 在真实 X11 会话启动后，unit 自动更新为 `WorkingDirectory=/home/ljdavns/.pspore/workspace`；`systemd-analyze --user verify pspore.service` 无错误，service 为 `enabled/active`，主进程 PID 126591，Daemon `ready`，GUI 使用最新工作树产物运行。
   - `npm run test:electron` 通过：PC 主基准 `1920×1080`，并补测 `1440×900`、`1180×720`，双主题、设置、排版、owned/external Daemon、重连与 IPC allowlist 全绿。
-- 当前状态：本地修复、真实服务与 GUI、完整构建/打包/视觉验收均通过；等待提交/push `main`、CI、新 `v0.1.8` annotated tag、GitHub Release 与远端资产复验。
-- 遗留问题：`v0.1.7` 保留不可变失败 tag 且没有 Release；不移动、不删除、不覆盖。既有非本轮待办继续见 `todo.md`。
+- 当前状态：本地 `0.1.9` 修复、真实服务与 GUI、完整构建/打包/视觉验收均通过；等待提交/push `main`、CI、新 annotated tag、GitHub Release 与远端资产复验。
+- 遗留问题：`v0.1.7`、`v0.1.8` 保留不可变失败 tag 且没有 Release；不移动、不删除、不覆盖。既有非本轮待办继续见 `todo.md`。
