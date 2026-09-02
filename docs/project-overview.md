@@ -93,6 +93,8 @@ pspore config clear-cookie
 
 源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。解压 GitHub Release 全量 zip 后运行 `创建桌面快捷方式.sh` 即可从桌面启动；脚本安装稳定 XDG launcher，应用目录带空格或 `%` 时也不再直接进入 Desktop Entry，并把启动诊断写到 `~/.local/state/pspore/desktop-launcher.log`。生产 GUI/TUI 会自动安装、启用并连接 systemd user service，同时尽力启用 linger；完整 Kernel、session、定时任务和集成能力独立常驻，关闭任一客户端都不会停止服务。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/getSettings/saveSettings/subscribe` 五个固定 API；renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。GUI 以变高虚拟列表只保留视口附近消息，TUI 从历史尾部按可见行反向格式化；正文与 thinking 使用独立流式通道，thinking 只在生成期间单独显示并在回复完成后隐藏，不进入最终 Markdown 或历史。工具调用通过活动视图展示而不再把 `[tool:*]` 混入正文。后续升级运行 overlay 内的 `覆盖升级.sh`：它校验 Electron 精确版本、平台、架构与完整应用 payload，保留回滚备份并重启匹配的 systemd 服务，因此无需重复下载 Chromium；运行时不匹配时会拒绝并提示使用全量包。每次用户可见更新使用新的 SemVer tag 和不可变 GitHub Release，历史资产不再原地覆盖。
 
+ARM64 试验包由 `Package Linux ARM64` GitHub Actions 工作流生成：它在原生 `ubuntu-24.04-arm` runner 上进入 Ubuntu 20.04 容器，以与银河麒麟 V10 SP1 相同的 `glibc 2.31` 执行依赖安装、完整测试、Electron `1920 × 1080` 主基准 smoke、Electron/SEA 架构自检和 SHA-256 校验。成功后保留 14 天的 Actions artifact，包含 `linux-arm64` CLI、全量桌面 zip、overlay zip 及各自校验文件；这条试验链不创建或覆盖正式 GitHub Release。打包脚本只允许当前 Node 原生架构，手工 ARM 构建入口为 `bash scripts/package-desktop.sh <version> arm64`，必须在 ARM64 Node 24 环境运行。
+
 `npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home，并以 `1920 × 1080` 为主基准、补充 `1440 × 900` 与 `1180 × 720` PC 窗口，自动验证外部/桌面拥有两种 Daemon 路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、计算后字号下限、响应式面板收纳、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；长历史 fixture 含 1007 条消息，并断言实际 DOM 少于 40 条。成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留深色、浅色、设置、响应式与审批截图及 JSON 探针。
 
 ## v1 之后

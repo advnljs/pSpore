@@ -130,6 +130,21 @@ test("overlay upgrade rejects a tampered payload before changing the install", a
   }
 });
 
+test("overlay upgrade accepts a matching Linux ARM64 runtime", async () => {
+  const fixture = await createOverlayFixture("arm64");
+  try {
+    const result = await execFileAsync("bash", [fixture.updater, fixture.target], {
+      env: fixture.environment,
+      maxBuffer: 2_000_000,
+    });
+    assert.match(result.stdout, /升级成功/);
+    assert.match(result.stdout, /Electron 运行时: 43\.3\.0 \(linux\/arm64/);
+    assert.equal(await readFile(join(fixture.target, "resources", "app.asar"), "utf8"), "version=0.1.6\n");
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 interface OverlayFixture {
   root: string;
   overlay: string;
@@ -139,7 +154,7 @@ interface OverlayFixture {
   environment: NodeJS.ProcessEnv;
 }
 
-async function createOverlayFixture(): Promise<OverlayFixture> {
+async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Promise<OverlayFixture> {
   const root = await mkdtemp(join(tmpdir(), "pspore-overlay-"));
   const overlay = join(root, "overlay");
   const payload = join(overlay, "payload");
@@ -168,7 +183,7 @@ async function createOverlayFixture(): Promise<OverlayFixture> {
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     'if [[ "${1:-}" == "-e" && "${2:-}" == *"process.versions.electron"* ]]; then',
-    '  printf \'%s\\nlinux\\nx64\\n\' "${PSPORE_FIXTURE_ELECTRON:-43.3.0}"',
+    `  printf '%s\\nlinux\\n${architecture}\\n' "\${PSPORE_FIXTURE_ELECTRON:-43.3.0}"`,
     "  exit 0",
     "fi",
     'if [[ "${1:-}" == "-e" ]]; then',
@@ -203,7 +218,7 @@ async function createOverlayFixture(): Promise<OverlayFixture> {
     appVersion: "0.1.6",
     electronVersion: "43.3.0",
     platform: "linux",
-    arch: "x64",
+    arch: architecture,
     payloadSha256: await payloadDigest(payload),
   }, null, 2)}\n`);
 

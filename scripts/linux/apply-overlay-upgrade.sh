@@ -93,8 +93,8 @@ fi
 if [[ ! "$ELECTRON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   fail "升级包 Electron 版本无效。"
 fi
-if [[ "$PLATFORM" != "linux" || "$ARCH" != "x64" ]]; then
-  fail "升级包平台不匹配（需要 linux/x64，实际 $PLATFORM/$ARCH）。"
+if [[ "$PLATFORM" != "linux" || ( "$ARCH" != "x64" && "$ARCH" != "arm64" ) ]]; then
+  fail "升级包平台无效（仅支持 linux/x64 或 linux/arm64，实际 $PLATFORM/$ARCH）。"
 fi
 if [[ ! "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
   fail "升级包 payload SHA-256 无效。"

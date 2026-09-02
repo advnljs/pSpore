@@ -5,24 +5,9 @@ REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
 EXPECTED_VERSION="${1:-}"
+REQUESTED_ARCH="${2:-}"
 ELECTRON_BUILDER_VERSION="${ELECTRON_BUILDER_VERSION:-26.15.3}"
 DIST_DIR="$REPO_ROOT/release-dist"
-VERSION="$(node -p "require('./package.json').version")"
-ELECTRON_VERSION="$(node -p "require('./package.json').devDependencies.electron")"
-FULL_NAME="pspore-desktop-${VERSION}-linux-x64"
-OVERLAY_NAME="pspore-desktop-${VERSION}-linux-x64-overlay"
-FULL_ZIP="$DIST_DIR/${FULL_NAME}.zip"
-OVERLAY_ZIP="$DIST_DIR/${OVERLAY_NAME}.zip"
-UNPACKED_DIR="$DIST_DIR/electron-out/linux-unpacked"
-
-if [[ -n "$EXPECTED_VERSION" && "$EXPECTED_VERSION" != "$VERSION" ]]; then
-  echo "Error: package.json version ${VERSION} does not match expected ${EXPECTED_VERSION}"
-  exit 1
-fi
-if [[ ! "$ELECTRON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Error: devDependencies.electron must be an exact version for overlay compatibility (found ${ELECTRON_VERSION})"
-  exit 1
-fi
 
 if ! command -v node >/dev/null; then
   echo "Error: node >= 24 is required"
@@ -31,6 +16,40 @@ fi
 NODE_MAJOR="$(node -p "process.versions.node.split('.')[0]")"
 if [[ "$NODE_MAJOR" -lt 24 ]]; then
   echo "Error: node >= 24 is required (found $(node -v))"
+  exit 1
+fi
+NODE_ARCH="$(node -p "process.arch")"
+ARCH="${REQUESTED_ARCH:-$NODE_ARCH}"
+case "$ARCH" in
+  x64|arm64) ;;
+  *)
+    echo "Error: unsupported Linux architecture ${ARCH}; expected x64 or arm64"
+    exit 1
+    ;;
+esac
+if [[ "$NODE_ARCH" != "$ARCH" ]]; then
+  echo "Error: desktop packaging requires a native ${ARCH} runner (current architecture: ${NODE_ARCH})"
+  exit 1
+fi
+
+VERSION="$(node -p "require('./package.json').version")"
+ELECTRON_VERSION="$(node -p "require('./package.json').devDependencies.electron")"
+FULL_NAME="pspore-desktop-${VERSION}-linux-${ARCH}"
+OVERLAY_NAME="pspore-desktop-${VERSION}-linux-${ARCH}-overlay"
+FULL_ZIP="$DIST_DIR/${FULL_NAME}.zip"
+OVERLAY_ZIP="$DIST_DIR/${OVERLAY_NAME}.zip"
+if [[ "$ARCH" == "x64" ]]; then
+  UNPACKED_DIR="$DIST_DIR/electron-out/linux-unpacked"
+else
+  UNPACKED_DIR="$DIST_DIR/electron-out/linux-${ARCH}-unpacked"
+fi
+
+if [[ -n "$EXPECTED_VERSION" && "$EXPECTED_VERSION" != "$VERSION" ]]; then
+  echo "Error: package.json version ${VERSION} does not match expected ${EXPECTED_VERSION}"
+  exit 1
+fi
+if [[ ! "$ELECTRON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Error: devDependencies.electron must be an exact version for overlay compatibility (found ${ELECTRON_VERSION})"
   exit 1
 fi
 
@@ -45,12 +64,12 @@ rm -f "$FULL_ZIP" "$FULL_ZIP.sha256" "$OVERLAY_ZIP" "$OVERLAY_ZIP.sha256"
 echo "--- electron-builder@${ELECTRON_BUILDER_VERSION} linux dir"
 npx --yes "electron-builder@${ELECTRON_BUILDER_VERSION}" \
   --linux dir \
-  --x64 \
+  "--${ARCH}" \
   --publish never \
   --config electron-builder.yml
 
 if [[ ! -x "$UNPACKED_DIR/pspore-desktop" ]]; then
-  echo "Error: electron-builder did not produce linux-unpacked/pspore-desktop"
+  echo "Error: electron-builder did not produce ${UNPACKED_DIR#$DIST_DIR/}/pspore-desktop"
   echo "--- electron-out contents ---"
   ls -la "$DIST_DIR/electron-out" || true
   ls -la "$UNPACKED_DIR" || true
@@ -62,8 +81,8 @@ if [[ ! -f "$UNPACKED_DIR/resources/app.asar" ]]; then
 fi
 BUILT_ELECTRON_VERSION="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" -p 'process.versions.electron')"
 BUILT_ARCH="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" -p 'process.arch')"
-if [[ "$BUILT_ELECTRON_VERSION" != "$ELECTRON_VERSION" || "$BUILT_ARCH" != "x64" ]]; then
-  echo "Error: built runtime ${BUILT_ELECTRON_VERSION}/${BUILT_ARCH} does not match overlay contract ${ELECTRON_VERSION}/x64"
+if [[ "$BUILT_ELECTRON_VERSION" != "$ELECTRON_VERSION" || "$BUILT_ARCH" != "$ARCH" ]]; then
+  echo "Error: built runtime ${BUILT_ELECTRON_VERSION}/${BUILT_ARCH} does not match overlay contract ${ELECTRON_VERSION}/${ARCH}"
   exit 1
 fi
 BUILT_APP_OUTPUT="$(env ELECTRON_RUN_AS_NODE=1 "$UNPACKED_DIR/pspore-desktop" "$UNPACKED_DIR/resources/app.asar/dist/cli/main.js" version)"
@@ -85,7 +104,7 @@ pSpore Desktop ${VERSION}
 3. 之后可从桌面图标启动，无需再打开此目录
 
 升级
-请使用较小的 overlay 压缩包 pspore-desktop-${VERSION}-linux-x64-overlay.zip。
+请使用较小的 overlay 压缩包 pspore-desktop-${VERSION}-linux-${ARCH}-overlay.zip。
 解压后运行其中的「覆盖升级.sh」并选择本安装目录。升级脚本会校验
 Electron/架构与 payload，保留可回滚备份，并重启匹配的后台服务。
 overlay 只含应用 payload，不含 Chromium/Electron 运行时。
@@ -144,7 +163,7 @@ pSpore Desktop ${VERSION} overlay
 2. 关闭当前桌面窗口并解压本升级包
 3. 运行：./覆盖升级.sh /path/to/已有安装目录
 
-脚本只接受 Linux x64 且 Electron ${BUILT_ELECTRON_VERSION} 完全相同的安装，自动校验
+脚本只接受 Linux ${ARCH} 且 Electron ${BUILT_ELECTRON_VERSION} 完全相同的安装，自动校验
 payload、自检新版本、保留 resources/.pspore-backup-* 回滚备份，并重启匹配的
 systemd 用户服务。运行时不匹配时请下载全量 zip。
 
@@ -208,10 +227,10 @@ cp -a "$STAGE_FULL" "$DIST_DIR/"
 rm -rf "$DIST_DIR/electron-out" "$DIST_DIR/staging-full" "$DIST_DIR/staging-overlay"
 
 echo "--- Building standalone CLI release binary"
-bash "$REPO_ROOT/scripts/build-cli-binary.sh" "$VERSION"
+bash "$REPO_ROOT/scripts/build-cli-binary.sh" "$VERSION" "$ARCH"
 
 echo "==> Full package: $FULL_ZIP ($(du -h "$FULL_ZIP" | cut -f1))"
 echo "==> Overlay package: $OVERLAY_ZIP ($(du -h "$OVERLAY_ZIP" | cut -f1))"
 echo "==> Runnable app dir: $DIST_DIR/$FULL_NAME"
-echo "==> CLI binary: $DIST_DIR/pspore-${VERSION}-linux-x64"
-echo "==> CLI checksum: $DIST_DIR/pspore-${VERSION}-linux-x64.sha256"
+echo "==> CLI binary: $DIST_DIR/pspore-${VERSION}-linux-${ARCH}"
+echo "==> CLI checksum: $DIST_DIR/pspore-${VERSION}-linux-${ARCH}.sha256"

@@ -31,6 +31,7 @@
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
 | P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
 | P0 | 发布并远端复验新会话 JSONL/直接发送展示修复 `v0.1.11` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为 annotated tag `v0.1.11`，远端三份 SHA-256、SEA/包内 CLI、Electron runtime 与 overlay manifest 均通过 |
+| P1 | 在真实银河麒麟 V10 SP1 飞腾 FT-2000/4 上复验 ARM64 CI 全量包 | Pending | 当前只能在 ARM runner 的 glibc 2.31 容器模拟用户态，不能复现目标机 Linux 5.4 内核、GPU/桌面栈与 systemd 245 | CI 成功后下载 full zip 到目标机，核对 SHA-256，运行包内 version、创建快捷方式并实际启动 `1920×1080` GUI/用户服务 |
 | P2 | 消除 GitHub Actions Node 20 action runtime 弃用告警 | Todo | CI/Release 当前仍成功，官方 runner 将 `actions/{checkout,setup-node,cache}@v4` 强制运行在 Node 24 | 后续独立核对各 action 的官方新版并最小升级 workflow，不与本轮功能修复混做 |
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |

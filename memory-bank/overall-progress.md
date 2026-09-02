@@ -660,3 +660,18 @@
   - 远端 SEA CLI 为 `0.1.11 / Pi 0.84.1 / Node 24.19.0`；远端 full zip 包内 CLI 为 `0.1.11 / Pi 0.84.1 / Node 24.18.1`，Electron 运行时为 `43.3.0 / linux / x64`；overlay manifest 为 `0.1.11 / Electron 43.3.0 / linux / x64`，payload SHA-256 为 `e688a3d0…9fa2f`。
 - 当前状态：新会话 JSONL 修复、直接发送消息即时展示、`0.1.11` 本地/CI/不可变远端发行及真实最新 GUI/服务均已完成并验证。
 - 遗留问题：真实验证新增了一个标题为“0.1.11 会话兼容性验证”的空会话，保留给用户直接确认新建/切换行为；GitHub Actions 报告官方 action 仍以 Node 20 为目标的弃用告警，已登记 `todo.md`，不影响本轮检查/发行成功；既有非本轮待办继续见 `todo.md`。
+
+## 2026-09-02 10:59 CST — 银河麒麟 V10 ARM64 CI 打包链本地阶段
+
+- 阶段目标：依据用户提供的飞腾 FT-2000/4、AArch64、银河麒麟 V10 SP1、glibc 2.31 环境信息，让 GitHub CI 生成可在该用户态基线上自检的 ARM64 CLI、桌面全量包与 overlay。
+- 完成内容：
+  - `package-desktop.sh`、`build-cli-binary.sh` 与 electron-builder 配置从硬编码 x64 改为原生 `x64|arm64` 参数化；SEA 必须复制同架构 Node，跨架构请求在打包前拒绝，默认 x64 输出命名与正式 Release 流程保持不变。
+  - overlay updater 接受 `linux/x64` 或 `linux/arm64` manifest，但仍要求现有 Electron 的精确版本、平台和架构全部匹配；新增 ARM64 fixture 回归。
+  - 新增 `Package Linux ARM64` workflow：原生 `ubuntu-24.04-arm` runner 内使用 Ubuntu 20.04/glibc 2.31 容器，安装 ARM runtime/optional dependencies，以非 root 用户执行完整检查和 `1920×1080` Electron smoke，再验证 ELF AArch64、`ld-linux-aarch64.so.1`、Electron/SEA 运行时与三份 checksum；成功时上传保留 14 天的 CI artifact，不操作 GitHub Release。
+- 修改文件：`.github/workflows/package-arm64.yml`、`electron-builder.yml`、`scripts/{package-desktop.sh,build-cli-binary.sh}`、`scripts/linux/apply-overlay-upgrade.sh`、发行脚本测试、中文项目文档及 `memory-bank/*`。
+- 验证方式与结果：
+  - `npm run check` 通过：严格 typecheck、142/142 测试和 production build 全绿，`git diff --exit-code -- dist` 通过；新增 workflow 静态契约和 ARM overlay 升级均在测试内通过。
+  - `bash -n`、`git diff --check` 通过；Prettier 成功解析并确认 ARM workflow 与 electron-builder YAML 格式。
+  - 最终 `npm run package:desktop` x64 兼容回归通过；三份 `sha256sum -c` 成功，SEA 为 `pSpore 0.1.11 / Node 24.19.0`，包内 Electron 为 `43.3.0/linux/x64`，overlay manifest 为 `0.1.11 / 43.3.0 / linux/x64`。全量 zip 149 MiB、overlay 29 MiB、SEA 140 MiB，均在被 Git 忽略的 `release-dist/`。
+- 当前状态：本地实现、检查和既有 x64 打包回归完成；ARM64 workflow 尚待本阶段提交推送 `main` 后在 GitHub 原生 ARM runner 上执行，当前不提前声称远端 ARM 产物成功。
+- 遗留问题：CI 用户态不能复现目标机 Linux 5.4 内核、真实 GPU/桌面栈与 systemd 245；远端 ARM job 成功后仍需在实际银河麒麟设备下载安装、快捷方式、GUI 与用户服务复验，已登记 `todo.md`。

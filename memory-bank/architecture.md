@@ -58,6 +58,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 27. systemd unit 按 directive 语法分别序列化：`ExecStart`/`Environment` 使用 systemd command quoting，`WorkingDirectory` 使用未包裹整值引号的绝对路径并转义 `%` specifier，以兼容 systemd 245。Release 通过 origin 的 tag object + `^{}` peeled commit 双引用验证 annotated tag 及目标提交，不信任 checkout 写入的同名本地 tag ref。
 28. GUI 虚拟历史的尾随意图是 renderer 独立状态，不从每次 render 的瞬时 `scrollTop` 反复推导；用户滚离底部即暂停，异步测量读取最新意图，用户回到底部才恢复，使普通重渲染和流式增量都不能覆盖历史浏览位置。
 29. Pi session path 与文件存在性分离处理：catalog 可记录安全 canonical parent 下暂缺的 `.jsonl` 叶路径，Pi adapter 在 create/resume/rebind 边界把 manager 当前 header/entries 原子式 create-only 物化为 `0600`，再重载为 flushed 状态。GUI 队列则同时投影 follow-up 与 steering，使直接发送意图在当前 tool 执行期间也可见。
+30. Linux 打包脚本以 Node 原生 `process.arch` 为默认目标，并只接受 `x64|arm64`；SEA 直接复制当前 Node，因此禁止跨架构伪打包。ARM64 CI 使用原生 GitHub ARM runner，并在 Ubuntu 20.04 容器中把可执行自检基线固定为 glibc 2.31；正式 x64 tag Release 与短期 ARM Actions artifact 保持分离。
 
 ## 重要约束
 
@@ -93,3 +94,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-27：修复 systemd 245 将 `WorkingDirectory="/absolute/path"` 视为非绝对路径的问题，路径 directive 改用无整值引号的绝对路径；Release annotated tag 校验改为直接读取 origin tag object 与 peeled commit，规避 `actions/checkout` 覆盖本地 tag ref。
 - 2026-08-27：GUI transcript 改用显式尾随状态，消除上一帧异步测量把用户上滚位置重新拉到底部的竞态；Electron smoke 覆盖静置浏览、浏览时新 delta 与回底恢复三段交互。
 - 2026-08-27：修复 Pi 延迟创建 JSONL 与 catalog `realpath` 的冲突，新 session 返回前立即生成有效私有文件，安全缺失叶可在恢复时重建；GUI 同时展示 follow-up/直接发送队列，steering 不再等 tool 完成后才可见。
+- 2026-09-02：Linux 桌面/SEA 打包从硬编码 x64 改为原生 `x64|arm64` 参数化；新增 glibc 2.31 ARM64 GitHub CI 试验链，覆盖 ARM optional dependency、Electron PC smoke、ELF/动态链接器/运行时架构与 checksum 验证，正式 Release 仍保持 x64 不可变发布。

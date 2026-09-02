@@ -12,6 +12,4 @@ linux:
   category: Utility
   executableName: pspore-desktop
   target:
-    - target: dir
-      arch:
-        - x64
+    - dir

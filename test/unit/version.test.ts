@@ -24,3 +24,15 @@ test("release validates the remote annotated tag instead of checkout's peeled re
   assert.match(workflow, /REMOTE_PEELED_COMMIT.*GITHUB_SHA/);
   assert.doesNotMatch(workflow, /git cat-file -t "refs\/tags\/\$\{GITHUB_REF_NAME\}"/);
 });
+
+test("ARM packaging runs natively against a glibc 2.31 baseline without touching Releases", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/package-arm64.yml", import.meta.url), "utf8");
+
+  assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
+  assert.match(workflow, /image: ubuntu:20\.04/);
+  assert.match(workflow, /getconf GNU_LIBC_VERSION\)" = "glibc 2\.31"/);
+  assert.match(workflow, /npm run test:electron/);
+  assert.match(workflow, /scripts\/package-desktop\.sh "\$VERSION" arm64/);
+  assert.match(workflow, /actions\/upload-artifact@v\d+/);
+  assert.doesNotMatch(workflow, /gh release (?:create|upload)/);
+});

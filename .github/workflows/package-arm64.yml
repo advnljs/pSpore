@@ -1,0 +1,184 @@
+name: Package Linux ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/package-arm64.yml"
+      - "electron-builder.yml"
+      - "package.json"
+      - "package-lock.json"
+      - "scripts/build-cli-binary.sh"
+      - "scripts/package-desktop.sh"
+      - "scripts/electron-smoke.mjs"
+      - "scripts/linux/**"
+      - "src/**"
+      - "test/**"
+      - "tsconfig.json"
+      - "tsconfig.build.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-linux-arm64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-arm64:
+    name: Kylin V10 compatible ARM64 package
+    runs-on: ubuntu-24.04-arm
+    container:
+      image: ubuntu:20.04
+    timeout-minutes: 90
+    env:
+      CI: "true"
+      DEBIAN_FRONTEND: noninteractive
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Install glibc 2.31 build and desktop runtime dependencies
+        run: |
+          apt-get update
+          apt-get install --no-install-recommends --yes \
+            binutils \
+            build-essential \
+            ca-certificates \
+            file \
+            fonts-liberation \
+            git \
+            libasound2 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libcairo2 \
+            libcups2 \
+            libdrm2 \
+            libgbm1 \
+            libglib2.0-0 \
+            libgtk-3-0 \
+            libnss3 \
+            libpango-1.0-0 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxfixes3 \
+            libxrandr2 \
+            libxss1 \
+            libxtst6 \
+            python3 \
+            xz-utils \
+            xvfb
+
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Verify native ARM64 and Kylin-compatible libc baseline
+        run: |
+          test "$(uname -m)" = "aarch64"
+          test "$(node -p 'process.arch')" = "arm64"
+          test "$(getconf GNU_LIBC_VERSION)" = "glibc 2.31"
+          node --version
+          npm --version
+          gcc -dumpfullversion
+          getconf GNU_LIBC_VERSION
+
+      - name: Create unprivileged build user
+        run: |
+          useradd --create-home --user-group --shell /bin/bash pspore-builder
+          install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.cache/electron
+          install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.cache/electron-builder
+          install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.npm
+          chown -R pspore-builder:pspore-builder "$GITHUB_WORKSPACE"
+
+      - name: Install native ARM64 dependencies
+        run: |
+          runuser -u pspore-builder -- env \
+            HOME=/home/pspore-builder \
+            PATH="$PATH" \
+            npm_config_cache=/home/pspore-builder/.npm \
+            ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            npm ci
+          test -d node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-arm64-gnu
+          file node_modules/electron/dist/electron | grep -F "ARM aarch64"
+          chown root:root node_modules/electron/dist/chrome-sandbox
+          chmod 4755 node_modules/electron/dist/chrome-sandbox
+
+      - name: Typecheck, test, and build on ARM64
+        run: |
+          runuser -u pspore-builder -- env \
+            HOME=/home/pspore-builder \
+            PATH="$PATH" \
+            npm_config_cache=/home/pspore-builder/.npm \
+            ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            npm run check
+
+      - name: Run Electron desktop smoke at the PC baseline
+        run: |
+          runuser -u pspore-builder -- env \
+            HOME=/home/pspore-builder \
+            PATH="$PATH" \
+            npm_config_cache=/home/pspore-builder/.npm \
+            ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            npm run test:electron
+
+      - name: Package ARM64 desktop and standalone CLI
+        id: package
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          runuser -u pspore-builder -- env \
+            HOME=/home/pspore-builder \
+            PATH="$PATH" \
+            npm_config_cache=/home/pspore-builder/.npm \
+            ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            ELECTRON_BUILDER_CACHE=/home/pspore-builder/.cache/electron-builder \
+            bash scripts/package-desktop.sh "$VERSION" arm64
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify ARM64 artifacts and checksums
+        env:
+          VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          CLI="release-dist/pspore-${VERSION}-linux-arm64"
+          APP="release-dist/pspore-desktop-${VERSION}-linux-arm64/pspore-desktop"
+          FULL_ZIP="release-dist/pspore-desktop-${VERSION}-linux-arm64.zip"
+          OVERLAY_ZIP="release-dist/pspore-desktop-${VERSION}-linux-arm64-overlay.zip"
+          test -x "$CLI"
+          test -x "$APP"
+          test -f "$FULL_ZIP"
+          test -f "$OVERLAY_ZIP"
+          file "$CLI" | grep -F "ARM aarch64"
+          file "$APP" | grep -F "ARM aarch64"
+          readelf --program-headers "$CLI" | grep -F "/lib/ld-linux-aarch64.so.1"
+          readelf --program-headers "$APP" | grep -F "/lib/ld-linux-aarch64.so.1"
+          env ELECTRON_RUN_AS_NODE=1 "$APP" -p '`${process.versions.electron}/${process.platform}/${process.arch}`' \
+            | grep -F "43.3.0/linux/arm64"
+          "$CLI" version
+          "$CLI" --help >/dev/null
+          (
+            cd release-dist
+            sha256sum --check "pspore-${VERSION}-linux-arm64.sha256"
+            sha256sum --check "pspore-desktop-${VERSION}-linux-arm64.zip.sha256"
+            sha256sum --check "pspore-desktop-${VERSION}-linux-arm64-overlay.zip.sha256"
+          )
+
+      - name: Upload ARM64 CI packages
+        uses: actions/upload-artifact@v6
+        with:
+          name: pspore-${{ steps.package.outputs.version }}-linux-arm64-glibc-2.31
+          path: |
+            release-dist/pspore-${{ steps.package.outputs.version }}-linux-arm64
+            release-dist/pspore-${{ steps.package.outputs.version }}-linux-arm64.sha256
+            release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64.zip
+            release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64.zip.sha256
+            release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip
+            release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0

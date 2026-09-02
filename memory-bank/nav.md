@@ -11,9 +11,10 @@
 | `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |
 | `docs/adr/0001-runtime-and-pi-baseline.md` | Node 24、Pi/Electron 锁定与 Phase 0 兼容决策 |
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
-| `electron-builder.yml` | Linux x86_64 Electron unpacked dir 打包配置 |
+| `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag object/peeled commit，构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
+| `.github/workflows/package-arm64.yml` | 原生 ARM64 runner + Ubuntu 20.04/glibc 2.31 容器构建 Kylin V10 试验包，运行 PC smoke 并上传 14 天 artifact |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -43,8 +44,8 @@
 | `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
 | `scripts/clean-dist.mjs` | 构建前只清理仓库内精确 `dist/`，避免已删除模块混入 npm 包 |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
-| `scripts/package-desktop.sh` | 使用 electron-builder 生成全量 zip 与不含 Chromium 的 overlay zip，并调用 `build-cli-binary.sh` 生成本地 CLI 二进制 |
-| `scripts/build-cli-binary.sh` | esbuild bundle + Node SEA 注入，产出本地 `release-dist/pspore-<version>-linux-x64` 独立 CLI 二进制并自检 |
+| `scripts/package-desktop.sh` | 按当前原生 `x64|arm64` 使用 electron-builder 生成全量/overlay zip，并调用 `build-cli-binary.sh` 生成同架构 CLI |
+| `scripts/build-cli-binary.sh` | esbuild bundle + 当前原生 Node SEA 注入，产出 `release-dist/pspore-<version>-linux-<arch>` 并自检；拒绝跨架构复制 Node |
 | `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内快捷方式安装器：生成稳定 XDG launcher、Desktop Entry 与私有启动日志 |
 | `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，自检后替换应用资源、保留回滚并重启匹配服务 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
@@ -98,7 +99,7 @@
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
-- GUI 桌面包：`npm run package:desktop` 生成 `release-dist/pspore-desktop-<version>-linux-x64.zip`（含创建桌面快捷方式脚本）、`pspore-desktop-<version>-linux-x64-overlay.zip`（带 manifest 的完整应用 payload，不含 Electron/Chromium）、本地 CLI `release-dist/pspore-<version>-linux-x64` 及三份 SHA-256；全部产物被 Git 忽略。overlay 运行方式为 `./覆盖升级.sh /path/to/existing-install`，只复用精确兼容的 Linux x64 Electron。`main` 只跑 CI；新 annotated `v<version>` tag 才创建一次不可变 GitHub Release。
+- GUI 桌面包：`npm run package:desktop` 默认按当前 Node 原生架构生成全量 zip、overlay zip、本地 SEA CLI 及三份 SHA-256；x64 文件名保持 `linux-x64`，ARM 原生环境可用 `bash scripts/package-desktop.sh <version> arm64` 生成 `linux-arm64`。全部本地产物被 Git 忽略，overlay 只复用 Electron 精确版本及 Linux 架构一致的安装。正式新 annotated `v<version>` tag 仍只创建不可变 x64 GitHub Release；`Package Linux ARM64` 在 `main` 相关改动或手动触发时运行 glibc 2.31 ARM 验证并上传 14 天 CI artifact。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

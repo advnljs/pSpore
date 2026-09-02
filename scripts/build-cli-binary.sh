@@ -6,10 +6,7 @@ cd "$REPO_ROOT"
 
 DIST_DIR="$REPO_ROOT/release-dist"
 VERSION="${1:-}"
-if [[ -z "$VERSION" ]]; then
-  VERSION="$(node -p "require('./package.json').version")"
-fi
-BINARY_NAME="pspore-${VERSION}-linux-x64"
+REQUESTED_ARCH="${2:-}"
 
 if ! command -v node >/dev/null; then
   echo "Error: node >= 24 is required"
@@ -20,6 +17,23 @@ if [[ "$NODE_MAJOR" -lt 24 ]]; then
   echo "Error: node >= 24 is required (found $(node -v))"
   exit 1
 fi
+NODE_ARCH="$(node -p "process.arch")"
+ARCH="${REQUESTED_ARCH:-$NODE_ARCH}"
+case "$ARCH" in
+  x64|arm64) ;;
+  *)
+    echo "Error: unsupported Linux architecture ${ARCH}; expected x64 or arm64"
+    exit 1
+    ;;
+esac
+if [[ "$NODE_ARCH" != "$ARCH" ]]; then
+  echo "Error: standalone CLI requires a native ${ARCH} Node.js runtime (current architecture: ${NODE_ARCH})"
+  exit 1
+fi
+if [[ -z "$VERSION" ]]; then
+  VERSION="$(node -p "require('./package.json').version")"
+fi
+BINARY_NAME="pspore-${VERSION}-linux-${ARCH}"
 if [[ ! -f "$REPO_ROOT/dist/cli/main.js" ]]; then
   echo "Error: dist/cli/main.js is missing. Run 'npm run build' first."
   exit 1
