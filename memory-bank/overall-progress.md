@@ -693,3 +693,12 @@
 - 验证方式与结果：远端失败日志为 Chromium `Failed to move to new namespace ... Operation not permitted`，符合 job container 的 namespace 限制；`actionlint 1.7.12`、`node --check`、针对性安全/工作流测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。本机缺少 `xvfb-run`，实际 ARM smoke 留给原生 runner 复验。
 - 当前状态：CI 专用 smoke 兼容修复已完成本地验证，待提交推送并观察新 ARM run。
 - 遗留问题：CI 容器无法验证 Chromium OS sandbox 的实际启用；该安全配置继续由静态单测约束，真实银河麒麟设备仍需做最终运行复验。
+
+## 2026-09-02 11:28 CST — 放宽 ARM 软件渲染 smoke 时限
+
+- 阶段目标：处理 ARM job 已启动 Electron、但完整视觉 fixture 超过固定 60 秒而被测试 harness 终止的问题。
+- 完成内容：smoke harness 保留默认 60 秒回归门禁，同时支持范围受限的 `PSPORE_ELECTRON_SMOKE_TIMEOUT_MS`；ARM workflow 设置为 180 秒，以容纳无 GPU 的 ARM 软件渲染。超时错误同步附带已捕获的有限 stdout/stderr，便于继续定位而不会输出无限日志。
+- 修改文件：`scripts/electron-smoke.mjs`、`.github/workflows/package-arm64.yml`、`test/unit/version.test.ts`、`memory-bank/overall-progress.md`。
+- 验证方式与结果：run `33586842778` 已通过 ARM 环境、Electron 显式安装及 142 项检查，修复后的 Electron 首次启动不再 namespace 崩溃；失败点精确为 harness 的 `xvfb-run timed out after 60000ms`。`actionlint 1.7.12`、`node --check`、针对性安全/工作流测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。
+- 当前状态：ARM 专用超时参数已完成本地验证，待提交和原生 runner 复跑。
+- 遗留问题：尚未确认完整 ARM smoke 在 180 秒内完成；通过前继续不创建 Release tag。

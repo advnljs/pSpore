@@ -12,6 +12,7 @@ const require = createRequire(import.meta.url);
 const electron = require("electron");
 if (typeof electron !== "string") throw new Error("Could not resolve the local Electron executable");
 const electronFlags = process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1" ? ["--no-sandbox"] : [];
+const electronTimeoutMs = parseSmokeTimeout(process.env["PSPORE_ELECTRON_SMOKE_TIMEOUT_MS"]);
 
 const temporaryHome = await mkdtemp(join(tmpdir(), "pspore-electron-smoke-"));
 const outputDirectory = join(temporaryHome, "smoke");
@@ -45,7 +46,7 @@ try {
       outputDirectory,
       "--smoke-fixture",
     ],
-    60_000,
+    electronTimeoutMs,
   );
   const report = JSON.parse(await readFile(join(outputDirectory, "desktop-security.json"), "utf8"));
   if (report?.probe?.viewport?.width !== 1_920 || report?.probe?.viewport?.height !== 1_080) {
@@ -69,7 +70,7 @@ try {
       ownedOutputDirectory,
       "--smoke-fixture",
     ],
-    60_000,
+    electronTimeoutMs,
   );
   const ownedReport = JSON.parse(await readFile(join(ownedOutputDirectory, "desktop-security.json"), "utf8"));
   if (ownedReport?.daemonOwnership !== "owned" || ownedReport?.connection?.phase !== "connected") {
@@ -151,7 +152,8 @@ async function run(command, args, timeoutMs = 15_000) {
   const timeout = new Promise((_, reject) => {
     timer = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`${command} timed out after ${timeoutMs}ms`));
+      const output = exit.output();
+      reject(new Error(`${command} timed out after ${timeoutMs}ms${output ? `: ${output}` : ""}`));
     }, timeoutMs);
   });
   try {
@@ -177,6 +179,16 @@ async function exists(path) {
 function boundedAppend(previous, next) {
   const combined = previous + next;
   return combined.length > 32_000 ? combined.slice(-32_000) : combined;
+}
+
+function parseSmokeTimeout(value) {
+  if (value === undefined) return 60_000;
+  if (!/^\d+$/.test(value)) throw new Error("PSPORE_ELECTRON_SMOKE_TIMEOUT_MS must be an integer");
+  const milliseconds = Number(value);
+  if (milliseconds < 60_000 || milliseconds > 300_000) {
+    throw new Error("PSPORE_ELECTRON_SMOKE_TIMEOUT_MS must be between 60000 and 300000");
+  }
+  return milliseconds;
 }
 
 function delay(milliseconds) {

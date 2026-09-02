@@ -135,6 +135,7 @@ jobs:
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
             PSPORE_ELECTRON_NO_SANDBOX=1 \
+            PSPORE_ELECTRON_SMOKE_TIMEOUT_MS=180000 \
             npm run test:electron
 
       - name: Package ARM64 desktop and standalone CLI

@@ -34,10 +34,12 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(workflow, /getconf GNU_LIBC_VERSION\)" = "glibc 2\.31"/);
   assert.match(workflow, /node node_modules\/electron\/install\.js/);
   assert.match(workflow, /PSPORE_ELECTRON_NO_SANDBOX=1/);
+  assert.match(workflow, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS=180000/);
   assert.match(workflow, /npm run test:electron/);
   assert.match(workflow, /scripts\/package-desktop\.sh "\$VERSION" arm64/);
   assert.match(workflow, /actions\/upload-artifact@v\d+/);
   assert.doesNotMatch(workflow, /gh release (?:create|upload)/);
   assert.match(smokeHarness, /PSPORE_ELECTRON_NO_SANDBOX/);
+  assert.match(smokeHarness, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS/);
   assert.match(smokeHarness, /"--no-sandbox"/);
 });
