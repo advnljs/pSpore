@@ -45,6 +45,7 @@ jobs:
             binutils \
             build-essential \
             ca-certificates \
+            dbus-x11 \
             file \
             fonts-liberation \
             git \
@@ -94,6 +95,8 @@ jobs:
       - name: Create unprivileged build user
         run: |
           useradd --create-home --user-group --shell /bin/bash pspore-builder
+          install -d -m 0755 -o pspore-builder -g pspore-builder /home/pspore-builder/.cache
+          install -d -m 0700 -o pspore-builder -g pspore-builder /home/pspore-builder/.runtime
           install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.cache/electron
           install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.cache/electron-builder
           install -d -o pspore-builder -g pspore-builder /home/pspore-builder/.npm
@@ -104,6 +107,8 @@ jobs:
           runuser -u pspore-builder -- env \
             HOME=/home/pspore-builder \
             PATH="$PATH" \
+            XDG_CACHE_HOME=/home/pspore-builder/.cache \
+            XDG_RUNTIME_DIR=/home/pspore-builder/.runtime \
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
             npm ci
@@ -132,11 +137,13 @@ jobs:
           runuser -u pspore-builder -- env \
             HOME=/home/pspore-builder \
             PATH="$PATH" \
+            XDG_CACHE_HOME=/home/pspore-builder/.cache \
+            XDG_RUNTIME_DIR=/home/pspore-builder/.runtime \
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
             PSPORE_ELECTRON_NO_SANDBOX=1 \
             PSPORE_ELECTRON_SMOKE_TIMEOUT_MS=180000 \
-            npm run test:electron
+            dbus-run-session -- npm run test:electron
 
       - name: Package ARM64 desktop and standalone CLI
         id: package

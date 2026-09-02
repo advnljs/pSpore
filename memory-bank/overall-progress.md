@@ -702,3 +702,12 @@
 - 验证方式与结果：run `33586842778` 已通过 ARM 环境、Electron 显式安装及 142 项检查，修复后的 Electron 首次启动不再 namespace 崩溃；失败点精确为 harness 的 `xvfb-run timed out after 60000ms`。`actionlint 1.7.12`、`node --check`、针对性安全/工作流测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。
 - 当前状态：ARM 专用超时参数已完成本地验证，待提交和原生 runner 复跑。
 - 遗留问题：尚未确认完整 ARM smoke 在 180 秒内完成；通过前继续不创建 Release tag。
+
+## 2026-09-02 11:38 CST — 修复 ARM smoke 的 XDG 与 D-Bus 会话
+
+- 阶段目标：根据放宽超时后取得的 Electron stderr，修复 smoke 启动后无法完成的问题，而不是继续增加等待时间。
+- 完成内容：显式创建并授权构建用户的 XDG cache/runtime 父目录，避免 root 创建的 `.cache` 阻止 dconf 初始化；Ubuntu 20.04 容器安装 `dbus-x11`，smoke 通过 `dbus-run-session` 获得有效 session bus。配置只作用于 CI 构建用户和测试进程。
+- 修改文件：`.github/workflows/package-arm64.yml`、`test/unit/version.test.ts`、`memory-bank/overall-progress.md`。
+- 验证方式与结果：run `33587261873` 证实 180 秒参数生效；有限 stderr 明确记录 `.cache/dconf: Permission denied` 及无效 D-Bus address，因此本轮针对两项环境缺失修复。`actionlint 1.7.12`、`node --check`、本地 `dbus-run-session` 地址断言、针对性测试 7/7、`npm run check`（142/142）和 committed `dist` 一致性校验均通过。
+- 当前状态：环境根因修复已完成本地验证，待提交和第四次原生 ARM run。
+- 遗留问题：尚未取得 ARM smoke 与打包成功证据；正式 Release tag 继续暂停。

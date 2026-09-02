@@ -35,6 +35,8 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(workflow, /node node_modules\/electron\/install\.js/);
   assert.match(workflow, /PSPORE_ELECTRON_NO_SANDBOX=1/);
   assert.match(workflow, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS=180000/);
+  assert.match(workflow, /XDG_CACHE_HOME=\/home\/pspore-builder\/\.cache/);
+  assert.match(workflow, /dbus-run-session -- npm run test:electron/);
   assert.match(workflow, /npm run test:electron/);
   assert.match(workflow, /scripts\/package-desktop\.sh "\$VERSION" arm64/);
   assert.match(workflow, /actions\/upload-artifact@v\d+/);
