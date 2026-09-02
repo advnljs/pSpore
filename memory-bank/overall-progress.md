@@ -738,3 +738,12 @@
 - 验证方式与结果：`actionlint 1.7.12`、相关 `bash -n`、Prettier YAML check、`git diff --check` 均通过；发布契约针对性测试 4/4、`npm run check` 的严格 typecheck、143/143 测试及 production build 全部通过。本地 `scripts/package-desktop.sh 0.1.12 x64` 生成完整候选，三份 SHA-256 通过；SEA 为 x86-64 ELF、interpreter `/lib64/ld-linux-x86-64.so.2`、CLI 为 `0.1.12 / Node 24.19.0`，桌面 runtime 为 `Electron 43.3.0 / linux / x64`，overlay manifest 为 `0.1.12 / 43.3.0 / linux / x64`。CLI/full/overlay digest 分别为 `e79c6af4…6386d`、`d74de3be…b555f`、`7c82abba…1e5db`。
 - 当前状态：本地实现、构建与 x64 发行候选完成；下一阶段提交并推送 `main`，等待普通 CI 与 ARM64 CI 都通过后再创建 annotated `v0.1.12` tag。
 - 遗留问题：远端双架构 Release workflow 尚未实跑，`todo.md` 保持 In Progress；当前主机没有 `xvfb-run`，本轮没有重复执行本地 Electron smoke，ARM `1920×1080` smoke 已由成功 run `33588243028` 提供证据。
+
+## 2026-09-02 16:24 CST — `v0.1.12` 双架构分类 Release 完成
+
+- 阶段目标：让 ARM64/Kylin 与 x86_64 产物自动进入同一个不可变 Release，并完成远端资产与分类结果的独立复验。
+- 完成内容：commit `942862b` 已推送 `main`；普通 CI run `33606978255` 与 ARM64 run `33606978363` 均成功。随后创建并推送 annotated tag `v0.1.12`（tag object `ee976e5…219b7`，peeled commit `942862b…4a77`）；Release workflow run `33607400527` 的 tag 校验、x64 producer、Kylin-compatible ARM64 producer、双架构发布四个 job 全部成功。GitHub Release 为非 draft、非 prerelease，共 12 项资产；每项分别带 `ARM64 / Kylin V10 - <类型>` 或 `x86_64 - <类型>` display label，正文含对应两个架构章节。
+- 修改文件：本阶段发布代码已包含在 `942862b`；完成后同步 `memory-bank/{overall-progress,todo}.md` 的最终状态。
+- 验证方式与结果：从 GitHub Release 重新下载全部 12 项文件到 `/tmp/pspore-release-v0.1.12.lnOgw4`，六份随包 `sha256sum --check` 全部通过，四个 zip 均通过 CRC。远端 ARM64/x64 SEA 与包内 Electron 分别为 AArch64/x86-64 ELF，interpreter 分别为 `/lib/ld-linux-aarch64.so.1`、`/lib64/ld-linux-x86-64.so.2`；x64 SEA 为 `0.1.12 / Node 24.19.0`，包内 CLI 为 `0.1.12 / Node 24.18.1`，runtime 为 `Electron 43.3.0 / linux / x64`。ARM64/x64 overlay manifest 均为 `0.1.12 / Electron 43.3.0 / linux / 对应架构`，payload SHA-256 均为 `9b8515a8…ac3b`。远端 ARM CLI/full/overlay digest 分别为 `ec3efe2c…265bb`、`308826d9…ff60`、`8745a370…7b2a`；x64 分别为 `291cd0ac…db96`、`b08e44c0…d9db`、`b248d840…8851`。
+- 当前状态：`v0.1.12` 双架构自动分类 Release 已完整发布并验证，地址为 `https://github.com/advnljs/pSpore/releases/tag/v0.1.12`；无需新增仓库 secret 或用户配置。
+- 遗留问题：真实银河麒麟设备的快捷方式、GPU/桌面栈与 systemd 245 专项验证仍保留在 `todo.md`，不影响用户已确认可用的 ARM 包与本次 Release 自动分类结果。GitHub Release 下载独立二进制后需按 Linux 常规执行 `chmod +x`；全量 zip 内文件权限已保留。
