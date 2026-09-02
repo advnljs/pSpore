@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -11,7 +11,9 @@ const desktop = join(root, "dist", "desktop", "main.js");
 const require = createRequire(import.meta.url);
 const electron = require("electron");
 if (typeof electron !== "string") throw new Error("Could not resolve the local Electron executable");
-const electronFlags = process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1" ? ["--no-sandbox"] : [];
+const electronFlags = process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1"
+  ? ["--no-sandbox", "--disable-dev-shm-usage"]
+  : [];
 const electronTimeoutMs = parseSmokeTimeout(process.env["PSPORE_ELECTRON_SMOKE_TIMEOUT_MS"]);
 
 const temporaryHome = await mkdtemp(join(tmpdir(), "pspore-electron-smoke-"));
@@ -94,7 +96,11 @@ try {
     await rm(ownedHome, { recursive: true });
   }
   else if (!succeeded || process.env["PSPORE_KEEP_SMOKE"] === "1") {
-    process.stderr.write(`Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}\n`);
+    const externalFiles = await listEntries(outputDirectory);
+    const ownedFiles = await listEntries(ownedOutputDirectory);
+    process.stderr.write(
+      `Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}; external output: ${externalFiles}; owned output: ${ownedFiles}\n`,
+    );
   }
 }
 
@@ -173,6 +179,15 @@ async function exists(path) {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function listEntries(path) {
+  try {
+    const entries = (await readdir(path)).sort();
+    return entries.length > 0 ? entries.join(", ") : "(empty)";
+  } catch (error) {
+    return `(unavailable: ${error instanceof Error ? error.message : String(error)})`;
   }
 }
 

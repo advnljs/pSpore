@@ -711,3 +711,12 @@
 - 验证方式与结果：run `33587261873` 证实 180 秒参数生效；有限 stderr 明确记录 `.cache/dconf: Permission denied` 及无效 D-Bus address，因此本轮针对两项环境缺失修复。`actionlint 1.7.12`、`node --check`、本地 `dbus-run-session` 地址断言、针对性测试 7/7、`npm run check`（142/142）和 committed `dist` 一致性校验均通过。
 - 当前状态：环境根因修复已完成本地验证，待提交和第四次原生 ARM run。
 - 遗留问题：尚未取得 ARM smoke 与打包成功证据；正式 Release tag 继续暂停。
+
+## 2026-09-02 11:47 CST — ARM smoke 共享内存兼容与可观测诊断
+
+- 阶段目标：在有效 XDG/D-Bus 环境下 smoke 仍无报告并于 180 秒超时后，修复容器共享内存限制并确保下一次失败具有阶段证据。
+- 完成内容：CI 专用 Electron flags 增加 `--disable-dev-shm-usage`，避免 Chromium renderer 依赖 job container 的小型 `/dev/shm`；失败时 harness 输出 external/owned 目录的已生成文件列表，workflow 额外保留 1 天隔离 smoke 输出 artifact。正常本地 smoke 与正式发行启动仍不携带这些 CI 参数。
+- 修改文件：`scripts/electron-smoke.mjs`、`.github/workflows/package-arm64.yml`、`test/unit/version.test.ts`、`memory-bank/overall-progress.md`。
+- 验证方式与结果：run `33587731065` 再次于首次 `xvfb-run` 180 秒超时，stderr 已不再出现 dconf 权限或 session bus 地址错误，仅保留缺少 system bus 的 Electron 非致命提示。`actionlint 1.7.12`、`node --check`、针对性测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。
+- 当前状态：共享内存兼容和失败诊断已完成本地验证，待提交与第五次 ARM run。
+- 遗留问题：尚不知道 renderer 卡住前是否已完成部分截图；下一次失败 artifact/文件列表将提供该证据。

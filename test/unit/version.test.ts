@@ -44,4 +44,6 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(smokeHarness, /PSPORE_ELECTRON_NO_SANDBOX/);
   assert.match(smokeHarness, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS/);
   assert.match(smokeHarness, /"--no-sandbox"/);
+  assert.match(smokeHarness, /"--disable-dev-shm-usage"/);
+  assert.match(smokeHarness, /external output:/);
 });

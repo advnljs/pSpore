@@ -145,6 +145,17 @@ jobs:
             PSPORE_ELECTRON_SMOKE_TIMEOUT_MS=180000 \
             dbus-run-session -- npm run test:electron
 
+      - name: Upload Electron smoke diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v6
+        with:
+          name: arm64-electron-smoke-diagnostics-${{ github.run_attempt }}
+          path: |
+            /tmp/pspore-electron-smoke-*/smoke
+            /tmp/pspore-electron-owned-smoke-*/smoke
+          if-no-files-found: warn
+          retention-days: 1
+
       - name: Package ARM64 desktop and standalone CLI
         id: package
         run: |
