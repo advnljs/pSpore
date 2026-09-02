@@ -684,3 +684,12 @@
 - 验证方式与结果：失败 run `33585464052` 的日志已读取并定位到 `Install native ARM64 dependencies`；本地确认 Electron 43.3.0 包含 `install.js` 但 package metadata 没有自动安装脚本，显式安装后得到可执行的 `43.3.0/linux/x64` runtime。`actionlint 1.7.12`、针对性 3/3 测试、`npm run check`（142/142）及 committed `dist` 一致性校验均通过。
 - 当前状态：根因修复已完成本地验证，待提交推送并观察新 ARM run。
 - 遗留问题：远端原生 ARM64 job 尚未复跑通过；通过前不创建正式 Release tag。
+
+## 2026-09-02 11:21 CST — 兼容 GitHub job container 的 Electron smoke
+
+- 阶段目标：修复原生 ARM job 进入 Electron smoke 后因嵌套容器禁止创建 Chromium namespace 而退出的问题。
+- 完成内容：失败 run `33586566564` 已证明显式 Electron 安装与 142 项 ARM 检查通过；smoke harness 新增仅由显式环境变量启用的 `--no-sandbox` 参数，ARM workflow 只在 Ubuntu 20.04 GitHub job container 内设置该变量。产品 BrowserWindow 仍保持 `sandbox: true`、context isolation、无 Node integration 与严格 CSP，正常发行启动参数不受影响。
+- 修改文件：`scripts/electron-smoke.mjs`、`.github/workflows/package-arm64.yml`、`test/unit/version.test.ts`、`memory-bank/overall-progress.md`。
+- 验证方式与结果：远端失败日志为 Chromium `Failed to move to new namespace ... Operation not permitted`，符合 job container 的 namespace 限制；`actionlint 1.7.12`、`node --check`、针对性安全/工作流测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。本机缺少 `xvfb-run`，实际 ARM smoke 留给原生 runner 复验。
+- 当前状态：CI 专用 smoke 兼容修复已完成本地验证，待提交推送并观察新 ARM run。
+- 遗留问题：CI 容器无法验证 Chromium OS sandbox 的实际启用；该安全配置继续由静态单测约束，真实银河麒麟设备仍需做最终运行复验。

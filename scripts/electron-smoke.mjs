@@ -11,6 +11,7 @@ const desktop = join(root, "dist", "desktop", "main.js");
 const require = createRequire(import.meta.url);
 const electron = require("electron");
 if (typeof electron !== "string") throw new Error("Could not resolve the local Electron executable");
+const electronFlags = process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1" ? ["--no-sandbox"] : [];
 
 const temporaryHome = await mkdtemp(join(tmpdir(), "pspore-electron-smoke-"));
 const outputDirectory = join(temporaryHome, "smoke");
@@ -36,6 +37,7 @@ try {
       "-s",
       "-screen 0 2048x1200x24",
       electron,
+      ...electronFlags,
       desktop,
       "--home",
       temporaryHome,
@@ -59,6 +61,7 @@ try {
       "-s",
       "-screen 0 2048x1200x24",
       electron,
+      ...electronFlags,
       desktop,
       "--home",
       ownedHome,

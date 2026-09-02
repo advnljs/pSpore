@@ -134,6 +134,7 @@ jobs:
             PATH="$PATH" \
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            PSPORE_ELECTRON_NO_SANDBOX=1 \
             npm run test:electron
 
       - name: Package ARM64 desktop and standalone CLI
