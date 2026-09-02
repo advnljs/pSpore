@@ -720,3 +720,21 @@
 - 验证方式与结果：run `33587731065` 再次于首次 `xvfb-run` 180 秒超时，stderr 已不再出现 dconf 权限或 session bus 地址错误，仅保留缺少 system bus 的 Electron 非致命提示。`actionlint 1.7.12`、`node --check`、针对性测试 7/7、`npm run check`（142/142）与 committed `dist` 一致性校验均通过。
 - 当前状态：共享内存兼容和失败诊断已完成本地验证，待提交与第五次 ARM run。
 - 遗留问题：尚不知道 renderer 卡住前是否已完成部分截图；下一次失败 artifact/文件列表将提供该证据。
+
+## 2026-09-02 15:57 CST — 银河麒麟兼容 ARM64 CI 全链成功
+
+- 阶段目标：取得原生 ARM64 runner 上从依赖安装、完整检查、桌面 smoke 到打包上传的闭环证据，并独立复核下载产物。
+- 完成内容：GitHub Actions run `33588243028` 在 `ubuntu-24.04-arm` + Ubuntu 20.04/glibc 2.31 容器中全部成功，包含原生依赖、142 项测试/build、`1920×1080` Electron smoke、ARM64 CLI/全量 zip/overlay 打包、ELF/运行时/checksum 校验与 artifact 上传；同提交普通 CI run `33588243049` 也成功。下载六项 ARM64 资产到隔离临时目录，三份 SHA-256 均通过；SEA CLI 为 AArch64 little-endian ELF，interpreter 为 `/lib/ld-linux-aarch64.so.1`，overlay manifest 为 `0.1.11 / Electron 43.3.0 / linux / arm64`。用户随后确认 ARM 包可用。
+- 修改文件：本阶段远端验证对应 commit `162d018`；当前仅同步 `memory-bank/overall-progress.md` 记录结果。
+- 验证方式与结果：通过 `gh run view 33588243028`、`gh run view 33588243049` 复核所有 job/step 为 `success`；隔离目录中 CLI、full zip、overlay zip 大小分别为 `142216320`、`153624859`、`29770501` bytes，三份 `sha256sum --check` 成功，并用 `file`、`readelf`、manifest/payload hash 检查架构与内容。
+- 当前状态：ARM64 producer 已通过远端全链与用户可用性确认，可以进入双架构正式 Release 编排。
+- 遗留问题：CI 仍不能等价复现目标机 Linux 5.4、GPU/桌面栈与 systemd 245；真实设备的完整快捷方式/服务专项复验继续保留在 `todo.md`。
+
+## 2026-09-02 16:04 CST — 双架构分类 Release 本地候选
+
+- 阶段目标：把已验证的 ARM64 producer 纳入不可变正式 Release，并让用户能在 Release 中直接按架构识别产物。
+- 完成内容：`Package Linux ARM64` 改为可被 tag workflow 复用，同时保持 `main`/手动 14 天预览 artifact；`Release desktop` 拆为 tag 校验、原生 x64 producer、Kylin-compatible ARM64 producer 和最终发布四段，只有两侧检查及 checksum 全部成功才创建 Release。12 项资产保留稳定架构文件名，并自动添加 `ARM64 / Kylin V10` 或 `x86_64` display label；Release notes 同步按两个架构分区。版本按 PATCH 更新为 `0.1.12`，发行脚本、静态契约、项目文档和 memory-bank 已同步。
+- 修改文件：`.github/workflows/{package-arm64,release}.yml`、`scripts/release.sh`、`test/unit/version.test.ts`、`package.json`、`package-lock.json`、`src/version.ts`、`dist/version.{js,d.ts}`、`docs/project-overview.md` 与相关 `memory-bank/*`。
+- 验证方式与结果：`actionlint 1.7.12`、相关 `bash -n`、Prettier YAML check、`git diff --check` 均通过；发布契约针对性测试 4/4、`npm run check` 的严格 typecheck、143/143 测试及 production build 全部通过。本地 `scripts/package-desktop.sh 0.1.12 x64` 生成完整候选，三份 SHA-256 通过；SEA 为 x86-64 ELF、interpreter `/lib64/ld-linux-x86-64.so.2`、CLI 为 `0.1.12 / Node 24.19.0`，桌面 runtime 为 `Electron 43.3.0 / linux / x64`，overlay manifest 为 `0.1.12 / 43.3.0 / linux / x64`。CLI/full/overlay digest 分别为 `e79c6af4…6386d`、`d74de3be…b555f`、`7c82abba…1e5db`。
+- 当前状态：本地实现、构建与 x64 发行候选完成；下一阶段提交并推送 `main`，等待普通 CI 与 ARM64 CI 都通过后再创建 annotated `v0.1.12` tag。
+- 遗留问题：远端双架构 Release workflow 尚未实跑，`todo.md` 保持 In Progress；当前主机没有 `xvfb-run`，本轮没有重复执行本地 Electron smoke，ARM `1920×1080` smoke 已由成功 run `33588243028` 提供证据。

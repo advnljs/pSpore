@@ -1,6 +1,23 @@
 name: Package Linux ARM64
 
 on:
+  workflow_call:
+    inputs:
+      expected_version:
+        description: Package version required by the calling release workflow
+        required: false
+        type: string
+        default: ""
+      artifact_name:
+        description: Override the uploaded artifact name
+        required: false
+        type: string
+        default: ""
+      retention_days:
+        description: Number of days to retain the uploaded packages
+        required: false
+        type: number
+        default: 14
   workflow_dispatch:
   push:
     branches:
@@ -147,7 +164,7 @@ jobs:
 
       - name: Upload Electron smoke diagnostics on failure
         if: failure()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: arm64-electron-smoke-diagnostics-${{ github.run_attempt }}
           path: |
@@ -158,8 +175,14 @@ jobs:
 
       - name: Package ARM64 desktop and standalone CLI
         id: package
+        env:
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
+          if [[ -n "$EXPECTED_VERSION" && "$VERSION" != "$EXPECTED_VERSION" ]]; then
+            echo "package.json version ${VERSION} does not match release version ${EXPECTED_VERSION}"
+            exit 1
+          fi
           runuser -u pspore-builder -- env \
             HOME=/home/pspore-builder \
             PATH="$PATH" \
@@ -197,9 +220,9 @@ jobs:
           )
 
       - name: Upload ARM64 CI packages
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
-          name: pspore-${{ steps.package.outputs.version }}-linux-arm64-glibc-2.31
+          name: ${{ inputs.artifact_name || format('pspore-{0}-linux-arm64-glibc-2.31', steps.package.outputs.version) }}
           path: |
             release-dist/pspore-${{ steps.package.outputs.version }}-linux-arm64
             release-dist/pspore-${{ steps.package.outputs.version }}-linux-arm64.sha256
@@ -208,5 +231,5 @@ jobs:
             release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip
             release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip.sha256
           if-no-files-found: error
-          retention-days: 14
+          retention-days: ${{ inputs.retention_days || 14 }}
           compression-level: 0

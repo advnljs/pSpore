@@ -47,3 +47,17 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(smokeHarness, /"--disable-dev-shm-usage"/);
   assert.match(smokeHarness, /external output:/);
 });
+
+test("release waits for verified x64 and ARM64 artifacts before publishing", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+
+  assert.match(workflow, /uses: \.\/\.github\/workflows\/package-arm64\.yml/);
+  assert.match(workflow, /expected_version: \$\{\{ needs\.validate-release\.outputs\.version \}\}/);
+  assert.match(workflow, /name: release-assets-arm64/);
+  assert.match(workflow, /actions\/download-artifact@v8/);
+  assert.match(workflow, /pspore-desktop-\$\{VERSION\}-linux-\$\{ARCH\}-overlay\.zip/);
+  assert.match(workflow, /#\$\{CATEGORY\} - Full desktop package/);
+  assert.match(workflow, /### ARM64 \/ Kylin V10/);
+  assert.match(workflow, /### x86_64/);
+  assert.match(workflow, /needs:[\s\S]*package-x64[\s\S]*package-arm64[\s\S]*gh release create/);
+});

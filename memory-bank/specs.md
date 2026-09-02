@@ -52,11 +52,12 @@
 - 2026-08-17 界面优化：GUI 与 TUI 一起做；重塑视觉识别，但保留既有信息架构、功能面与验收基准（桌面 `1920×1080`，TUI `160×45`）。
 - 视觉识别统一为 "spore print"：暖土/暖纸底色，骨白（深色）或墨色（浅色）只用于主操作与焦点，饱和色仅承担状态语义（moss 存活/成功、honey 等待/审批、rust 失败、lichen 用户）；GUI 与 TUI 共用同一套语义色映射。
 - 审批类弹层不得把“允许”做成视觉上最强的按钮；默认焦点保持在拒绝，允许类操作使用告警色描边。
-- GitHub Actions 只在与 `package.json` 版本一致的不可变 `v*` tag 上构建 Linux x86_64 CLI、GUI 全量 zip（`pspore-desktop-<version>-linux-x64.zip`，含创建桌面快捷方式脚本）与 overlay zip（`pspore-desktop-<version>-linux-x64-overlay.zip`，不含 Chromium），并创建一次对应 GitHub Release；普通 `main` push 只运行 CI，不得上传或覆盖 Release 资产。
+- GitHub Actions 只在与 `package.json` 版本一致的不可变 `v*` tag 上构建 Linux x86_64 与 ARM64 CLI、GUI 全量 zip（含创建桌面快捷方式脚本）及不含 Chromium 的 overlay zip，并在两种架构全部通过后创建一次包含各自 SHA-256 的 GitHub Release；普通 `main` push 不得创建或覆盖 Release。
 - 2026-08-22 每次执行打包（`npm run package:desktop` / `scripts/package-desktop.sh`）时，必须在本地同时生成与 GitHub Release 完全一致的全套可执行产物到 `release-dist/`：Node SEA 独立 CLI 二进制 `pspore-<version>-linux-x64`、全量 zip、overlay zip 及三者各自的 sha256，以及解包后可直接运行的可执行二进制目录 `release-dist/pspore-desktop-<version>-linux-x64/`（由脚本自动从 staging 复制，等价于 release.sh 解压结果）。每次阶段性代码改动完成后都要重新打包，保证 `release-dist/` 始终对应最新工作树代码；这些产物只保留在本地并保持被 Git 忽略（`release-dist/`），不得进入仓库、npm 包或 CI 上传清单。
 - 2026-08-26 用户要求确认不含 Chromium 的升级包能否从上一版本升级到当前版本；本轮验收必须使用真实 GitHub `v0.1.5` 全量发行物直接升级到 `0.1.6`，验证版本、Electron 运行时保持不变和 GUI 启动。overlay 必须在写入前严格校验 Electron 精确版本、Linux/x64 与 payload hash，不兼容时拒绝并提示使用全量包。
 - 2026-08-27 `0.1.7` 发布前必须使用 GitHub 上周不可变 `v0.1.6` tag（提交 `98888cb`）对应的完整安装基线，应用 `0.1.7` overlay，验证应用版本更新、Electron/Chromium 未替换、服务连接及 `1920×1080` GUI 启动。由于旧 `v0.1.6` 二进制资产曾被错误覆盖，基线须从官方 tag 源码还原构建并记录这一事实。
-- 2026-09-02 ARM 试验包目标为用户提供的 `refer/arm_env_check_result.txt` 环境：飞腾 FT-2000/4、AArch64 little-endian、银河麒麟 V10 SP1、glibc 2.31。必须在 GitHub 原生 ARM64 runner 的 glibc 2.31 容器内安装 ARM64 optional dependencies、运行完整检查和 `1920×1080` Electron smoke，再生成 `linux-arm64` SEA CLI、全量 zip、overlay zip 与三份 SHA-256。该 workflow 只上传保留 14 天的 Actions artifact，不创建或覆盖正式 Release；这是对 2026-08-22“不得进入 CI 上传清单”的本轮 ARM 产物特例，既有 x64 不可变 Release 规则保持不变。
+- 2026-09-02 ARM 包目标为用户提供的 `refer/arm_env_check_result.txt` 环境：飞腾 FT-2000/4、AArch64 little-endian、银河麒麟 V10 SP1、glibc 2.31。必须在 GitHub 原生 ARM64 runner 的 glibc 2.31 容器内安装 ARM64 optional dependencies、运行完整检查和 `1920×1080` Electron smoke，再生成 `linux-arm64` SEA CLI、全量 zip、overlay zip 与三份 SHA-256。`main`/手动运行上传保留 14 天的预览 artifact；用户随后明确要求正式打包产物进入 Release，因此新版本 tag 必须复用该链并与 x64 资产一起发布，不得覆盖已有 Release。这是对 2026-08-22“不得进入 CI 上传清单”的 ARM 产物特例。
+- 2026-09-02 用户确认 ARM 包可用，并要求正式 Release 自动分类。Release 中必须保留稳定的 `linux-arm64` / `linux-x64` 文件名，为 12 项资产分别添加 `ARM64 / Kylin V10` 或 `x86_64` display label，同时在发行说明中按这两个架构分区。
 
 ## 版本与发布规则（2026-08-27 用户要求）
 
@@ -92,7 +93,7 @@
 - 裸跑 `p-spore` 且未配置模型时，必须直接给出配置引导入口并在 TTY 下 y/n 询问；引导必须是 CLI 原生命令（`setup`），不能只存在于 TUI 内，且必须出现在 `--help` 列表中。
 - memory-bank 完整同步。
 - GitHub 仓库必须是同名私有仓库；提交前检查敏感信息与范围。
-- 推送 `main` 后 CI 必须检查源码、测试和 `dist` 一致性；推送匹配 `package.json` 的新 `v*` tag 后，Release workflow 必须构建 CLI、`pspore-desktop-<version>-linux-x64.zip` 与 `pspore-desktop-<version>-linux-x64-overlay.zip` 并创建新的 `v<version>` GitHub Release，已有 Release 时必须拒绝覆盖。
+- 推送 `main` 后 CI 必须检查源码、测试和 `dist` 一致性；推送匹配 `package.json` 的新 `v*` tag 后，Release workflow 必须在原生 x64/ARM64 环境分别构建 CLI、全量 zip、overlay zip 与三份 SHA-256，只有两侧都通过才创建新的 `v<version>` GitHub Release，已有 Release 时必须拒绝覆盖。
 - 本地打包验收：`release-dist/` 下必须同时存在全量 zip、overlay zip、三份对应 sha256 文件与可执行的 `pspore-<version>-linux-x64`；二进制能通过 `version` 与 `--help` 自检，且 `git status` 不得出现任何打包产物。
 
 ## GUI 交互与视觉（2026-08-22 用户要求）

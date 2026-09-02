@@ -13,8 +13,8 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
-| `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag object/peeled commit，构建 CLI、GUI 全量/overlay zip，并创建不可变 GitHub Release |
-| `.github/workflows/package-arm64.yml` | 原生 ARM64 runner + Ubuntu 20.04/glibc 2.31 容器构建 Kylin V10 试验包，运行 PC smoke 并上传 14 天 artifact |
+| `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
+| `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -99,7 +99,7 @@
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。
-- GUI 桌面包：`npm run package:desktop` 默认按当前 Node 原生架构生成全量 zip、overlay zip、本地 SEA CLI 及三份 SHA-256；x64 文件名保持 `linux-x64`，ARM 原生环境可用 `bash scripts/package-desktop.sh <version> arm64` 生成 `linux-arm64`。全部本地产物被 Git 忽略，overlay 只复用 Electron 精确版本及 Linux 架构一致的安装。正式新 annotated `v<version>` tag 仍只创建不可变 x64 GitHub Release；`Package Linux ARM64` 在 `main` 相关改动或手动触发时运行 glibc 2.31 ARM 验证并上传 14 天 CI artifact。
+- GUI 桌面包：`npm run package:desktop` 默认按当前 Node 原生架构生成全量 zip、overlay zip、本地 SEA CLI 及三份 SHA-256；x64 文件名保持 `linux-x64`，ARM 原生环境可用 `bash scripts/package-desktop.sh <version> arm64` 生成 `linux-arm64`。全部本地产物被 Git 忽略，overlay 只复用 Electron 精确版本及 Linux 架构一致的安装。正式新 annotated `v<version>` tag 并行构建 x64/ARM64 并在同一不可变 GitHub Release 发布 12 项资产，以 `ARM64 / Kylin V10`、`x86_64` 标签和 notes 章节分类；`Package Linux ARM64` 在 `main` 相关改动或手动触发时仍上传保留 14 天的预览 artifact。
 - 单 prompt：`npm run dev -- prompt "..."`。
 - 自动化：`npm run dev -- jobs`、`runs`、`run <job-id>`、`cancel <run-id>`；job 事实源位于 `workspace/jobs/*.json`。
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。

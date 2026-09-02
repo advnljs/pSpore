@@ -7,50 +7,34 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-desktop-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  package-desktop:
-    name: Build Linux desktop zips
-    runs-on: ubuntu-22.04
-    timeout-minutes: 45
-    env:
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+  validate-release:
+    name: Validate immutable release tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
+          package-manager-cache: false
 
-      - name: Cache Electron binaries
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/electron
-            ~/.cache/electron-builder
-          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Typecheck, test, and build
-        run: npm run check
-
-      - name: Resolve package version
+      - name: Resolve and validate package version
         id: version
         run: |
+          set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "full_zip=pspore-desktop-${VERSION}-linux-x64.zip" >> "$GITHUB_OUTPUT"
-          echo "overlay_zip=pspore-desktop-${VERSION}-linux-x64-overlay.zip" >> "$GITHUB_OUTPUT"
           if [[ "${GITHUB_REF_TYPE}" != "tag" || "${GITHUB_REF_NAME}" != v* ]]; then
             echo "Immutable releases must run from a v* tag, not ${GITHUB_REF_TYPE}:${GITHUB_REF_NAME}"
             exit 1
@@ -71,64 +55,190 @@ jobs:
             echo "Tag ${GITHUB_REF_NAME} does not match package.json version ${VERSION}"
             exit 1
           fi
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-      - name: Package desktop zips
-        run: bash scripts/package-desktop.sh "${{ steps.version.outputs.version }}"
+  package-x64:
+    name: Build Linux x64 release assets
+    needs: validate-release
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
-      - name: Publish GitHub Release
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Cache Electron binaries
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck, test, and build
+        run: npm run check
+
+      - name: Package x64 desktop and standalone CLI
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: bash scripts/package-desktop.sh "$VERSION" x64
+
+      - name: Verify x64 artifacts and checksums
+        env:
+          VERSION: ${{ needs.validate-release.outputs.version }}
+        run: |
+          set -euo pipefail
+          CLI="release-dist/pspore-${VERSION}-linux-x64"
+          APP="release-dist/pspore-desktop-${VERSION}-linux-x64/pspore-desktop"
+          FULL_ZIP="release-dist/pspore-desktop-${VERSION}-linux-x64.zip"
+          OVERLAY_ZIP="release-dist/pspore-desktop-${VERSION}-linux-x64-overlay.zip"
+          test -x "$CLI"
+          test -x "$APP"
+          test -f "$FULL_ZIP"
+          test -f "$OVERLAY_ZIP"
+          file "$CLI" | grep -F "x86-64"
+          file "$APP" | grep -F "x86-64"
+          readelf --program-headers "$CLI" | grep -F "/lib64/ld-linux-x86-64.so.2"
+          env ELECTRON_RUN_AS_NODE=1 "$APP" -p '`${process.versions.electron}/${process.platform}/${process.arch}`' \
+            | grep -F "43.3.0/linux/x64"
+          "$CLI" version
+          "$CLI" --help >/dev/null
+          (
+            cd release-dist
+            sha256sum --check "pspore-${VERSION}-linux-x64.sha256"
+            sha256sum --check "pspore-desktop-${VERSION}-linux-x64.zip.sha256"
+            sha256sum --check "pspore-desktop-${VERSION}-linux-x64-overlay.zip.sha256"
+          )
+
+      - name: Upload x64 release assets
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-assets-x64
+          path: |
+            release-dist/pspore-${{ needs.validate-release.outputs.version }}-linux-x64
+            release-dist/pspore-${{ needs.validate-release.outputs.version }}-linux-x64.sha256
+            release-dist/pspore-desktop-${{ needs.validate-release.outputs.version }}-linux-x64.zip
+            release-dist/pspore-desktop-${{ needs.validate-release.outputs.version }}-linux-x64.zip.sha256
+            release-dist/pspore-desktop-${{ needs.validate-release.outputs.version }}-linux-x64-overlay.zip
+            release-dist/pspore-desktop-${{ needs.validate-release.outputs.version }}-linux-x64-overlay.zip.sha256
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  package-arm64:
+    name: Build Kylin-compatible ARM64 release assets
+    needs: validate-release
+    uses: ./.github/workflows/package-arm64.yml
+    with:
+      expected_version: ${{ needs.validate-release.outputs.version }}
+      artifact_name: release-assets-arm64
+      retention_days: 1
+
+  publish-release:
+    name: Publish immutable dual-architecture Release
+    needs:
+      - validate-release
+      - package-x64
+      - package-arm64
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download x64 release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets-x64
+          path: release-dist
+
+      - name: Download ARM64 release assets
+        uses: actions/download-artifact@v8
+        with:
+          name: release-assets-arm64
+          path: release-dist
+
+      - name: Verify and publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ steps.version.outputs.version }}
-          FULL_ZIP: ${{ steps.version.outputs.full_zip }}
-          OVERLAY_ZIP: ${{ steps.version.outputs.overlay_zip }}
+          VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           set -euo pipefail
           TAG="v${VERSION}"
-          FULL_PATH="release-dist/${FULL_ZIP}"
-          OVERLAY_PATH="release-dist/${OVERLAY_ZIP}"
-          CLI_NAME="pspore-${VERSION}-linux-x64"
-          CLI_PATH="release-dist/${CLI_NAME}"
-          test -f "$CLI_PATH"
-          test -f "$CLI_PATH.sha256"
-          test -f "$FULL_PATH"
-          test -f "$FULL_PATH.sha256"
-          test -f "$OVERLAY_PATH"
-          test -f "$OVERLAY_PATH.sha256"
+          ASSETS=()
+          for ARCH in arm64 x64; do
+            CLI="pspore-${VERSION}-linux-${ARCH}"
+            FULL_ZIP="pspore-desktop-${VERSION}-linux-${ARCH}.zip"
+            OVERLAY_ZIP="pspore-desktop-${VERSION}-linux-${ARCH}-overlay.zip"
+            for FILE in "$CLI" "$CLI.sha256" "$FULL_ZIP" "$FULL_ZIP.sha256" "$OVERLAY_ZIP" "$OVERLAY_ZIP.sha256"; do
+              test -f "release-dist/${FILE}"
+            done
+            if [[ "$ARCH" == "arm64" ]]; then
+              CATEGORY="ARM64 / Kylin V10"
+            else
+              CATEGORY="x86_64"
+            fi
+            ASSETS+=(
+              "release-dist/${FULL_ZIP}#${CATEGORY} - Full desktop package"
+              "release-dist/${FULL_ZIP}.sha256#${CATEGORY} - Full desktop SHA-256"
+              "release-dist/${OVERLAY_ZIP}#${CATEGORY} - Overlay upgrade"
+              "release-dist/${OVERLAY_ZIP}.sha256#${CATEGORY} - Overlay SHA-256"
+              "release-dist/${CLI}#${CATEGORY} - Standalone CLI"
+              "release-dist/${CLI}.sha256#${CATEGORY} - CLI SHA-256"
+            )
+            (
+              cd release-dist
+              sha256sum --check "${CLI}.sha256"
+              sha256sum --check "${FULL_ZIP}.sha256"
+              sha256sum --check "${OVERLAY_ZIP}.sha256"
+            )
+          done
+          file "release-dist/pspore-${VERSION}-linux-x64" | grep -F "x86-64"
+          file "release-dist/pspore-${VERSION}-linux-arm64" | grep -F "ARM aarch64"
 
           NOTES="$(printf '%s\n' \
-            "Linux x86_64 desktop packages for pSpore ${TAG}." \
+            "Linux ARM64 and x86_64 desktop packages for pSpore ${TAG}. Assets are labeled by architecture below." \
             "" \
-            "### Full install" \
+            "### ARM64 / Kylin V10" \
             "" \
-            "\`${FULL_ZIP}\` contains the Electron runtime and a clickable \`创建桌面快捷方式.sh\`." \
+            "- Full install: \`pspore-desktop-${VERSION}-linux-arm64.zip\`" \
+            "- Overlay upgrade: \`pspore-desktop-${VERSION}-linux-arm64-overlay.zip\`" \
+            "- Standalone CLI: \`pspore-${VERSION}-linux-arm64\`" \
             "" \
-            "unzip ${FULL_ZIP}" \
-            "cd pspore-desktop-${VERSION}-linux-x64" \
-            "./创建桌面快捷方式.sh" \
+            "Built natively on AArch64 against an Ubuntu 20.04 / glibc 2.31 userspace baseline." \
             "" \
-            "### Overlay upgrade" \
+            "### x86_64" \
             "" \
-            "\`${OVERLAY_ZIP}\` contains the verified app payload but no Electron/Chromium runtime." \
-            "Extract it, then run \`./覆盖升级.sh /path/to/existing-install\`; incompatible runtimes are rejected before changes." \
+            "- Full install: \`pspore-desktop-${VERSION}-linux-x64.zip\`" \
+            "- Overlay upgrade: \`pspore-desktop-${VERSION}-linux-x64-overlay.zip\`" \
+            "- Standalone CLI: \`pspore-${VERSION}-linux-x64\`" \
             "" \
-            "Standalone CLI: ${CLI_NAME}; SHA-256 files are provided for all three packages." \
+            "### Install and upgrade" \
             "" \
-            "The npm CLI remains p-spore; these release assets are the Electron desktop client.")"
-
-          ASSETS=(
-            "$CLI_PATH"
-            "$CLI_PATH.sha256"
-            "$FULL_PATH"
-            "$FULL_PATH.sha256"
-            "$OVERLAY_PATH"
-            "$OVERLAY_PATH.sha256"
-          )
+            "For a full install, extract the matching full zip and run the included \`创建桌面快捷方式.sh\`." \
+            "The matching overlay zip contains the verified app payload but no Electron/Chromium runtime." \
+            "Extract it, then run \`./覆盖升级.sh /path/to/existing-install\`; incompatible Electron versions or architectures are rejected before changes." \
+            "" \
+            "A separately labeled SHA-256 file is provided for every asset." \
+            "The npm CLI remains p-spore; these Release assets include the Electron desktop client.")"
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Refusing to overwrite immutable GitHub Release ${TAG}; bump the SemVer version first."
             exit 1
           fi
-          echo "Creating immutable GitHub Release ${TAG}"
           RELEASE_FLAGS=()
           if [[ "$VERSION" == *-* ]]; then
             RELEASE_FLAGS+=(--prerelease)

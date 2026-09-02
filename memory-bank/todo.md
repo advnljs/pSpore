@@ -27,12 +27,12 @@
 | P5 | sandbox/vector/remote/mobile | Deferred | 不属于 v1 范围 | 只有明确需求和基准证据时重评 |
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
-| P2 | GitHub CI 自动构建 GUI zip 并上传 Release | Done | 无 | `main` 只跑 CI；匹配 package 的新 `v*` tag 构建 CLI、全量/overlay zip 并创建不可变 Release，拒绝覆盖历史版本 |
+| P2 | GitHub CI 自动构建双架构 GUI zip 并分类上传 Release | In Progress | 工作流本地实现完成，尚待 `main` CI、ARM CI 与新 tag Release 实跑验证 | 新 `v*` tag 等待原生 x64/ARM64 producer，校验两侧 CLI/全量/overlay 与 SHA-256 后创建不可变 Release；资产按 `ARM64 / Kylin V10`、`x86_64` 标签及说明章节分类；`main` 不创建 Release |
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
 | P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
 | P0 | 发布并远端复验新会话 JSONL/直接发送展示修复 `v0.1.11` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为 annotated tag `v0.1.11`，远端三份 SHA-256、SEA/包内 CLI、Electron runtime 与 overlay manifest 均通过 |
 | P1 | 在真实银河麒麟 V10 SP1 飞腾 FT-2000/4 上复验 ARM64 CI 全量包 | Pending | 当前只能在 ARM runner 的 glibc 2.31 容器模拟用户态，不能复现目标机 Linux 5.4 内核、GPU/桌面栈与 systemd 245 | CI 成功后下载 full zip 到目标机，核对 SHA-256，运行包内 version、创建快捷方式并实际启动 `1920×1080` GUI/用户服务 |
-| P2 | 消除 GitHub Actions Node 20 action runtime 弃用告警 | Todo | CI/Release 当前仍成功，官方 runner 将 `actions/{checkout,setup-node,cache}@v4` 强制运行在 Node 24 | 后续独立核对各 action 的官方新版并最小升级 workflow，不与本轮功能修复混做 |
+| P2 | 消除 GitHub Actions Node 20 action runtime 弃用告警 | Todo | Release/ARM workflow 已使用 Node 24 action 版本，`.github/workflows/ci.yml` 仍为 `actions/{checkout,setup-node}@v4` | 后续独立升级普通 CI workflow，不与发版修复混做 |
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |
 | P1 | 统一发送与排队消息直接发送 | Done | 无 | 普通发送由 Application 自动 prompt/follow-up；每条队列项只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |

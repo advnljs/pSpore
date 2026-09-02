@@ -12,8 +12,8 @@ usage() {
   cat <<EOF
 Usage: $0 <version> [--prerelease]
 
-Builds the complete Linux x86_64 release, creates an immutable version tag,
-and pushes it. The tag-triggered GitHub Actions workflow publishes the assets.
+Builds and validates the Linux x86_64 release candidate, creates an immutable
+version tag, and pushes it. GitHub Actions then publishes x64 and ARM64 assets.
 
 Examples:
   $0 0.1.0
@@ -112,5 +112,5 @@ fi
 echo "--- Tagging ${TAG}"
 git tag -a "$TAG" -m "Release ${TAG}"
 git push origin "$TAG"
-echo "==> Tag ${TAG} pushed. GitHub Actions is building the immutable Release assets."
+echo "==> Tag ${TAG} pushed. GitHub Actions is building immutable x64 and ARM64 Release assets."
 echo "    Track: gh run list --workflow 'Release desktop' --branch ${TAG}"
