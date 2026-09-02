@@ -107,6 +107,12 @@ jobs:
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
             npm ci
+          runuser -u pspore-builder -- env \
+            HOME=/home/pspore-builder \
+            PATH="$PATH" \
+            npm_config_cache=/home/pspore-builder/.npm \
+            ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
+            node node_modules/electron/install.js
           test -d node_modules/@earendil-works/pi-coding-agent/node_modules/@mariozechner/clipboard-linux-arm64-gnu
           file node_modules/electron/dist/electron | grep -F "ARM aarch64"
           chown root:root node_modules/electron/dist/chrome-sandbox

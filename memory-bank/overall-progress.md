@@ -675,3 +675,12 @@
   - 最终 `npm run package:desktop` x64 兼容回归通过；三份 `sha256sum -c` 成功，SEA 为 `pSpore 0.1.11 / Node 24.19.0`，包内 Electron 为 `43.3.0/linux/x64`，overlay manifest 为 `0.1.11 / 43.3.0 / linux/x64`。全量 zip 149 MiB、overlay 29 MiB、SEA 140 MiB，均在被 Git 忽略的 `release-dist/`。
 - 当前状态：本地实现、检查和既有 x64 打包回归完成；ARM64 workflow 尚待本阶段提交推送 `main` 后在 GitHub 原生 ARM runner 上执行，当前不提前声称远端 ARM 产物成功。
 - 遗留问题：CI 用户态不能复现目标机 Linux 5.4 内核、真实 GPU/桌面栈与 systemd 245；远端 ARM job 成功后仍需在实际银河麒麟设备下载安装、快捷方式、GUI 与用户服务复验，已登记 `todo.md`。
+
+## 2026-09-02 11:16 CST — 修复 ARM CI 的 Electron 43 显式安装
+
+- 阶段目标：定位并修复 `Package Linux ARM64` 在原生 ARM runner 上安装依赖后退出的问题。
+- 完成内容：通过 GitHub Actions 失败日志确认 job 已进入 Ubuntu 20.04/glibc 2.31 ARM 容器且 `npm ci` 成功；Electron 43.3.0 npm 包不再声明自动 install script，因此补充以非 root 构建用户显式执行 `node node_modules/electron/install.js`，下载并校验同架构 Electron runtime。静态契约同步约束该步骤，避免后续误删。
+- 修改文件：`.github/workflows/package-arm64.yml`、`test/unit/version.test.ts`、`memory-bank/overall-progress.md`。
+- 验证方式与结果：失败 run `33585464052` 的日志已读取并定位到 `Install native ARM64 dependencies`；本地确认 Electron 43.3.0 包含 `install.js` 但 package metadata 没有自动安装脚本，显式安装后得到可执行的 `43.3.0/linux/x64` runtime。`actionlint 1.7.12`、针对性 3/3 测试、`npm run check`（142/142）及 committed `dist` 一致性校验均通过。
+- 当前状态：根因修复已完成本地验证，待提交推送并观察新 ARM run。
+- 遗留问题：远端原生 ARM64 job 尚未复跑通过；通过前不创建正式 Release tag。
