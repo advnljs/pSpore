@@ -28,7 +28,8 @@
 | P4 | Electron 43 桌面客户端 | Done | 无 | 已完成安全 main/preload/renderer、AppImage 自启/复用 Daemon、响应式双主题、LLM 设置与 1920×1080/1440×900/1180×720 验收；未实现 Tauri/mobile |
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建双架构 GUI zip 并分类上传 Release | Done | 无；`v0.1.12` 全链与 12 项远端资产已验证 | 后续新 `v*` tag 继续等待原生 x64/ARM64 producer，校验两侧 CLI/全量/overlay 与 SHA-256 后创建不可变 Release；资产按 `ARM64 / Kylin V10`、`x86_64` 标签及说明章节分类；`main` 不创建 Release |
-| P0 | 发布并远端复验 GUI 拖拽路径引用 `v0.1.13` | In Progress | 本地实现、146/146 测试、Electron 真实拖拽 smoke 与 x64 发行候选已通过；尚未推送本轮提交 | 推送 `main`，等待普通 CI 与 ARM64 preview 成功后创建 annotated tag；再等待 Release 四段工作流并下载 12 项资产复验 |
+| P0 | 发布并远端复验 GUI 拖拽路径引用 `v0.1.13` | Done | 无；`main` CI、ARM64 preview、Release 四段工作流与 12 项远端资产均已验证 | 后续用户可从不可变 `v0.1.13` Release 按架构下载全量包或 overlay；历史资产不得覆盖 |
+| P2 | 复核锁定依赖的 npm audit 告警 | Pending | `scripts/release.sh` 的默认 audit 报告 1 moderate/1 high；本轮未新增依赖，`npm audit --omit=dev` 在当前 registry 请求未及时返回 | 后续单独取得 production-only advisory/依赖路径，评估兼容修复；不得在无验证时直接 `npm audit fix` 或混入功能提交 |
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
 | P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
 | P0 | 发布并远端复验新会话 JSONL/直接发送展示修复 `v0.1.11` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为 annotated tag `v0.1.11`，远端三份 SHA-256、SEA/包内 CLI、Electron runtime 与 overlay manifest 均通过 |

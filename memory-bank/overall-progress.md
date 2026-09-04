@@ -757,3 +757,12 @@
 - 发行候选：本地 x64 SEA、全量 zip、overlay zip 与可运行解包目录已生成；三份 SHA-256 均通过。SEA 为 x86-64 ELF、`0.1.13 / Node 24.19.0`；桌面 runtime 为 `Electron 43.3.0 / Node 24.18.1 / x64`；overlay manifest 为 `0.1.13 / Electron 43.3.0 / linux / x64`。CLI/full/overlay digest 分别为 `eba6d376…3e08`、`fdd19c66…9baa`、`946e9526…edfa`。
 - 当前状态：功能、文档、本地构建、实机拖拽视觉验收和 x64 发行候选均完成；下一阶段提交并推送 `main`，等待普通 CI 与 ARM64 CI 通过后创建 annotated `v0.1.13` tag。
 - 遗留问题：远端双架构 Release 尚未执行；当前容器没有 `xvfb-run` 和系统 Electron 运行库，本地 smoke 通过已有 DISPLAY 与仅对测试进程生效的临时解包运行库完成，未修改系统依赖。隔离 smoke 在验收后正常退出，当前未保持长期 GUI 服务。
+
+## 2026-09-04 11:03 CST — `v0.1.13` GUI 拖拽路径引用 Release 完成
+
+- 阶段目标：把已通过本地验证的 GUI 文件/目录拖拽路径引用作为不可变双架构版本发布，并独立复核远端产物。
+- 完成内容：commit `6b97f2e` 已推送 `main`；普通 CI run `33830207814` 和 ARM64 preview run `33830207836` 均成功，后者包含 glibc 2.31 原生 ARM64 的 146 项检查、`1920×1080` Electron 真实拖拽 smoke、打包与 checksum。标准 `scripts/release.sh 0.1.13` 二次完成 `npm ci`、146/146、build 和 x64 全套打包，随后创建并推送 annotated `v0.1.13`（tag object `bce0399…db092`，peeled commit `6b97f2e…a6924`）。Release workflow `33830862920` 的 tag 校验、x64 producer、Kylin-compatible ARM64 producer、最终发布四个 job 全部成功。
+- 远端验证：GitHub Release 为非 draft、非 prerelease，共 12 项资产，全部具有 `ARM64 / Kylin V10` 或 `x86_64` display label，正文含双架构章节。从 Release 下载全部资产后，六份 `sha256sum --check` 与四个 zip CRC 均通过。ARM64/x64 SEA 和包内 Electron 均为对应 AArch64/x86-64 ELF，interpreter 分别为 `/lib/ld-linux-aarch64.so.1`、`/lib64/ld-linux-x86-64.so.2`；x64 SEA 为 `0.1.13 / Node 24.19.0`，远端全量包为 `0.1.13 / Electron 43.3.0 / Node 24.18.1 / x64`。两个 overlay manifest 均为 `0.1.13 / Electron 43.3.0 / linux / 对应架构`，payload digest 相同为 `736f9d6d…78eac`。
+- 远端摘要：ARM CLI/full/overlay SHA-256 分别为 `5bf4a126…fb2f`、`81ccae7a…7fff`、`635b78ab…60a`；x64 分别为 `8b67c1f5…9e67a`、`6a25c965…1381`、`45dc535f…6ece`。
+- 当前状态：`v0.1.13` 已完整发布并验证，地址为 `https://github.com/advnljs/pSpore/releases/tag/v0.1.13`；本地 `release-dist/` 保持最新 `0.1.13` x64 可执行目录与六项发行文件且三份 checksum 再次通过。
+- 遗留问题：本轮没有新增生产依赖；发布脚本的默认 `npm audit` 报告锁定依赖中 1 moderate/1 high，生产依赖专项 audit 请求在当前 registry 响应超时，已记录到 `todo.md` 后续独立复核，不在本功能中自动升级依赖。真实银河麒麟设备专项复验仍沿用既有待办。
