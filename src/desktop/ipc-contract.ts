@@ -94,6 +94,8 @@ export interface DesktopApi {
   dispatch(command: DesktopCommand): Promise<unknown>;
   getSettings(): Promise<DesktopLlmSettings>;
   saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;
+  /** Resolve only an operating-system-backed File supplied by a user drag. */
+  getPathForFile(file: unknown): string;
   subscribe(listener: (frame: DesktopFrame) => void): () => void;
 }
 

@@ -39,6 +39,7 @@
 | `src/ui/shared/markdown.ts` | 共享纯 Markdown 解析器（CommonMark/GFM 子集），无 DOM 依赖、可单测 |
 | `src/ui/shared/virtual-list.ts` | GUI 变高虚拟历史的 Fenwick 索引，以及“接近底部”尾随状态判定 |
 | `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制与惰性链接 |
+| `src/desktop/renderer/composer-file-references.ts` | GUI 拖入文件/目录的绝对路径校验、去重上限、展示名称与 path-only `@` 引用序列化 |
 | `src/ui/tui/` | Pi TUI 客户端、wizard/命令配置、动态工作步骤、`/work`、160×45 双栏与 96×30 单栏 renderer |
 | `src/desktop/renderer/styles.css` | 桌面 design token 与组件样式唯一来源（spore print 双主题、语义色、字号下限） |
 | `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
@@ -49,7 +50,7 @@
 | `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内快捷方式安装器：生成稳定 XDG launcher、Desktop Entry 与私有启动日志 |
 | `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，自检后替换应用资源、保留回滚并重启匹配服务 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
-| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、设置与字号自动验收 |
+| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收 |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |
 | `.gitignore` | 环境文件、私钥、`release-dist/` 与本地 pSpore 数据排除；`dist/` 已不再忽略 |

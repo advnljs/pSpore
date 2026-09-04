@@ -25,6 +25,7 @@ test("Electron window security baseline is fail-closed", () => {
   assert.equal(options.webPreferences?.webSecurity, true);
   assert.equal(options.webPreferences?.allowRunningInsecureContent, false);
   assert.equal(options.webPreferences?.webviewTag, false);
+  assert.equal(options.webPreferences?.navigateOnDragDrop, false);
 });
 
 test("the initial window never asks for more content space than the desktop offers", () => {
@@ -59,6 +60,7 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.match(preload, /pspore:desktop:frame/);
   assert.match(preload, /pspore:desktop:settings:get/);
   assert.match(preload, /pspore:desktop:settings:save/);
+  assert.match(preload, /webUtils\.getPathForFile\(file\)/);
   assert.doesNotMatch(preload, /ipcRenderer\.send\s*\(/);
   assert.doesNotMatch(preload, /shell\.|remote\.|webFrame/);
   assert.match(html, new RegExp(escapeRegExp(DESKTOP_CSP)));
@@ -66,6 +68,9 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.doesNotMatch(html, /id="composer-mode"|>Steer<|>Follow-up</);
   assert.match(html, /id="new-session-button"/);
   assert.match(html, /id="message-queue"/);
+  assert.match(html, /id="composer-drop-overlay"/);
+  assert.match(html, /id="composer-references"/);
+  assert.match(html, /仅记录文件或目录路径，不读取、不上传内容/);
   assert.match(html, /继续排队/);
   assert.match(html, /id="settings-auto-compaction"/);
   assert.match(html, /id="settings-compaction-reserve"/);

@@ -21,7 +21,7 @@
 - `CommandEnvelope<v1>` / `EventEnvelope<v1>`
 - snapshot/replay/ack/auth handshake
 - session create/auto-prompt/queue-send-now/abort/compact、approval、agent/job commands
-- Electron renderer 固定 `bootstrap/dispatch/subscribe` preload API；`DesktopCommand` 在 main process 严格解码并映射到既有 UDS command。
+- Electron renderer 固定 `bootstrap/dispatch/getSettings/saveSettings/getPathForFile/subscribe` preload API；`DesktopCommand` 在 main process 严格解码并映射到既有 UDS command。`getPathForFile` 不是 IPC command，只把用户真实拖入的 Chromium `File` 交给 Electron `webUtils` 取绝对路径，不读取内容或接受任意路径字符串。
 
 ## 内部依赖
 

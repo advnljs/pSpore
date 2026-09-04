@@ -24,6 +24,14 @@ import type {
   DesktopLlmSettingsUpdate,
   DesktopVersions,
 } from "../ipc-contract.js";
+import {
+  composeMessageWithFileReferences,
+  composerFileReference,
+  composerFileReferenceName,
+  mergeComposerFileReferences,
+  type ComposerFileReference,
+  type ComposerFileReferenceKind,
+} from "./composer-file-references.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import {
   animateMessagesIn,
@@ -52,6 +60,7 @@ let introPlayed = false;
 let lastConnectionPhase = "";
 let renderFrame: number | undefined;
 let transcriptRenderFrame: number | undefined;
+let composerFileReferences: ComposerFileReference[] = [];
 
 interface TranscriptRenderState {
   sessionId: string;
@@ -131,6 +140,8 @@ const elements = {
   messageQueue: byId<HTMLElement>("message-queue"),
   composerForm: byId<HTMLFormElement>("composer-form"),
   composerInput: byId<HTMLTextAreaElement>("composer-input"),
+  composerDropOverlay: byId<HTMLElement>("composer-drop-overlay"),
+  composerReferences: byId<HTMLElement>("composer-references"),
   compact: byId<HTMLButtonElement>("compact-button"),
   abort: byId<HTMLButtonElement>("abort-button"),
   send: byId<HTMLButtonElement>("send-button"),
@@ -283,6 +294,7 @@ function bindStaticActions(): void {
     event.preventDefault();
     elements.composerForm.requestSubmit();
   });
+  bindComposerFileDrop();
   elements.transcript.addEventListener("scroll", handleTranscriptScroll, { passive: true });
   elements.spawnForm.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -332,6 +344,109 @@ function bindStaticActions(): void {
     }
     trapDialogFocus(event, elements.approvalOverlay);
   });
+}
+
+function bindComposerFileDrop(): void {
+  elements.composerForm.addEventListener("dragenter", (event) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    setComposerDropActive(true);
+  });
+  elements.composerForm.addEventListener("dragover", (event) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    setComposerDropActive(true);
+  });
+  elements.composerForm.addEventListener("dragleave", (event) => {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && elements.composerForm.contains(nextTarget)) return;
+    setComposerDropActive(false);
+  });
+  elements.composerForm.addEventListener("drop", (event) => {
+    if (!hasDraggedFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setComposerDropActive(false);
+    const incoming = droppedComposerFileReferences(event.dataTransfer);
+    const merged = mergeComposerFileReferences(composerFileReferences, incoming);
+    composerFileReferences = merged.references;
+    renderComposerFileReferences();
+    if (merged.added > 0) {
+      const ignored = merged.skipped > 0 ? `；另有 ${merged.skipped} 个重复引用或超出上限` : "";
+      store.setNotice(`已添加 ${merged.added} 个文件/目录引用，仅会发送路径${ignored}`);
+    } else {
+      store.setNotice(incoming.length > 0 ? "这些路径已经引用，未重复添加" : "未能从拖入项获取本地文件或目录路径");
+    }
+    render();
+    elements.composerInput.focus();
+  });
+  window.addEventListener("dragend", () => setComposerDropActive(false));
+}
+
+function hasDraggedFiles(transfer: DataTransfer | null): boolean {
+  if (!transfer) return false;
+  return Array.from(transfer.types).includes("Files") || Array.from(transfer.items).some((item) => item.kind === "file");
+}
+
+function setComposerDropActive(active: boolean): void {
+  elements.composerForm.dataset["dropActive"] = String(active);
+  elements.composerDropOverlay.hidden = !active;
+}
+
+function droppedComposerFileReferences(transfer: DataTransfer | null): ComposerFileReference[] {
+  if (!transfer) return [];
+  const references = new Map<string, ComposerFileReference>();
+  const add = (file: File | null, kind: ComposerFileReferenceKind): void => {
+    if (!file) return;
+    try {
+      const reference = composerFileReference(window.pspore.getPathForFile(file), kind);
+      if (reference && !references.has(reference.path)) references.set(reference.path, reference);
+    } catch {
+      // Browser-created Files have no operating-system path and are not valid references.
+    }
+  };
+
+  for (const item of Array.from(transfer.items)) {
+    if (item.kind !== "file") continue;
+    let kind: ComposerFileReferenceKind = "file";
+    try {
+      if (item.webkitGetAsEntry()?.isDirectory) kind = "directory";
+    } catch {
+      // The path remains usable even when Chromium cannot expose entry metadata.
+    }
+    add(item.getAsFile(), kind);
+  }
+  for (const file of Array.from(transfer.files)) add(file, "file");
+  return [...references.values()];
+}
+
+function renderComposerFileReferences(): void {
+  const nodes = composerFileReferences.map((reference) => {
+    const item = element("div", "composer-reference");
+    item.setAttribute("role", "listitem");
+    item.setAttribute("aria-label", `${reference.kind === "directory" ? "目录" : "文件"} ${reference.path}`);
+    item.dataset["kind"] = reference.kind;
+    const kind = element("span", "composer-reference-kind");
+    kind.textContent = reference.kind === "directory" ? "目录" : "文件";
+    const path = element("span", "composer-reference-path");
+    path.textContent = composerFileReferenceName(reference.path);
+    path.title = reference.path;
+    const remove = element("button", "composer-reference-remove") as HTMLButtonElement;
+    remove.type = "button";
+    remove.textContent = "×";
+    remove.title = "移除引用";
+    remove.setAttribute("aria-label", `移除引用 ${composerFileReferenceName(reference.path)}`);
+    remove.addEventListener("click", () => {
+      composerFileReferences = composerFileReferences.filter((candidate) => candidate.path !== reference.path);
+      renderComposerFileReferences();
+      elements.composerInput.focus();
+    });
+    item.append(kind, path, remove);
+    return item;
+  });
+  elements.composerReferences.replaceChildren(...nodes);
+  elements.composerReferences.hidden = nodes.length === 0;
 }
 
 function syncResponsivePanels(force: boolean): void {
@@ -516,7 +631,14 @@ function trapDialogFocus(event: KeyboardEvent, container: HTMLElement): void {
 }
 
 async function submitComposer(): Promise<void> {
-  const text = elements.composerInput.value.trim();
+  let text: string;
+  try {
+    text = composeMessageWithFileReferences(elements.composerInput.value, composerFileReferences);
+  } catch (error) {
+    store.setNotice(toError(error).message);
+    render();
+    return;
+  }
   if (!text) return;
   nudgeElement(elements.send);
   const snapshot = store.snapshot();
@@ -539,6 +661,8 @@ async function submitComposer(): Promise<void> {
   }
   await perform(`发送到 ${intent.target === "agent" ? intent.agentId : shortId(intent.sessionId)}`, command, () => {
     elements.composerInput.value = "";
+    composerFileReferences = [];
+    renderComposerFileReferences();
     elements.composerInput.focus();
   });
 }

@@ -1,6 +1,6 @@
 "use strict";
 
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 const BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
 const DISPATCH_CHANNEL = "pspore:desktop:dispatch";
@@ -20,6 +20,9 @@ const api = Object.freeze({
   },
   saveSettings(settings) {
     return ipcRenderer.invoke(SETTINGS_SAVE_CHANNEL, settings);
+  },
+  getPathForFile(file) {
+    return webUtils.getPathForFile(file);
   },
   subscribe(listener) {
     if (typeof listener !== "function") throw new TypeError("pSpore frame listener must be a function");

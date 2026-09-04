@@ -9,7 +9,7 @@
 - CLI：`node dist/cli/main.js desktop`
 - npm：`npm run desktop`
 - Electron main：`src/desktop/main.ts`
-- renderer：`src/desktop/renderer/index.html`、`renderer.ts`、`store.ts`、`styles.css`
+- renderer：`src/desktop/renderer/index.html`、`renderer.ts`、`composer-file-references.ts`、`store.ts`、`styles.css`
 - preload：`src/desktop/preload.cjs`
 
 ## 关键文件
@@ -22,6 +22,7 @@
 - `src/ui/shared/virtual-list.ts`：GUI 变高历史窗口索引；Fenwick tree 提供 `O(log n)` 视口定位与测量更新，`isScrollNearEnd` 统一判定是否恢复尾部跟随。
 - `validation.ts`：snapshot/event/result 的结构、类型、深度、节点和 string 上限。
 - `src/ui/shared/activity.ts`：与 TUI 共享的 cowork 活动归一、工具事件合并、语义摘要、结果/耗时与脱敏详情。
+- `src/desktop/renderer/composer-file-references.ts`：拖入路径校验、去重/数量限制、短名称展示与路径引用消息序列化；不访问文件内容。
 - `security.ts`：BrowserWindow security flags、严格 CSP 与 exact local navigation 检查。
 - `smoke-fixture.ts`：只由显式 `--smoke-fixture` 使用的长内容、agent、run、MCP/resource 和审批视觉状态。
 - `scripts/copy-desktop-assets.mjs`：构建时复制 CJS preload、HTML 与 CSS。
@@ -35,6 +36,7 @@ preload 仅暴露：
 - `dispatch(command)`：发送严格 allowlisted action；不接受 channel 名或协议 type。
 - `getSettings()`：只返回模型设置和 `hasApiKey` / `hasCookie` 布尔状态，不返回 secret。
 - `saveSettings(settings)`：发送严格解码的模型设置；owned Daemon 自动重启应用，external Daemon 只保存并提示用户重启。
+- `getPathForFile(file)`：仅调用 Electron `webUtils.getPathForFile` 解析用户从操作系统拖入的 `File`；不接受路径字符串、不读取文件或目录。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
 
 支持根 session create/auto-prompt/queue-send-now/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。所有 session 动作携带 renderer 当前选中的严格 sessionId；resource IPC 只接受单层 staging name，renderer 不能提交任意绝对路径。
@@ -66,6 +68,7 @@ preload 仅暴露：
 - renderer 通过语义色变量提供持久化深色/浅色主题，默认浅色（白天模式），localStorage 键 `pspore.desktop.theme` 可覆盖；正文/消息/输入分别不低于 `15/15.5/15px`，设置字段不低于 `14px`，辅助标签不低于 `11.5px`。
 - 视觉语言为 "cobalt paper"（2026-08-22 重构，替代旧 "spore print"）：浅色为默认主题——冷白纸面 `#f4f7fb` + 白面板 + 深藏青墨字 `#16243d`，主强调色是钴蓝 `#2563eb`（仅用于主按钮、焦点环、选中态、链接、用户消息）；深色是去饱和板岩藏青 `#0b1119` 底 + 分层表面 + 发丝级边框，单一克制蓝 `#5f8dff`，无渐变光晕（避免廉价感/广告感）。语义色：`--live` 存活/成功、`--honey` 等待与审批告警、`--rust` 失败、`--lichen` 用户消息。标识符（session id、会话标题、指标、状态、代码）统一用 mono，人类语句用 sans。topbar 无卡片化（透明浮于 canvas），panel 用发丝边框替代重阴影。
 - composer 键盘行为：Enter 直接发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 插入换行；`event.isComposing` 时忽略（中文输入法合成回车不发送）。发送按钮 kbd 提示为 `↵`。
+- composer 拖拽行为：文件/目录 drop 只加入最多 32 个按绝对路径去重的可移除引用，保留现有文字且不触发 submit；目录不递归展开，renderer 不读取/复制/上传内容。发送时把引用追加为带 JSON 引号的绝对 `@` path token，成功后清空、失败时保留。
 - 动效由 GSAP 3.15 驱动（`src/desktop/renderer/motion.ts` 封装）：应用入场编排（topbar/三栏 stagger expo.out）、会话切换消息 stagger 入场、新消息单条滑入（流式 delta 不重复触发）、设置/审批弹层出入场（含退出动画后置 `hidden` 与状态守卫防竞态）、连接徽章状态切换弹性脉冲、发送按钮按压微动效。所有动效在 `prefers-reduced-motion: reduce` 或引擎缺失时立即降级为直接显示。
 - GSAP 以 UMD 构建 vendored 进产品：`node_modules/gsap/dist/gsap.min.js` 由 `scripts/copy-desktop-assets.mjs` 复制到 `dist/desktop/renderer/vendor/gsap.min.js`，index.html 以 classic script 加载（CSP `script-src 'self'` 允许同源）；renderer 通过 `import type { gsap } from "gsap"` 取类型、运行时读 `window.gsap`，不引入 bundler。安全测试 `desktop-security.test.ts` 已显式放行且仅放行 `./vendor/gsap.min.js` 与 `./renderer.js` 两个本地脚本路径，内联与其它 src 仍被拒绝。
 - 会话正文测量宽度固定 `820px`，长代码块在自身容器内横向滚动；消息 meta 用 mono 小写标签加细线分隔；左栏用缩进 + `└` 型连接线呈现 agent 树（`--session-depth`），右侧标记显示会话状态。
@@ -77,7 +80,7 @@ preload 仅暴露：
 - 布局为 conversation-first：左侧会话常驻，右侧 activity/automation/integration/resource 共用一个按需检查器；`<=1320px` 使用覆盖抽屉，不压缩主会话，未实现 mobile layout。
 - Provider 下拉精确提供 DeepSeek、OpenAI、自定义 OpenAI。只有自定义 OpenAI 开放 Base URL 和 Chat/Responses 选择，预设 Provider 使用固定默认 endpoint/API。
 - API Key 与 Cookie 保存到 `credentials/<provider>.api-key` 与 `<provider>.cookie` 且 mode `0600`；`models.json` 只存私有文件读取引用，Cookie 写入 `headers.Cookie`。renderer 始终只看见 `hasApiKey` / `hasCookie`。
-- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，并实测上滚后静置不回底、streaming delta 不抢位置、回到底部后新消息恢复尾随。工具完成 frame 发出前即断言“直接发送消息”队列可见，并确认 follow-up 可并存。报告同时覆盖 thinking/正文分区及完成后隐藏、旧三模式 composer 不存在、外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
+- smoke 使用 2048×1200 Xvfb screen 承载 `1920×1080` 主视口，并补测 `1440×900`、`1180×720`；1007 条历史 fixture 断言实际 message DOM 少于 40，并实测上滚后静置不回底、streaming delta 不抢位置、回到底部后新消息恢复尾随。CDP 真实拖入一个文件和一个目录，断言 active overlay、两个路径引用、草稿保留且 submit 次数为零。工具完成 frame 发出前即断言“直接发送消息”队列可见，并确认 follow-up 可并存。报告同时覆盖 thinking/正文分区及完成后隐藏、旧三模式 composer 不存在、外部/拥有 Daemon、双主题、compact 设置、计算后字号、响应式收纳、overflow、焦点、隔离、重连与 IPC allowlist。虚拟 transcript 固定 `scroll-behavior:auto`：平滑滚动会让 1000+ 条历史的自动尾随在采样时仍停在中段，导致 streaming 尾消息不可见。
 - GitHub GUI 发行产物使用全量 `pspore-desktop-<version>-linux-x64.zip`（含可点击的 `创建桌面快捷方式.sh`）与 overlay `pspore-desktop-<version>-linux-x64-overlay.zip`（完整应用 payload，不含 Electron/Chromium）；版本与 npm/package 对齐。快捷方式先安装 `XDG_DATA_HOME/pspore/bin/pspore-desktop-launcher`，安装路径单独保存并将 stdout/stderr 追加到 `XDG_STATE_HOME/pspore/desktop-launcher.log`，Desktop Entry 不再写错误的带引号 `Path`。
 - overlay 携带 `overlay-manifest.json`、`payload/resources/{app.asar,app.asar.unpacked,app-update.yml}` 与 updater；只接受 manifest 中 Electron 精确版本和 Linux `x64|arm64` 架构匹配的完整安装，使用目标 Electron-as-Node 计算目录 SHA-256、执行升级前后 CLI 自检、保留 `.pspore-backup-*`，并重启 ExecStart 指向同一安装目录的 pSpore systemd user unit。
 - 打包入口是 `npm run package:desktop`（当前原生架构）或 `scripts/package-desktop.sh <version> <x64|arm64>`；SEA 必须复制同架构 Node，跨架构请求会在下载/写产物前拒绝。脚本会生成 CLI、全量 zip、overlay zip 及三份 SHA-256。`Package Linux ARM64` 使用 ARM runner + glibc 2.31 容器执行完整检查、PC Electron smoke、ELF/运行时验证；`main`/手动运行上传 14 天预览 artifact，正式 tag workflow 把它作为 ARM release producer，与 x64 producer 都成功后统一创建不可变双架构 Release。12 项资产按 `ARM64 / Kylin V10` 与 `x86_64` display label 分类，Release notes 同步提供两个架构章节。

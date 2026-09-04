@@ -268,6 +268,13 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     if (fixture)
         await waitForRenderer(target, "Boolean(document.querySelector('.message.streaming'))", 5_000);
     await setRendererTheme(target, "dark");
+    let fileDrop;
+    let fileDropSize;
+    if (fixture) {
+        const result = await exerciseComposerFileDrop(target, outputDirectory);
+        fileDrop = result.probe;
+        fileDropSize = result.imageSize;
+    }
     await settlePaint();
     const mainVisual = await target.webContents.executeJavaScript(`(() => {
     const transcript = document.querySelector('#transcript');
@@ -485,6 +492,7 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
             settings: settingsImage.getSize(),
             medium: mediumImage.getSize(),
             compact: compactImage.getSize(),
+            ...(fileDropSize ? { fileDrop: fileDropSize } : {}),
             ...(approvalSize ? { approval: approvalSize } : {}),
         },
         themes: { dark: darkTheme, light: lightTheme },
@@ -492,6 +500,7 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         mainVisual,
         responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
         settings: settingsProbe,
+        ...(fileDrop ? { fileDrop } : {}),
         probe,
         ipcProbe,
     };
@@ -554,7 +563,7 @@ function assertSmokeReport(report, fixture) {
         if (report.probe.globals[global] !== "undefined")
             failures.push(`renderer exposes ${global}`);
     }
-    if (report.probe.apiKeys.join(",") !== "bootstrap,dispatch,getSettings,saveSettings,subscribe")
+    if (report.probe.apiKeys.join(",") !== "bootstrap,dispatch,getPathForFile,getSettings,saveSettings,subscribe")
         failures.push("preload API surface changed");
     if (!report.ipcProbe.jobsArray)
         failures.push("allowlisted IPC round trip failed");
@@ -604,6 +613,16 @@ function assertSmokeReport(report, fixture) {
     if (!report.responsive.compactInspector.inspectorVisible)
         failures.push("compact inspector drawer did not open");
     if (fixture) {
+        if (report.images.fileDrop?.width !== 1_920 || report.images.fileDrop.height !== 1_080)
+            failures.push("file-drop capture is not 1920x1080");
+        if (!report.fileDrop?.activeIndicatorVisible)
+            failures.push("file-drop target did not show its active state");
+        if (!report.fileDrop?.inputPreserved || !report.fileDrop.notSubmitted || !report.fileDrop.overlayHiddenAfterDrop)
+            failures.push("file drop submitted or replaced the composer draft");
+        if (report.fileDrop?.referenceCount !== 2 || report.fileDrop.referencedPaths.length !== 2)
+            failures.push("file and directory paths were not added as two references");
+        if (report.fileDrop?.referencedKinds.slice().sort().join(",") !== "directory,file")
+            failures.push("file drop did not preserve file/directory reference kinds");
         if (report.images.approval?.width !== 1_920 || report.images.approval.height !== 1_080)
             failures.push("approval capture is not 1920x1080");
         if (!report.mainVisual.transcriptScrollable || !report.probe.document.transcriptScrollable)
@@ -649,6 +668,72 @@ function assertSmokeReport(report, fixture) {
     }
     if (failures.length > 0)
         throw new Error(`Electron smoke validation failed: ${failures.join("; ")}`);
+}
+async function exerciseComposerFileDrop(target, outputDirectory) {
+    const fixtureRoot = join(outputDirectory, "file-drop-fixture");
+    const filePath = join(fixtureRoot, "dragged file.txt");
+    const directoryPath = join(fixtureRoot, "dragged folder");
+    await mkdir(directoryPath, { recursive: true, mode: 0o700 });
+    await writeFile(filePath, "The renderer must not read this file during drop.\n", { encoding: "utf8", mode: 0o600 });
+    await target.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('#composer-input');
+    const form = document.querySelector('#composer-form');
+    if (input) input.value = '请检查拖入的上下文';
+    if (form) {
+      form.dataset.smokeSubmitCount = '0';
+      form.addEventListener('submit', () => {
+        form.dataset.smokeSubmitCount = String(Number(form.dataset.smokeSubmitCount || '0') + 1);
+      });
+    }
+  })()`);
+    const point = await target.webContents.executeJavaScript(`(() => {
+    const rect = document.querySelector('#composer-form')?.getBoundingClientRect();
+    if (!rect) throw new Error('Missing composer drop target');
+    return { x: rect.left + rect.width / 2, y: rect.top + Math.min(rect.height / 2, 56) };
+  })()`);
+    const dragData = {
+        items: [{
+                mimeType: "text/uri-list",
+                data: `${pathToFileURL(filePath).href}\r\n${pathToFileURL(directoryPath).href}`,
+            }],
+        files: [filePath, directoryPath],
+        dragOperationsMask: 1,
+    };
+    const debugging = target.webContents.debugger;
+    const attachedHere = !debugging.isAttached();
+    let dropped = false;
+    try {
+        if (attachedHere)
+            debugging.attach("1.3");
+        await debugging.sendCommand("Input.dispatchDragEvent", { type: "dragEnter", ...point, data: dragData });
+        await debugging.sendCommand("Input.dispatchDragEvent", { type: "dragOver", ...point, data: dragData });
+        await waitForRenderer(target, "document.querySelector('#composer-form')?.dataset.dropActive === 'true'", 2_000);
+        await settlePaint();
+        const activeIndicatorVisible = await target.webContents.executeJavaScript("document.querySelector('#composer-drop-overlay')?.hidden === false");
+        const image = await target.webContents.capturePage();
+        await writeFile(join(outputDirectory, "desktop-file-drop-1920x1080.png"), image.toPNG(), { mode: 0o600 });
+        await debugging.sendCommand("Input.dispatchDragEvent", { type: "drop", ...point, data: dragData });
+        dropped = true;
+        await waitForRenderer(target, "document.querySelectorAll('#composer-references .composer-reference').length === 2", 2_000);
+        await settlePaint();
+        const probe = await target.webContents.executeJavaScript(`(() => ({
+      activeIndicatorVisible: ${Boolean(activeIndicatorVisible)},
+      inputPreserved: document.querySelector('#composer-input')?.value === '请检查拖入的上下文',
+      notSubmitted: document.querySelector('#composer-form')?.dataset.smokeSubmitCount === '0',
+      overlayHiddenAfterDrop: document.querySelector('#composer-drop-overlay')?.hidden === true,
+      referenceCount: document.querySelectorAll('#composer-references .composer-reference').length,
+      referencedPaths: Array.from(document.querySelectorAll('#composer-references .composer-reference-path')).map((node) => node.title),
+      referencedKinds: Array.from(document.querySelectorAll('#composer-references .composer-reference')).map((node) => node.dataset.kind || '')
+    }))()`);
+        return { probe, imageSize: image.getSize() };
+    }
+    finally {
+        if (!dropped && debugging.isAttached()) {
+            await debugging.sendCommand("Input.dispatchDragEvent", { type: "dragCancel", ...point, data: dragData }).catch(() => undefined);
+        }
+        if (attachedHere && debugging.isAttached())
+            debugging.detach();
+    }
 }
 function smokeEvent(seq, type, payload) {
     return {

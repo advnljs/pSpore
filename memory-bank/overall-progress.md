@@ -747,3 +747,13 @@
 - 验证方式与结果：从 GitHub Release 重新下载全部 12 项文件到 `/tmp/pspore-release-v0.1.12.lnOgw4`，六份随包 `sha256sum --check` 全部通过，四个 zip 均通过 CRC。远端 ARM64/x64 SEA 与包内 Electron 分别为 AArch64/x86-64 ELF，interpreter 分别为 `/lib/ld-linux-aarch64.so.1`、`/lib64/ld-linux-x86-64.so.2`；x64 SEA 为 `0.1.12 / Node 24.19.0`，包内 CLI 为 `0.1.12 / Node 24.18.1`，runtime 为 `Electron 43.3.0 / linux / x64`。ARM64/x64 overlay manifest 均为 `0.1.12 / Electron 43.3.0 / linux / 对应架构`，payload SHA-256 均为 `9b8515a8…ac3b`。远端 ARM CLI/full/overlay digest 分别为 `ec3efe2c…265bb`、`308826d9…ff60`、`8745a370…7b2a`；x64 分别为 `291cd0ac…db96`、`b08e44c0…d9db`、`b248d840…8851`。
 - 当前状态：`v0.1.12` 双架构自动分类 Release 已完整发布并验证，地址为 `https://github.com/advnljs/pSpore/releases/tag/v0.1.12`；无需新增仓库 secret 或用户配置。
 - 遗留问题：真实银河麒麟设备的快捷方式、GPU/桌面栈与 systemd 245 专项验证仍保留在 `todo.md`，不影响用户已确认可用的 ARM 包与本次 Release 自动分类结果。GitHub Release 下载独立二进制后需按 Linux 常规执行 `chmod +x`；全量 zip 内文件权限已保留。
+
+## 2026-09-04 10:35 CST — GUI 文件/目录拖拽路径引用本地候选
+
+- 阶段目标：允许把文件或目录拖入 GUI 聊天框，同时确保 drop 只增加引用，不自动发送或读取内容。
+- 完成内容：composer 增加 drag active overlay 与可移除引用 chips；通过 preload 的 Electron `webUtils.getPathForFile` 仅解析真实 OS-backed `File` 的绝对路径，按路径去重并限制为 32 项。目录保持单一引用而不展开；drop 保留文字草稿且不提交，发送时仅追加 JSON 引号保护的绝对 `@` path token，成功后清空、失败时保留。安全基线继续禁用 drag navigation，renderer 没有 Node/文件读取能力。版本按 PATCH 更新为 `0.1.13`。
+- 修改文件：`src/desktop/{ipc-contract.ts,main.ts,preload.cjs}`、`src/desktop/renderer/{index.html,renderer.ts,styles.css,composer-file-references.ts}`、对应 `dist/`、`scripts/electron-smoke.mjs`、desktop 单测、版本文件、README、详细设计与相关 `memory-bank/*`。
+- 验证方式与结果：TypeScript typecheck、146/146 全量测试、production build 与 `git diff --check` 全部通过。最新源码 Electron smoke 在 `1920×1080` 主基准并补测 `1440×900`、`1180×720`；真实拖入一个文件和一个目录后报告 `activeIndicatorVisible/inputPreserved/notSubmitted/overlayHiddenAfterDrop=true`、引用数 2、类型为 `file,directory`，所有布局/安全/主题断言通过。打包后应用同一 smoke 复跑通过，`1920×1080` document 为 `1920×1080`、composer 可见且无页面 overflow。
+- 发行候选：本地 x64 SEA、全量 zip、overlay zip 与可运行解包目录已生成；三份 SHA-256 均通过。SEA 为 x86-64 ELF、`0.1.13 / Node 24.19.0`；桌面 runtime 为 `Electron 43.3.0 / Node 24.18.1 / x64`；overlay manifest 为 `0.1.13 / Electron 43.3.0 / linux / x64`。CLI/full/overlay digest 分别为 `eba6d376…3e08`、`fdd19c66…9baa`、`946e9526…edfa`。
+- 当前状态：功能、文档、本地构建、实机拖拽视觉验收和 x64 发行候选均完成；下一阶段提交并推送 `main`，等待普通 CI 与 ARM64 CI 通过后创建 annotated `v0.1.13` tag。
+- 遗留问题：远端双架构 Release 尚未执行；当前容器没有 `xvfb-run` 和系统 Electron 运行库，本地 smoke 通过已有 DISPLAY 与仅对测试进程生效的临时解包运行库完成，未修改系统依赖。隔离 smoke 在验收后正常退出，当前未保持长期 GUI 服务。

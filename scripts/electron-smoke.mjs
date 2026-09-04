@@ -82,7 +82,7 @@ try {
     throw new Error("Electron-owned daemon did not clean up its runtime files on exit");
   }
   process.stdout.write(
-    `Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 desktop layouts, dark/light themes, settings, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
+    `Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 desktop layouts, path-only file/directory drop references, dark/light themes, settings, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
   );
   succeeded = true;
 } finally {

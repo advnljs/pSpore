@@ -99,6 +99,7 @@
 ## GUI 交互与视觉（2026-08-22 用户要求）
 
 - composer 默认 Enter 发送；Ctrl/Cmd+Enter、Shift+Enter、Alt+Enter 为换行；中文输入法合成态（`isComposing`）回车不触发发送。
+- 2026-09-04：GUI composer 必须支持拖入一个或多个文件/目录，并只增加可移除的路径引用；drop 不自动发送、不读取/复制/上传内容、不递归展开目录，保留已有草稿。重复路径去重并限制数量；发送时仅附加带引号的绝对 `@"/path"`，发送失败须保留引用供重试。
 - 默认主题为浅色（白天模式）白蓝配色（cobalt paper）；深色模式保持精致克制，无廉价感/广告感（无渐变光晕、单一强调色、发丝级边框）。
 - 动效使用 GSAP：入场编排、消息/弹层过渡、状态微交互；必须尊重 `prefers-reduced-motion`，引擎缺失时直接降级为无动画可用。
 - GSAP 以本地 vendored UMD 文件分发，不引入 bundler、不加载远程脚本；renderer 安全测试只放行 `./vendor/gsap.min.js` 与 `./renderer.js`。

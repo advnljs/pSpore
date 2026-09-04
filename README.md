@@ -178,6 +178,10 @@ a verified application payload while retaining the compatible Electron/Chromium 
 each user-visible update gets a new SemVer tag instead of replacing an older asset. The desktop app automatically
 registers the same systemd user service and never ties the service lifetime to a window.
 
+Files and directories can be dragged into the desktop composer as removable path references. Dropping never sends
+the message, reads or uploads file contents, copies files, or expands directories; sending later adds only quoted
+absolute `@"/path"` references to the prompt.
+
 ## Links
 
 - [Repository](https://github.com/advnljs/pSpore)

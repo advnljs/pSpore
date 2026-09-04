@@ -770,6 +770,7 @@ UI 必须让用户明确选择：
 
 - 固定 Electron 43；工具链版本为 `43.3.0`。v1 renderer 使用原生 DOM/TypeScript，不增加 UI framework，仍只依赖 protocol store。
 - Electron main process 持有 UDS 连接；renderer 启用 `contextIsolation` 与 sandbox，关闭 `nodeIntegration`，仅通过 allowlisted preload API 发送和订阅已知协议类型。
+- 聊天 composer 接收操作系统文件/目录拖拽，drop 只增加可移除的本地路径引用：不自动发送、不读取/复制/上传内容、不递归展开目录；提交消息时才序列化为带引号的绝对 `@"/path"`。preload 只通过 Electron `webUtils.getPathForFile(File)` 解析真实拖入对象，不提供任意路径 I/O。
 - 禁止任意 channel 名、任意文件路径 IPC、remote module、外部导航和未受控新窗口；设置严格 CSP，不加载第三方远程 script。
 - Electron 崩溃或退出不拥有 Daemon 状态；重启后按 cursor/snapshot 规则恢复。main bridge 在 gap/断线后指数退避重连，并在 renderer 边界合并连续 delta。
 - PC Electron 第一验收 viewport 为 `1920 × 1080`，检查布局、overflow、scroll、approval modal、fixed elements 和主操作路径。手机响应式不在验收范围。
