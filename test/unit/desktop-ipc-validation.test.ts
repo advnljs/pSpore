@@ -119,16 +119,22 @@ test("desktop LLM settings decoder rejects ambiguous secrets and unsafe endpoint
   assert.deepEqual(decodeDesktopLlmSettingsUpdate({
     ...valid,
     autoCompactionEnabled: false,
+    autoCompactionTriggerTokens: 80_000,
     autoCompactionReserveTokens: 24_576,
     autoCompactionKeepRecentTokens: 12_288,
   }), {
     ...valid,
     autoCompactionEnabled: false,
+    autoCompactionTriggerTokens: 80_000,
     autoCompactionReserveTokens: 24_576,
     autoCompactionKeepRecentTokens: 12_288,
   });
   assert.throws(
     () => decodeDesktopLlmSettingsUpdate({ ...valid, autoCompactionKeepRecentTokens: 0 }),
+    /positive integer/,
+  );
+  assert.throws(
+    () => decodeDesktopLlmSettingsUpdate({ ...valid, autoCompactionTriggerTokens: 1_000_001 }),
     /positive integer/,
   );
 });

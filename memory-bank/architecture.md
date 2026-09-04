@@ -60,6 +60,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 29. Pi session path 与文件存在性分离处理：catalog 可记录安全 canonical parent 下暂缺的 `.jsonl` 叶路径，Pi adapter 在 create/resume/rebind 边界把 manager 当前 header/entries 原子式 create-only 物化为 `0600`，再重载为 flushed 状态。GUI 队列则同时投影 follow-up 与 steering，使直接发送意图在当前 tool 执行期间也可见。
 30. Linux 打包脚本以 Node 原生 `process.arch` 为默认目标，并只接受 `x64|arm64`；SEA 直接复制当前 Node，因此禁止跨架构伪打包。ARM64 CI 使用原生 GitHub ARM runner，并在 Ubuntu 20.04 容器中把可执行自检基线固定为 glibc 2.31；`main` 保留短期 ARM Actions artifact，正式 annotated tag 则并行构建 x64/ARM64，只有两侧检查、打包和 checksum 全部成功才创建含 12 项资产的不可变 Release。Release 资产继续使用架构后缀作为稳定文件名，并用 `ARM64 / Kylin V10`、`x86_64` display label 与对应发行说明章节分类。
 31. GUI 文件/目录拖拽保持为 renderer 草稿状态：preload 仅用 Electron `webUtils.getPathForFile` 把用户真实拖入的 `File` 转成绝对路径，不增加任意路径 IPC 或文件读取能力；renderer 去重并显示可移除引用，发送时只把路径序列化为带引号的 `@` token，目录不展开，drop 不触发 command。
+32. UDS server 大消息使用显式协商的 `server-frame-chunks.v1` transport capability：超过 1 MiB 的完整 snapshot/event 先在 64 MiB 逻辑上限内选择 gzip 或原始 bytes，再用有序 base64 chunk envelopes 发送；每个物理 frame 仍受原上限约束，客户端严格校验顺序、长度、编码和解压上限后才交给既有 reducer。自动 compact 仍复用 Pi 原生算法，同时增加共享 `triggerTokens` 直接阈值，在新 turn 前及 turn 完成后检查 active context；模型上限 reserve 保护继续独立生效。
 
 ## 重要约束
 
@@ -97,3 +98,4 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-08-27：修复 Pi 延迟创建 JSONL 与 catalog `realpath` 的冲突，新 session 返回前立即生成有效私有文件，安全缺失叶可在恢复时重建；GUI 同时展示 follow-up/直接发送队列，steering 不再等 tool 完成后才可见。
 - 2026-09-02：Linux 桌面/SEA 打包从硬编码 x64 改为原生 `x64|arm64` 参数化；新增 glibc 2.31 ARM64 GitHub CI 链，覆盖 ARM optional dependency、Electron PC smoke、ELF/动态链接器/运行时架构与 checksum 验证。正式 tag Release 改为等待 x64/ARM64 两条原生链后统一发布，`main` 仍只产生短期 ARM 预览 artifact。
 - 2026-09-04：Electron composer 增加文件/目录拖拽引用；安全桥只解析真实拖入对象的路径，renderer 不获得 Node/文件读取能力，真实 CDP 拖拽 smoke 覆盖路径引用与不自动提交。
+- 2026-09-04：长会话 UDS 响应增加协商式 gzip/base64 有界分片，消除单个 1 MiB server frame 失败且不放宽物理边界；共享自动 compact 设置增加默认 100000 tokens 的直接触发阈值，GUI/TUI/CLI 和新建/恢复 Pi session 使用同一配置。

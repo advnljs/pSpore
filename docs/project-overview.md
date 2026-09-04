@@ -78,14 +78,14 @@ pspore config show
 pspore config set deepseek deepseek-v4-flash off
 pspore config set openai gpt-5.6-terra low
 pspore config set custom-openai my-model https://gateway.example.com/v1 responses off
-pspore config compact on 16384 20000  # 触发预留 / compact 后保留最近 tokens
+pspore config compact on 16384 20000 100000  # 上限预留 / 压缩后保留 / 直接触发 tokens
 pspore config key                 # TTY 中隐藏输入，也可从 stdin 安全读取
 pspore config cookie              # LLM 代理可选 Cookie 头，隐藏输入
 pspore config clear-key
 pspore config clear-cookie
 ```
 
-`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking、自动 compact 开关/触发预留 tokens/保留最近 tokens、API Key 与代理 Cookie；Key 和 Cookie 独立保存到 `~/.pspore/credentials/<provider>.api-key` 与 `<provider>.cookie`（`0600`），`models.json` 只保存对该私有文件的引用（Cookie 写入 `headers.Cookie`），不写入 `config.json`、会话或日志。旧版 v1 config 未包含 compact 字段时会读取为安全默认值，无需手动迁移。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
+`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking、自动 compact 开关/直接触发 tokens/模型上限预留 tokens/压缩后保留 tokens、API Key 与代理 Cookie；直接阈值默认 `100000`，与模型上限预留保护中先到者触发。Key 和 Cookie 独立保存到 `~/.pspore/credentials/<provider>.api-key` 与 `<provider>.cookie`（`0600`），`models.json` 只保存对该私有文件的引用（Cookie 写入 `headers.Cookie`），不写入 `config.json`、会话或日志。旧版 v1 config 未包含 compact 或 `triggerTokens` 字段时会读取为安全默认值，无需手动迁移。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
 
 用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。交互式根会话由私有 `session-catalog.json` 映射到 Pi JSONL；服务启动会恢复全部目录会话及历史，旧安装首次迁移最近的主会话。GUI 用 `＋` 新建，TUI 用 `/new [TITLE]` 与 `/select ID` 创建/切换。普通输入发送到当前根会话或 child；根会话运行中时服务端自动按 follow-up 排队，每项显示“继续排队/直接发送消息”（TUI `/send-now N`），不再要求选择三种发送模式。还可以用 `/agent-spawn`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。输入 `/help` 打开完整命令面板，`/back` 或 Esc 返回对话。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。
 

@@ -1,5 +1,7 @@
 export interface AutoCompactionConfig {
     enabled: boolean;
+    /** Compact after the active model context grows beyond this many tokens. */
+    triggerTokens: number;
     reserveTokens: number;
     keepRecentTokens: number;
 }

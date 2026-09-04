@@ -5,6 +5,11 @@ import { createServer, type Server, type Socket } from "node:net";
 import type { KernelState, PublicKernelEvent } from "../kernel/state.js";
 import { CommandError } from "../protocol/errors.js";
 import {
+  DEFAULT_MAX_SERVER_MESSAGE_BYTES,
+  encodeServerFrame,
+  SERVER_FRAME_CHUNKS_CAPABILITY,
+} from "../protocol/server-frame-codec.js";
+import {
   decodeClientFrame,
   DEFAULT_MAX_FRAME_BYTES,
   encodeFrame,
@@ -28,6 +33,7 @@ export interface LocalGatewayOptions {
   commandCacheCapacity?: number;
   maxFrameBytes?: number;
   maxPendingBytes?: number;
+  maxServerMessageBytes?: number;
   idFactory?: () => string;
 }
 
@@ -37,6 +43,7 @@ interface ConnectionState {
   clientId: string | undefined;
   pending: Buffer;
   processing: Promise<void>;
+  supportsServerFrameChunks: boolean;
   failed: boolean;
 }
 
@@ -50,6 +57,7 @@ export class LocalGateway {
   readonly #commandCacheCapacity: number;
   readonly #maxFrameBytes: number;
   readonly #maxPendingBytes: number;
+  readonly #maxServerMessageBytes: number;
   readonly #idFactory: () => string;
   readonly #connections = new Set<ConnectionState>();
   readonly #replay: EventEnvelope[] = [];
@@ -67,6 +75,7 @@ export class LocalGateway {
     this.#commandCacheCapacity = options.commandCacheCapacity ?? 2_048;
     this.#maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
     this.#maxPendingBytes = options.maxPendingBytes ?? this.#maxFrameBytes * 2;
+    this.#maxServerMessageBytes = options.maxServerMessageBytes ?? DEFAULT_MAX_SERVER_MESSAGE_BYTES;
     this.#idFactory = options.idFactory ?? randomUUID;
   }
 
@@ -139,6 +148,7 @@ export class LocalGateway {
       clientId: undefined,
       pending: Buffer.alloc(0),
       processing: Promise.resolve(),
+      supportsServerFrameChunks: false,
       failed: false,
     };
     this.#connections.add(connection);
@@ -150,10 +160,6 @@ export class LocalGateway {
   #receive(connection: ConnectionState, chunk: Buffer): void {
     if (connection.failed) return;
     connection.pending = Buffer.concat([connection.pending, chunk]);
-    if (connection.pending.byteLength > this.#maxPendingBytes) {
-      this.#protocolFailure(connection, new ProtocolError("pending_bytes_exceeded", "Connection input buffer exceeded"));
-      return;
-    }
     for (;;) {
       const delimiter = connection.pending.indexOf(0x0a);
       if (delimiter < 0) break;
@@ -162,6 +168,10 @@ export class LocalGateway {
       connection.processing = connection.processing
         .then(async () => this.#handleFrame(connection, line))
         .catch((error: unknown) => this.#protocolFailure(connection, normalizeProtocolError(error)));
+    }
+    if (connection.pending.byteLength > this.#maxPendingBytes) {
+      this.#protocolFailure(connection, new ProtocolError("pending_bytes_exceeded", "Connection input buffer exceeded"));
+      return;
     }
     if (connection.pending.byteLength > this.#maxFrameBytes) {
       this.#protocolFailure(connection, new ProtocolError("frame_too_large", "Protocol frame exceeded limit"));
@@ -186,6 +196,7 @@ export class LocalGateway {
   #hello(connection: ConnectionState, hello: ClientHelloFrame): void {
     connection.authenticated = true;
     connection.clientId = hello.clientId;
+    connection.supportsServerFrameChunks = hello.capabilities.includes(SERVER_FRAME_CHUNKS_CAPABILITY);
     const cursor = hello.cursors[this.#streamId] ?? 0;
     const oldest = this.#replay[0]?.seq ?? this.#seq + 1;
     const acknowledgement: ServerHelloFrame = {
@@ -269,7 +280,22 @@ export class LocalGateway {
       connection.socket.destroy(new Error("Protocol client is too slow"));
       return;
     }
-    connection.socket.write(encodeFrame(frame));
+    if (!connection.supportsServerFrameChunks) {
+      connection.socket.write(encodeFrame(frame));
+      return;
+    }
+    let encoded: readonly string[];
+    try {
+      encoded = encodeServerFrame(frame, {
+        maxFrameBytes: this.#maxFrameBytes,
+        maxMessageBytes: this.#maxServerMessageBytes,
+        idFactory: this.#idFactory,
+      });
+    } catch (error) {
+      connection.socket.destroy(toError(error));
+      return;
+    }
+    for (const chunk of encoded) connection.socket.write(chunk);
   }
 
   #protocolFailure(connection: ConnectionState, error: ProtocolError): void {

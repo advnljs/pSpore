@@ -766,3 +766,13 @@
 - 远端摘要：ARM CLI/full/overlay SHA-256 分别为 `5bf4a126…fb2f`、`81ccae7a…7fff`、`635b78ab…60a`；x64 分别为 `8b67c1f5…9e67a`、`6a25c965…1381`、`45dc535f…6ece`。
 - 当前状态：`v0.1.13` 已完整发布并验证，地址为 `https://github.com/advnljs/pSpore/releases/tag/v0.1.13`；本地 `release-dist/` 保持最新 `0.1.13` x64 可执行目录与六项发行文件且三份 checksum 再次通过。
 - 遗留问题：本轮没有新增生产依赖；发布脚本的默认 `npm audit` 报告锁定依赖中 1 moderate/1 high，生产依赖专项 audit 请求在当前 registry 响应超时，已记录到 `todo.md` 后续独立复核，不在本功能中自动升级依赖。真实银河麒麟设备专项复验仍沿用既有待办。
+
+## 2026-09-04 16:32 CST — 长会话 frame 与直接 compact 阈值本地候选
+
+- 阶段目标：修复长会话 snapshot/event 超过 1 MiB 时客户端报 `server frame exceeded protocol limit`，并增加可由 GUI/TUI/CLI 共享配置的自动上下文压缩直接 token 阈值。
+- 完成内容：UDS hello 新增 `server-frame-chunks.v1` capability；协商后的超大 server message 在 64 MiB 逻辑上限内选择 gzip/原始 bytes，并以严格有序 base64 chunks 发送，物理 frame 继续保持 1 MiB 上限。客户端校验 ID、顺序、数量、声明长度、canonical base64、解压上限、协议版本与 kind 后才交付。自动 compact 新增默认 `100000` 的 `triggerTokens`，在 prompt 前及 turn 完成后按 Pi active-context usage 达到阈值即调用原生 `compact()`；Pi 模型上限 reserve 保护继续并行生效。旧 config 缺新字段时自动迁移默认值，GUI/TUI/CLI 设置、帮助和文档已同步。版本按 PATCH 更新为 `0.1.14`，未增加依赖。
+- 修改文件：`src/protocol/{client,server-frame-codec}.ts`、`src/gateway/local-gateway.ts`、`src/pi/pi-runtime-adapter.ts`、`src/{config,settings,desktop,ui,cli}/**`、对应测试与 `dist/`、版本文件、README、设计文档和相关 `memory-bank/*`。
+- 验证方式与结果：针对性协议/Pi/config/desktop 测试 41/41，通过严格 TypeScript typecheck；第二轮 `npm run check` 的 152/152、production build 全部通过。首轮全量检查遇到已记录的 MCP stdio 2 秒负载超时，隔离复跑 2/2 通过且第二轮全量干净通过。生产默认边界下用 1,400,608-byte snapshot 实测拆为 2 帧，每帧不超过 1,048,576 bytes（最大 1,048,329），重组内容完全一致。源码 Electron smoke 在 `1920×1080` 主基准及 `1440×900`、`1180×720` 全部通过；打包后 GUI 再以 `1920×1080` 验证 owned Daemon、连接、重连、设置、字号、响应式布局和 IPC allowlist。`npm pack --dry-run --json` 验证 `p-spore@0.1.14` tarball 仅含 README/package metadata/最新 `dist`，包括新 server frame codec。
+- 发行候选：本地 x64 SEA、全量 zip、overlay zip 与可运行解包目录已生成；三份 SHA-256 与两个 zip CRC 均通过。SEA 为 x86-64 ELF、`0.1.14 / Node 24.19.0`；全量包内 CLI 为 `0.1.14 / Pi 0.84.1 / Node 24.18.1`；overlay manifest 为 `0.1.14 / Electron 43.3.0 / linux / x64`。CLI/full/overlay digest 分别为 `076ee111…a486`、`fb859a27…e8cd`、`a60138fb…e6fb`。
+- 当前状态：实现、文档、完整测试、最新 build、PC 实机 smoke 和本地 x64 发行候选均完成；当前 smoke 进程已退出，未改动用户正在运行的服务。下一阶段提交并推送 `main`，等待普通 CI 与 ARM64 preview 成功后创建 annotated `v0.1.14` tag。
+- 遗留问题：远端双架构 Release 与 12 项资产复验尚未执行；`refer/` 是用户原有未跟踪目录，本阶段未读取、修改或纳入提交。

@@ -273,7 +273,7 @@ interface AgentRuntimePort {
 - policy extension 注册为最先执行的 `tool_call` handler；异常时 fail closed，阻止工具。
 - `DefaultResourceLoader` 由 adapter 配置 `agentsFilesOverride`、`skillsOverride` 和受信 extension paths：pSpore pinned files 先按稳定顺序注入，项目 context 放在动态后缀；项目 `.pi` 代码/配置只有 trust 已解析为 allow 才传给 Pi。
 - pSpore 自定义 tool 在进入 Pi 前统一包装 output limit、abort signal、correlation 和 audit metadata。
-- Pi 自动 compaction 保留；pSpore 只提供结构化 summary 指令和外部 artifact references，不再实现第二套 compaction。
+- Pi 自动 compaction 与 summary 算法保留；pSpore 额外按共享 `triggerTokens` 在发送前/turn 完成后调用同一个 Pi `compact()`，并继续用 `reserveTokens` 保护模型 hard limit，不实现第二套摘要算法。
 - 上游 session schema 由 Pi 自己读写；pSpore memory indexer 只通过受测 parser 读取，不修改 Pi JSONL。
 
 ### 7.3 版本隔离测试
@@ -722,7 +722,7 @@ interface EventEnvelope<T = unknown> {
 
 连接握手包含 protocol versions、client capabilities 和上次 durable seq。server 回复 auth result、当前全局/session snapshots、replay window。版本不兼容时明确拒绝，不做静默降级。
 
-UDS parser 只把 ASCII LF 当 record delimiter，不使用会额外切分 Unicode 行分隔符的通用 readline。每个 command/frame、嵌套深度、字符串、attachment metadata 和每连接 pending bytes 都有对称上限；大文件/图片先进入受控 artifact/upload channel，再在 command 中传 reference。
+UDS parser 只把 ASCII LF 当 record delimiter，不使用会额外切分 Unicode 行分隔符的通用 readline。每个 command/物理 frame、嵌套深度、字符串、attachment metadata 和每连接 pending bytes 都有对称上限；大文件/图片先进入受控 artifact/upload channel，再在 command 中传 reference。客户端握手默认声明 `server-frame-chunks.v1`；超过 1 MiB 的 server message 以 gzip（无收益时为原始 bytes）+ base64 的有序 chunk envelopes 传输，每个物理 frame 仍受原上限约束，客户端仅在完整长度一致且解压后不超过 64 MiB 时交给既有 snapshot/event 校验。未声明 capability 的旧客户端继续接收 v1 普通 frame，不静默改变语义。
 
 ### 15.2 权威状态与重连
 
@@ -898,7 +898,7 @@ UI 必须让用户明确选择：
 - 单次 retrieval 默认最多 8 hits、3,000 tokens；结果含引用，后续按需读取。
 - tool result 根据工具类型做结构化 head/tail；完整内容用 artifact reference。
 - parent/child 只交换摘要与引用，不交换全量上下文。
-- 到达模型 context soft limit 前调用 Pi compaction；hard limit 留出本 turn tool results 和模型输出空间。
+- 共享 `config.context.autoCompaction.triggerTokens` 默认 `100000`，在发送前和 turn 完成后检查 Pi 的 active-context usage；达到直接阈值即调用 Pi compaction。`reserveTokens` 继续在模型 hard limit 前为本 turn tool results 和输出留空间，两种保护以更早到达者为准。
 
 所有阈值都是可测量的初值，不是隐藏魔法值。实现应记录实际 token estimate 与 provider usage，按真实工作负载调整。
 

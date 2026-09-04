@@ -6,12 +6,13 @@
 
 ## 入口文件
 
-当前入口：`src/protocol/schema.ts`、`src/protocol/client.ts`、`src/gateway/local-gateway.ts`、`src/ui/shared/`、`src/ui/tui/`、`src/desktop/daemon-bridge.ts`、`src/desktop/renderer/store.ts`。
+当前入口：`src/protocol/schema.ts`、`src/protocol/server-frame-codec.ts`、`src/protocol/client.ts`、`src/gateway/local-gateway.ts`、`src/ui/shared/`、`src/ui/tui/`、`src/desktop/daemon-bridge.ts`、`src/desktop/renderer/store.ts`。
 
 ## 关键文件
 
 - 详细契约：`docs/detailed-design.md` 第 15 节。
 - UDS integration：`test/integration/local-gateway.test.ts`。
+- 大消息 codec：`test/unit/server-frame-codec.test.ts`。
 - TUI store/固定画面：`test/unit/tui-store-view.test.ts`。
 - Electron bridge/store：`test/integration/desktop-daemon-bridge.test.ts`、`test/unit/desktop-store.test.ts`。
 - 共享客户端状态与表现：`src/ui/shared/protocol-state.ts`、`src/ui/shared/presentation.ts`、`src/ui/shared/activity.ts`。
@@ -34,6 +35,7 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 ## 注意事项
 
 - Snapshot/complete event 权威；delta/progress 可合并或丢弃。
+- 新客户端在 hello 中声明 `server-frame-chunks.v1`；新 Daemon 仅对声明该 capability 的连接分片。逻辑 server message 上限为 64 MiB，物理 frame 仍为 1 MiB；chunk 必须有序、同 ID/encoding/count/length，并在有界 gunzip 与完整 JSON/kind 校验后交付。普通小 frame 和未声明 capability 的旧客户端保持 v1 newline wire format。
 - 相同 command id 必须幂等；seq gap 触发 snapshot，不由客户端猜状态。
 - Electron renderer 已启用 context isolation/sandbox 并关闭 Node integration；只暴露 allowlisted preload API，main 对 command 与 server frame 再校验。
 - UI 同底层指共享 domain/protocol、权威 snapshot/event reducer、presentation model、会话输入路由、设置与 Daemon 生命周期；终端与 DOM 组件保持平台原生。

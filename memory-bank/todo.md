@@ -29,6 +29,7 @@
 | P4 | GUI/TUI/CLI 共享客户端内核与 TUI 完善 | Done | 无 | `p-spore@0.1.0` 已发布；全新 cache/prefix registry 安装、远端 integrity 与 `pspore` CLI 均已验证 |
 | P2 | GitHub CI 自动构建双架构 GUI zip 并分类上传 Release | Done | 无；`v0.1.12` 全链与 12 项远端资产已验证 | 后续新 `v*` tag 继续等待原生 x64/ARM64 producer，校验两侧 CLI/全量/overlay 与 SHA-256 后创建不可变 Release；资产按 `ARM64 / Kylin V10`、`x86_64` 标签及说明章节分类；`main` 不创建 Release |
 | P0 | 发布并远端复验 GUI 拖拽路径引用 `v0.1.13` | Done | 无；`main` CI、ARM64 preview、Release 四段工作流与 12 项远端资产均已验证 | 后续用户可从不可变 `v0.1.13` Release 按架构下载全量包或 overlay；历史资产不得覆盖 |
+| P0 | 发布并远端复验长会话 frame/直接 compact 阈值修复 `v0.1.14` | In Progress | 本地实现已完成，尚待完整检查、PC smoke、双架构 CI/Release 与远端资产复验 | 生成最新 x64 候选并通过本地验收后推送 `main`；CI/ARM64 preview 成功后创建 annotated tag |
 | P2 | 复核锁定依赖的 npm audit 告警 | Pending | `scripts/release.sh` 的默认 audit 报告 1 moderate/1 high；本轮未新增依赖，`npm audit --omit=dev` 在当前 registry 请求未及时返回 | 后续单独取得 production-only advisory/依赖路径，评估兼容修复；不得在无验证时直接 `npm audit fix` 或混入功能提交 |
 | P0 | 发布并远端复验 `v0.1.9` | Done | 无；Release workflow 与六项远端资产均已验证 | 远端三份 SHA-256 校验通过，CLI/包内应用为 `0.1.9`，Electron `43.3.0/x64` |
 | P0 | 发布并远端复验聊天滚动修复 `v0.1.10` | Done | 无；本地/CI/Release/远端资产均已验证 | Release 为不可变 annotated tag `v0.1.10`，后续版本继续按 SemVer 新增 |
@@ -38,7 +39,7 @@
 | P0 | 生产后端由 systemd 用户服务托管 | Done | 无 | CLI/TUI/GUI 自动确保 unit 已安装并 `enable --now`，客户端退出不再停止服务；隔离 systemd 集成测试及 external/owned Electron smoke 已通过 |
 | P0 | 跨 session 创建、恢复与历史加载 | Done | 无 | 私有 catalog 映射 Pi JSONL；服务 ready 前恢复全部根会话，GUI/TUI/CLI 均可创建和切换 |
 | P1 | 统一发送与排队消息直接发送 | Done | 无 | 普通发送由 Application 自动 prompt/follow-up；每条队列项只显示“继续排队/直接发送消息”，内部 steer 术语不暴露 |
-| P1 | 可配置自动 compact 长度 | Done | 无 | 共享配置支持 enabled/reserve/keepRecent，GUI/TUI/CLI 可调；Daemon 注入每个 Pi session，旧 v1 config 自动补默认值 |
+| P1 | 可配置自动 compact 长度 | Done | 无 | 共享配置支持 enabled/direct trigger/reserve/keepRecent，GUI/TUI/CLI 可调；Daemon 注入每个 Pi session，旧 v1 config 缺字段时自动补默认值 |
 | P1 | 流式 Markdown 与长历史虚拟渲染 | Done | 无 | 去除 `[tool:*]`/thinking 占位、GUI 按帧刷新和字体回退；GUI/TUI 均只渲染可见历史窗口 |
 | P1 | 修复 zip 桌面快捷方式 | Done | 无 | 稳定 XDG launcher、启动日志与应用菜单/桌面入口已通过隔离 `desktop-file-validate` + `gtk-launch` 验收 |
 | P1 | 验证无 Chromium overlay 从上一版升级 | Done | 无；`0.1.5` 与 `0.1.6` 均为 Electron `43.3.0/x64` | 真实 GitHub `v0.1.5` 全量包已升级到 `0.1.6` 并通过发行目录 Electron smoke；运行时不匹配时 updater 会在替换前拒绝 |

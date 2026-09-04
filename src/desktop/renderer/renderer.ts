@@ -167,6 +167,7 @@ const elements = {
   settingsPermissionHelp: byId<HTMLElement>("settings-permission-help"),
   settingsPermissionWarning: byId<HTMLElement>("settings-permission-warning"),
   settingsAutoCompaction: byId<HTMLInputElement>("settings-auto-compaction"),
+  settingsCompactionTrigger: byId<HTMLInputElement>("settings-compaction-trigger"),
   settingsCompactionReserve: byId<HTMLInputElement>("settings-compaction-reserve"),
   settingsCompactionKeepRecent: byId<HTMLInputElement>("settings-compaction-keep-recent"),
   settingsApiKey: byId<HTMLInputElement>("settings-api-key"),
@@ -513,6 +514,7 @@ function populateSettings(settings: DesktopLlmSettings): void {
   elements.settingsThinking.value = settings.thinking;
   elements.settingsPermissionMode.value = settings.permissionMode;
   elements.settingsAutoCompaction.checked = settings.autoCompactionEnabled;
+  elements.settingsCompactionTrigger.value = String(settings.autoCompactionTriggerTokens);
   elements.settingsCompactionReserve.value = String(settings.autoCompactionReserveTokens);
   elements.settingsCompactionKeepRecent.value = String(settings.autoCompactionKeepRecentTokens);
   configurePermissionFields();
@@ -532,6 +534,7 @@ async function saveSettings(): Promise<void> {
     customModel: elements.settingsProvider.value === "custom-openai",
     permissionMode: elements.settingsPermissionMode.value as DesktopLlmSettingsUpdate["permissionMode"],
     autoCompactionEnabled: elements.settingsAutoCompaction.checked,
+    autoCompactionTriggerTokens: elements.settingsCompactionTrigger.valueAsNumber,
     autoCompactionReserveTokens: elements.settingsCompactionReserve.valueAsNumber,
     autoCompactionKeepRecentTokens: elements.settingsCompactionKeepRecent.valueAsNumber,
     ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),

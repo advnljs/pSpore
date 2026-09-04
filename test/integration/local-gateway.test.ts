@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -56,6 +57,68 @@ describe("local UDS gateway", () => {
       (error: unknown) => error instanceof Error && Reflect.get(error, "code") === "revision_conflict",
     );
     assert.equal(calls, 1);
+  });
+
+  test("negotiates bounded chunks for snapshots and events larger than one frame", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-large-"));
+    const socketPath = join(root, "daemon.sock");
+    const text = randomBytes(12_000).toString("base64");
+    const state = {
+      ...initialKernelState(),
+      revision: 8,
+      daemon: { phase: "ready" as const },
+      sessions: {
+        main: {
+          sessionId: "main",
+          upstreamSessionId: "upstream-main",
+          cwd: root,
+          status: "idle" as const,
+          thinking: "off" as const,
+          messages: [{ role: "assistant", text }],
+          entries: [],
+          queue: { steering: [], followUp: [] },
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, costUsd: 0 },
+        },
+      },
+    };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-large",
+      snapshot: () => state,
+      handleCommand: async () => ({}),
+      maxFrameBytes: 1_024,
+      maxServerMessageBytes: 64_000,
+      idFactory: sequence("server-large"),
+    });
+    await gateway.start();
+    const client = new ProtocolClient({
+      socketPath,
+      clientId: "large-client",
+      maxFrameBytes: 1_024,
+      maxServerMessageBytes: 64_000,
+      idFactory: sequence("client-large"),
+    });
+    cleanups.push(async () => {
+      await client.close();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    const hello = await client.connect();
+    assert.equal(hello.snapshot.sessions["main"]?.messages[0]?.text, text);
+    const received = new Promise<string>((resolve) => {
+      client.subscribe((event) => {
+        if (event.type === "large.event") resolve(String((event.payload as Record<string, unknown>)["text"]));
+      });
+    });
+    gateway.publish({
+      id: "large-event",
+      ts: "2026-09-04T00:00:00.000Z",
+      durable: true,
+      type: "large.event",
+      payload: { text },
+    });
+    assert.equal(await received, text);
   });
 });
 

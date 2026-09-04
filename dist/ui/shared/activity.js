@@ -133,7 +133,7 @@ function genericPresentation(type, payload) {
     if (type === "run.settled")
         return { kind: "run", status: "succeeded", label: "Request finished", summary: "cowork session" };
     if (type === "compaction.started") {
-        return { kind: "compaction", status: "running", label: "Compacting context", summary: compactText(stringValue(payload["reason"]) ?? "conversation context", 100) };
+        return { kind: "compaction", status: "running", label: "Compacting context", summary: compactionReason(payload) };
     }
     if (type === "compaction.completed") {
         const aborted = payload["aborted"] === true;
@@ -141,7 +141,7 @@ function genericPresentation(type, payload) {
             kind: "compaction",
             status: aborted ? "failed" : "succeeded",
             label: aborted ? "Context compaction stopped" : "Context compacted",
-            summary: compactText(stringValue(payload["reason"]) ?? "conversation context", 100),
+            summary: compactionReason(payload),
         };
     }
     if (type === "retry.started") {
@@ -196,6 +196,12 @@ function genericPresentation(type, payload) {
         summary: compactText(summary, 120),
         ...(rawStatus ? { result: rawStatus } : {}),
     };
+}
+function compactionReason(payload) {
+    const reason = stringValue(payload["reason"]);
+    return reason === "token_threshold"
+        ? "configured token threshold"
+        : compactText(reason ?? "conversation context", 100);
 }
 export function toolLabel(toolName, status) {
     const labels = {

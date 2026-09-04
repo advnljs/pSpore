@@ -65,6 +65,9 @@ export class PiRuntimeAdapter {
         if (!input.trim()) {
             throw new Error("Prompt cannot be empty");
         }
+        // A restored session may already be above the configured direct threshold.
+        // Compact before sending another full context, then check again after the turn.
+        await this.#compactAtConfiguredThreshold(record);
         const commandId = this.#idFactory();
         let resolveAccepted;
         let rejectAccepted;
@@ -84,6 +87,7 @@ export class PiRuntimeAdapter {
                 }
             },
         })
+            .then(async () => this.#compactAtConfiguredThreshold(record))
             .catch((error) => {
             const normalizedError = toError(error);
             record.lastError = normalizedError.message;
@@ -241,6 +245,7 @@ export class PiRuntimeAdapter {
             listeners: new Set(),
             activeTask: undefined,
             queue: { steering: [], followUp: [] },
+            thresholdCompaction: false,
             lastError: undefined,
         };
         this.#sessions.set(spec.sessionId, record);
@@ -277,7 +282,15 @@ export class PiRuntimeAdapter {
                 cwd,
                 agentDir,
                 ...(this.#autoCompaction
-                    ? { settingsManager: SettingsManager.inMemory({ compaction: { ...this.#autoCompaction } }) }
+                    ? {
+                        settingsManager: SettingsManager.inMemory({
+                            compaction: {
+                                enabled: this.#autoCompaction.enabled,
+                                reserveTokens: this.#autoCompaction.reserveTokens,
+                                keepRecentTokens: this.#autoCompaction.keepRecentTokens,
+                            },
+                        }),
+                    }
                     : {}),
                 modelRuntime: this.#modelRuntime,
                 resourceLoaderOptions: {
@@ -413,10 +426,14 @@ export class PiRuntimeAdapter {
                 this.#emit(record, "queue.updated", record.queue, false);
                 break;
             case "compaction_start":
-                this.#emit(record, "compaction.started", { reason: event.reason }, false);
+                this.#emit(record, "compaction.started", { reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason }, false);
                 break;
             case "compaction_end":
-                this.#emit(record, "compaction.completed", { reason: event.reason, aborted: event.aborted, willRetry: event.willRetry }, false);
+                this.#emit(record, "compaction.completed", {
+                    reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
+                    aborted: event.aborted,
+                    willRetry: event.willRetry,
+                }, false);
                 break;
             case "auto_retry_start":
                 this.#emit(record, "retry.started", { attempt: event.attempt, maxAttempts: event.maxAttempts, delayMs: event.delayMs }, false);
@@ -468,6 +485,21 @@ export class PiRuntimeAdapter {
     }
     #accepted() {
         return { accepted: true, commandId: this.#idFactory(), acceptedAt: this.#clock().toISOString() };
+    }
+    async #compactAtConfiguredThreshold(record) {
+        const settings = this.#autoCompaction;
+        if (!settings?.enabled)
+            return;
+        const usage = record.runtime.session.getContextUsage();
+        if (usage?.tokens === null || usage?.tokens === undefined || usage.tokens < settings.triggerTokens)
+            return;
+        record.thresholdCompaction = true;
+        try {
+            await record.runtime.session.compact();
+        }
+        finally {
+            record.thresholdCompaction = false;
+        }
     }
     #handle(record) {
         const sessionFile = record.runtime.session.sessionFile;

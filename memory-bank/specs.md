@@ -120,3 +120,11 @@
 - GUI session 历史使用真实窗口化虚拟渲染；TUI 只格式化当前可见历史窗口，避免长历史全量重建。
 - GUI 聊天历史首次进入或切换 session 时默认滚动到底部；用户向上滚动后必须保持浏览位置，无新消息时不得自行回底，收到 streaming delta/新回复时也不得抢走位置；只有用户重新滚动到最底部后才恢复后续消息自动跟随。
 - 本轮默认客户端仍为 PC；Electron 视觉主基准保持 `1920×1080`，TUI 保持 `160×45`。
+
+## 长会话协议与直接压缩阈值（2026-09-04 用户要求）
+
+- 修复内网运行中长会话触发的 `server frame exceeded protocol limit`，不得简单取消物理 frame 上限或允许无限制内存增长。
+- 大 snapshot/event 必须在协商 capability 后通过有界传输发送；每个物理 frame 继续受 1 MiB 上限保护，完整逻辑消息也必须有独立上限与严格重组校验。
+- 自动上下文压缩增加可直接配置的 active-context token 触发长度；默认 `100000`，达到阈值时使用 Pi 原生 compaction，并继续保留模型 hard-limit `reserveTokens` 保护。
+- GUI、TUI 与 CLI 必须读写同一 `config.context.autoCompaction.triggerTokens`；旧配置缺字段时自动采用默认值，不要求用户手工迁移。
+- 本次修复发布新的 PATCH 版本 `0.1.14`，按既有流程完成本地 PC 验收、x64 候选、`main` CI、ARM64 preview、不可变双架构 GitHub Release 与远端资产复验。

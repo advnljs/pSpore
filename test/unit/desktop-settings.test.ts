@@ -22,6 +22,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
       customModel: false,
       permissionMode: "ask_risky",
       autoCompactionEnabled: true,
+      autoCompactionTriggerTokens: 100_000,
       autoCompactionReserveTokens: 16_384,
       autoCompactionKeepRecentTokens: 20_000,
       hasApiKey: false,
@@ -84,17 +85,20 @@ test("auto-compaction thresholds round-trip through shared settings", async () =
       customModel: current.customModel,
       permissionMode: current.permissionMode,
       autoCompactionEnabled: false,
+      autoCompactionTriggerTokens: 80_000,
       autoCompactionReserveTokens: 24_576,
       autoCompactionKeepRecentTokens: 12_288,
       clearApiKey: false,
       clearCookie: false,
     });
     assert.equal(saved.autoCompactionEnabled, false);
+    assert.equal(saved.autoCompactionTriggerTokens, 80_000);
     assert.equal(saved.autoCompactionReserveTokens, 24_576);
     assert.equal(saved.autoCompactionKeepRecentTokens, 12_288);
     const config = JSON.parse(await readFile(paths.config, "utf8"));
     assert.deepEqual(config.context.autoCompaction, {
       enabled: false,
+      triggerTokens: 80_000,
       reserveTokens: 24_576,
       keepRecentTokens: 12_288,
     });

@@ -10,6 +10,7 @@ export interface LocalGatewayOptions {
     commandCacheCapacity?: number;
     maxFrameBytes?: number;
     maxPendingBytes?: number;
+    maxServerMessageBytes?: number;
     idFactory?: () => string;
 }
 export declare class LocalGateway {

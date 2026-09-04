@@ -520,8 +520,10 @@ export class PsporeTuiApp {
       return;
     }
     if (action === "compact") {
-      if (parts.length < 3 || parts.length > 5) {
-        throw new Error("Usage: /config compact on|off [RESERVE_TOKENS] [KEEP_RECENT_TOKENS]");
+      if (parts.length < 3 || parts.length > 6) {
+        throw new Error(
+          "Usage: /config compact on|off [RESERVE_TOKENS] [KEEP_RECENT_TOKENS] [TRIGGER_TOKENS]",
+        );
       }
       const enabled = parseOnOff(parts[2], "/config compact");
       const reserveTokens = parts[3] === undefined
@@ -530,8 +532,12 @@ export class PsporeTuiApp {
       const keepRecentTokens = parts[4] === undefined
         ? current.autoCompactionKeepRecentTokens
         : parseCompactionTokens(parts[4], "keep recent tokens");
+      const triggerTokens = parts[5] === undefined
+        ? current.autoCompactionTriggerTokens
+        : parseCompactionTokens(parts[5], "trigger tokens");
       await this.#saveSettings(updateFrom(current, {
         autoCompactionEnabled: enabled,
+        autoCompactionTriggerTokens: triggerTokens,
         autoCompactionReserveTokens: reserveTokens,
         autoCompactionKeepRecentTokens: keepRecentTokens,
       }));
@@ -872,6 +878,7 @@ function updateFrom(settings: LlmSettings, changes: Partial<LlmSettingsUpdate>):
     customModel: changes.customModel ?? settings.customModel,
     permissionMode: changes.permissionMode ?? settings.permissionMode,
     autoCompactionEnabled: changes.autoCompactionEnabled ?? settings.autoCompactionEnabled,
+    autoCompactionTriggerTokens: changes.autoCompactionTriggerTokens ?? settings.autoCompactionTriggerTokens,
     autoCompactionReserveTokens: changes.autoCompactionReserveTokens ?? settings.autoCompactionReserveTokens,
     autoCompactionKeepRecentTokens: changes.autoCompactionKeepRecentTokens ?? settings.autoCompactionKeepRecentTokens,
     ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
@@ -889,7 +896,7 @@ function settingsLines(settings: LlmSettings): string[] {
     `API        ${settings.api}`,
     `Thinking   ${settings.thinking}`,
     `Approvals  ${settings.permissionMode} — ${permissionModeSummary(settings.permissionMode)}`,
-    `Compact    ${settings.autoCompactionEnabled ? "on" : "off"} · reserve ${settings.autoCompactionReserveTokens} · keep ${settings.autoCompactionKeepRecentTokens}`,
+    `Compact    ${settings.autoCompactionEnabled ? "on" : "off"} · trigger ${settings.autoCompactionTriggerTokens} · reserve ${settings.autoCompactionReserveTokens} · keep ${settings.autoCompactionKeepRecentTokens}`,
     `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
     `Cookie     ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
     "",

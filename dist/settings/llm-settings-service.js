@@ -48,6 +48,7 @@ export class LlmSettingsService {
             customModel,
             permissionMode: config.permissions.mode,
             autoCompactionEnabled: config.context.autoCompaction.enabled,
+            autoCompactionTriggerTokens: config.context.autoCompaction.triggerTokens,
             autoCompactionReserveTokens: config.context.autoCompaction.reserveTokens,
             autoCompactionKeepRecentTokens: config.context.autoCompaction.keepRecentTokens,
             hasApiKey: await this.#hasApiKey(provider, providerConfig),
@@ -112,6 +113,7 @@ export class LlmSettingsService {
                 ...currentConfig.context,
                 autoCompaction: {
                     enabled: update.autoCompactionEnabled ?? currentConfig.context.autoCompaction.enabled,
+                    triggerTokens: update.autoCompactionTriggerTokens ?? currentConfig.context.autoCompaction.triggerTokens,
                     reserveTokens: update.autoCompactionReserveTokens ?? currentConfig.context.autoCompaction.reserveTokens,
                     keepRecentTokens: update.autoCompactionKeepRecentTokens ?? currentConfig.context.autoCompaction.keepRecentTokens,
                 },

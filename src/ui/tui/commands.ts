@@ -16,7 +16,7 @@ export const TUI_HELP_LINES = [
   "  /config model MODEL  /config thinking LEVEL",
   "  /config endpoint BASE_URL [chat|responses]",
   "  /config permissions ask_risky|ask_all|allow_all|deny",
-  "  /config compact on|off [RESERVE] [KEEP]",
+  "  /config compact on|off [RESERVE] [KEEP] [TRIGGER]",
   "  /config key  /config clear-key",
   "  /config cookie  /config clear-cookie",
   "",

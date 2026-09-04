@@ -5,6 +5,7 @@ export interface ProtocolClientOptions {
     capabilities?: string[];
     cursors?: Record<string, number>;
     maxFrameBytes?: number;
+    maxServerMessageBytes?: number;
     idFactory?: () => string;
 }
 export declare class ProtocolClient {

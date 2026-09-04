@@ -21,6 +21,7 @@
 
 - `ProviderOption = deepseek | openai | custom-openai`
 - `LlmSettings` / `LlmSettingsUpdate`
+- `AutoCompactionConfig = enabled + triggerTokens + reserveTokens + keepRecentTokens`
 - `decodeLlmSettingsUpdate()`
 - `PERMISSION_MODES` / `BYPASS_PERMISSION_MODE` / `permissionModeSummary()`
 - `defaultModelFor()`
@@ -40,6 +41,7 @@
 - Key 与 Cookie 不接受命令行 argv，不回读明文，不进入 renderer/TUI state、日志、会话或 memory；Key 写 `credentials/<provider>.api-key`，Cookie 写 `credentials/<provider>.cookie`（均为 `0600`）。`models.json` 使用 `!cat -- <path>` 引用；Cookie 作为 `headers.Cookie` 在调用 LLM proxy API 时发送。
 - TUI wizard 在最终确认前不写文件，Esc 可取消；`/config key` 与 `/config cookie` 使用遮罩输入。CLI `config key` / `config cookie` 在 TTY 隐藏输入，也允许从 stdin 注入。
 - `permissionMode` 与模型设置走同一 `save()`，写入 `config.permissions.mode`，不改动 `rules` 与 `approvalTimeoutMs`；`allow_all`（CLI/TUI 别名 `bypass`）跳过全部审批，必须在三端都给出风险说明，且不得宣称为沙箱。
+- `autoCompactionTriggerTokens` 是 active context 的直接触发长度，默认 `100000`；达到阈值调用 Pi 原生 `compact()`。`reserveTokens` 仍负责模型 context hard limit 前的安全余量，`keepRecentTokens` 决定压缩后保留内容。三项均限制为正整数且不超过 `1000000`，旧配置缺 `triggerTokens` 时读取默认值。
 - 保存到 owned Daemon 的客户端会安全重启并重连；external Daemon 只提示 restart-required。
 
 ## 常见修改点

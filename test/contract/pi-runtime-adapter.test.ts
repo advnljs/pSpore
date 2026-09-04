@@ -17,6 +17,7 @@ import { Type } from "typebox";
 
 import type { RuntimeEvent, ToolGate } from "../../src/domain/runtime.js";
 import { PiRuntimeAdapter } from "../../src/pi/pi-runtime-adapter.js";
+import type { AutoCompactionConfig } from "../../src/settings/compaction-settings.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -31,6 +32,7 @@ async function fixture(
     toolGate?: ToolGate;
     createTools?: () => readonly ToolDefinition[];
     createSkillPaths?: () => readonly string[] | Promise<readonly string[]>;
+    autoCompaction?: AutoCompactionConfig;
   } = {},
 ) {
   const root = await mkdtemp(join(tmpdir(), "pspore-pi-contract-"));
@@ -53,6 +55,7 @@ async function fixture(
     ...(options.toolGate ? { toolGate: options.toolGate } : {}),
     ...(options.createTools ? { createTools: options.createTools } : {}),
     ...(options.createSkillPaths ? { createSkillPaths: options.createSkillPaths } : {}),
+    ...(options.autoCompaction ? { autoCompaction: options.autoCompaction } : {}),
   });
   cleanups.push(async () => {
     await adapter.disposeAll();
@@ -348,8 +351,36 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
 
     await adapter.compact("main", "Keep the contract-test fact.");
 
-    assert.ok(events.some((event) => event.type === "compaction.started"));
-    assert.ok(events.some((event) => event.type === "compaction.completed"));
+    assert.ok(events.some(
+      (event) => event.type === "compaction.started" && event.payload["reason"] === "manual",
+    ));
+    assert.ok(events.some(
+      (event) => event.type === "compaction.completed" && event.payload["reason"] === "manual",
+    ));
+  });
+
+  test("automatically compacts at the configured direct context-token threshold", async () => {
+    const { adapter, faux, root } = await fixture({
+      autoCompaction: { enabled: true, triggerTokens: 1, reserveTokens: 1, keepRecentTokens: 1 },
+    });
+    faux.setResponses([
+      fauxAssistantMessage("response above the direct threshold"),
+      fauxAssistantMessage("automatic compact summary"),
+    ]);
+    await adapter.create(spec(root));
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+
+    await adapter.prompt("main", "create enough context to compact");
+    await adapter.waitForIdle("main");
+
+    assert.ok(events.some(
+      (event) => event.type === "compaction.started" && event.payload["reason"] === "token_threshold",
+    ));
+    assert.ok(events.some(
+      (event) => event.type === "compaction.completed" && event.payload["reason"] === "token_threshold",
+    ));
+    assert.ok(faux.state.callCount >= 2);
   });
 
   test("reloads trusted skill paths only at a session boundary and keeps full instructions out of the prompt", async () => {

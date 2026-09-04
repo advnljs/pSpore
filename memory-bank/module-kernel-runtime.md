@@ -35,6 +35,7 @@
 - 单 main loop 指单一状态 commit，不指禁止异步 activity。
 - session replacement 后必须重新绑定 Pi 事件订阅。
 - Pi `agent_end` 不是 settled；需要等 retry/compaction/follow-up 全部结束。
+- Daemon 把共享 auto-compaction 设置注入每个新建/恢复 Pi session；Pi 自身按模型上限 reserve 触发，adapter 另在 prompt 前和 turn 完成后读取 `getContextUsage()`，达到 `triggerTokens` 时调用同一个 Pi `compact()`，事件 reason 映射为 `token_threshold`。
 - effect 成功、失败、取消都必须回投事件，不能直接改 state。
 - 当前只完成单 main session 纵切；durable event log、session mapping/resume、run ledger 与多 actor budget 尚未实现。
 

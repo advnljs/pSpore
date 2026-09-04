@@ -52,6 +52,7 @@ describe("config and home initialization", () => {
     };
     assert.deepEqual(parseConfig(legacy, home).context.autoCompaction, {
       enabled: true,
+      triggerTokens: 100_000,
       reserveTokens: 16_384,
       keepRecentTokens: 20_000,
     });
@@ -65,6 +66,24 @@ describe("config and home initialization", () => {
       }, home),
       /reserveTokens must be a positive/,
     );
+  });
+
+  test("upgrades auto-compaction settings that predate the direct token trigger", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    const parsed = parseConfig({
+      ...base,
+      context: {
+        ...base.context,
+        autoCompaction: { enabled: true, reserveTokens: 24_576, keepRecentTokens: 12_288 },
+      },
+    }, home);
+    assert.deepEqual(parsed.context.autoCompaction, {
+      enabled: true,
+      triggerTokens: 100_000,
+      reserveTokens: 24_576,
+      keepRecentTokens: 12_288,
+    });
   });
 
   test("strictly parses MCP transports without accepting inline secrets", () => {

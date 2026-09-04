@@ -398,6 +398,7 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       customBaseUrlEnabled: !document.querySelector('#settings-base-url')?.disabled && Boolean(document.querySelector('#settings-base-url')?.required),
       customApiEnabled: !document.querySelector('#settings-api')?.disabled && document.querySelector('#settings-api')?.value === 'openai-completions',
       autoCompactionControls: document.querySelector('#settings-auto-compaction')?.checked === settings.autoCompactionEnabled
+        && Number(document.querySelector('#settings-compaction-trigger')?.value) === settings.autoCompactionTriggerTokens
         && Number(document.querySelector('#settings-compaction-reserve')?.value) === settings.autoCompactionReserveTokens
         && Number(document.querySelector('#settings-compaction-keep-recent')?.value) === settings.autoCompactionKeepRecentTokens
     };

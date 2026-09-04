@@ -73,6 +73,7 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.match(html, /仅记录文件或目录路径，不读取、不上传内容/);
   assert.match(html, /继续排队/);
   assert.match(html, /id="settings-auto-compaction"/);
+  assert.match(html, /id="settings-compaction-trigger"/);
   assert.match(html, /id="settings-compaction-reserve"/);
   assert.match(html, /id="settings-compaction-keep-recent"/);
   // Only the exact local module entry plus the vendored GSAP build may load;

@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createConnection } from "node:net";
 import { DEFAULT_MAX_FRAME_BYTES, encodeFrame, PROTOCOL_VERSION, } from "./schema.js";
+import { DEFAULT_MAX_SERVER_MESSAGE_BYTES, ServerFrameDecoder, SERVER_FRAME_CHUNKS_CAPABILITY, } from "./server-frame-codec.js";
 export class ProtocolClient {
     #options;
     #idFactory;
+    #decoder;
     #listeners = new Set();
     #connectionListeners = new Set();
     #pendingCommands = new Map();
@@ -15,6 +17,10 @@ export class ProtocolClient {
     constructor(options) {
         this.#options = options;
         this.#idFactory = options.idFactory ?? randomUUID;
+        this.#decoder = new ServerFrameDecoder({
+            maxFrameBytes: options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES,
+            maxMessageBytes: options.maxServerMessageBytes ?? DEFAULT_MAX_SERVER_MESSAGE_BYTES,
+        });
         this.#lastSeq = { ...(options.cursors ?? {}) };
     }
     get hello() {
@@ -29,6 +35,7 @@ export class ProtocolClient {
         const socket = createConnection(this.#options.socketPath);
         this.#socket = socket;
         this.#pending = Buffer.alloc(0);
+        this.#decoder.reset();
         socket.setNoDelay(true);
         socket.on("data", (chunk) => this.#receive(chunk));
         socket.on("error", (error) => this.#disconnect(error));
@@ -44,13 +51,15 @@ export class ProtocolClient {
             };
             this.#resolveHello = resolve;
         });
+        const capabilities = new Set(this.#options.capabilities ?? []);
+        capabilities.add(SERVER_FRAME_CHUNKS_CAPABILITY);
         const frame = {
             v: PROTOCOL_VERSION,
             kind: "hello",
             id: this.#idFactory(),
             clientId: this.#options.clientId,
             supportedVersions: [PROTOCOL_VERSION],
-            capabilities: [...(this.#options.capabilities ?? [])],
+            capabilities: [...capabilities],
             cursors: this.cursors,
         };
         socket.write(encodeFrame(frame));
@@ -104,10 +113,6 @@ export class ProtocolClient {
     #receive(chunk) {
         this.#pending = Buffer.concat([this.#pending, chunk]);
         const maxFrameBytes = this.#options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
-        if (this.#pending.byteLength > maxFrameBytes * 2) {
-            this.#socket?.destroy(new Error("Server exceeded protocol buffer limit"));
-            return;
-        }
         for (;;) {
             const delimiter = this.#pending.indexOf(0x0a);
             if (delimiter < 0)
@@ -118,22 +123,21 @@ export class ProtocolClient {
                 this.#socket?.destroy(new Error("Server frame exceeded protocol limit"));
                 return;
             }
-            this.#handleServerFrame(line);
+            try {
+                const frame = this.#decoder.decode(line);
+                if (frame)
+                    this.#handleServerFrame(frame);
+            }
+            catch (error) {
+                this.#socket?.destroy(toError(error));
+                return;
+            }
+        }
+        if (this.#pending.byteLength > maxFrameBytes) {
+            this.#socket?.destroy(new Error("Server frame exceeded protocol limit"));
         }
     }
-    #handleServerFrame(line) {
-        let frame;
-        try {
-            frame = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(line));
-        }
-        catch {
-            this.#socket?.destroy(new Error("Server sent invalid protocol JSON"));
-            return;
-        }
-        if (frame.v !== PROTOCOL_VERSION) {
-            this.#socket?.destroy(new Error("Server protocol version is unsupported"));
-            return;
-        }
+    #handleServerFrame(frame) {
         if (frame.kind === "hello_ack") {
             if (this.#hello) {
                 this.#socket?.destroy(new Error("Server sent duplicate hello acknowledgement"));
@@ -173,6 +177,7 @@ export class ProtocolClient {
         const wasConnected = this.#socket !== undefined || this.#hello !== undefined;
         this.#socket = undefined;
         this.#hello = undefined;
+        this.#decoder.reset();
         this.#resolveHello = undefined;
         this.#helloWaiter?.reject(error);
         this.#helloWaiter = undefined;
@@ -184,5 +189,8 @@ export class ProtocolClient {
                 listener(false, error);
         }
     }
+}
+function toError(error) {
+    return error instanceof Error ? error : new Error(String(error));
 }
 //# sourceMappingURL=client.js.map

@@ -118,9 +118,13 @@ export function parseConfig(value, home) {
 }
 function parseAutoCompaction(value) {
     const compaction = object(value, "config.context.autoCompaction");
-    exactShape(compaction, ["enabled", "reserveTokens", "keepRecentTokens"], [], "config.context.autoCompaction");
+    // `triggerTokens` is optional on read for homes created before pSpore 0.1.14.
+    exactShape(compaction, ["enabled", "reserveTokens", "keepRecentTokens"], ["triggerTokens"], "config.context.autoCompaction");
     return {
         enabled: boolean(compaction["enabled"], "config.context.autoCompaction.enabled"),
+        triggerTokens: compaction["triggerTokens"] === undefined
+            ? DEFAULT_AUTO_COMPACTION.triggerTokens
+            : boundedPositiveInteger(compaction["triggerTokens"], "config.context.autoCompaction.triggerTokens", MAX_COMPACTION_TOKENS),
         reserveTokens: boundedPositiveInteger(compaction["reserveTokens"], "config.context.autoCompaction.reserveTokens", MAX_COMPACTION_TOKENS),
         keepRecentTokens: boundedPositiveInteger(compaction["keepRecentTokens"], "config.context.autoCompaction.keepRecentTokens", MAX_COMPACTION_TOKENS),
     };

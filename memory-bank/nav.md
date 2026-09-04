@@ -16,6 +16,7 @@
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
+| `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
 | `src/daemon/supervisor.ts` | Electron smoke 隔离使用的临时 Daemon owned/external 生命周期管理 |
@@ -96,7 +97,7 @@
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
 - 会话：GUI 左栏 `＋`；TUI `/new [TITLE]`、`/select ID`、`/send-now N`；CLI `sessions`、`session new [TITLE]`、`prompt --session ID TEXT`。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。
-- 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP]`；CLI `config compact on|off [RESERVE] [KEEP]`。保存于 `config.context.autoCompaction`，服务重启后应用。
+- 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP] [TRIGGER]`；CLI `config compact on|off [RESERVE] [KEEP] [TRIGGER]`。`TRIGGER` 是直接 active-context token 长度，默认 100000；保存于 `config.context.autoCompaction`，服务重启后应用。
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。
 - Electron 自动验收：`npm run test:electron`（Linux `xvfb-run`；自动验证 owned/external Daemon、双主题、设置、三档 PC 布局、字号和安全边界；`PSPORE_KEEP_SMOKE=1` 保留证据）。

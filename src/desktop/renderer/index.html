@@ -274,10 +274,11 @@
               <span><b>启用自动 compact</b><small>达到模型上下文上限前自动生成摘要并继续会话。</small></span>
             </label>
             <div class="field-grid two-columns">
-              <label><span>触发预留 tokens</span><input id="settings-compaction-reserve" name="autoCompactionReserveTokens" type="number" min="1" max="1000000" step="1024" required /></label>
-              <label><span>保留最近 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+              <label><span>触发上下文 tokens</span><input id="settings-compaction-trigger" name="autoCompactionTriggerTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+              <label><span>模型上限预留 tokens</span><input id="settings-compaction-reserve" name="autoCompactionReserveTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+              <label><span>压缩后保留 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1024" required /></label>
             </div>
-            <p class="settings-field-note">预留值越大越早触发；保留值越大，compact 后保留的近期对话越多。保存后由系统服务重启应用到所有 session。</p>
+            <p class="settings-field-note">达到触发长度，或距离模型上限只剩预留量时（以更早者为准）自动 compact。保存后由系统服务重启应用到所有 session。</p>
           </section>
 
           <section class="settings-section">

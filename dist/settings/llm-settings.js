@@ -35,7 +35,10 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
     exactShape(input, [
         "provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode",
         "clearApiKey", "clearCookie",
-    ], ["apiKey", "cookie", "autoCompactionEnabled", "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens"], label);
+    ], [
+        "apiKey", "cookie", "autoCompactionEnabled", "autoCompactionTriggerTokens",
+        "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens",
+    ], label);
     const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
     const model = modelIdentifier(input["model"], `${label}.model`, true);
     const baseUrl = optionalString(input["baseUrl"], `${label}.baseUrl`, 2_048);
@@ -66,6 +69,7 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
     if (cookie && clearCookie)
         throw new Error(`${label} cannot set and clear the cookie together`);
     const autoCompactionEnabled = optionalBooleanValue(input["autoCompactionEnabled"], `${label}.autoCompactionEnabled`);
+    const autoCompactionTriggerTokens = optionalBoundedPositiveInteger(input["autoCompactionTriggerTokens"], `${label}.autoCompactionTriggerTokens`, MAX_COMPACTION_TOKENS);
     const autoCompactionReserveTokens = optionalBoundedPositiveInteger(input["autoCompactionReserveTokens"], `${label}.autoCompactionReserveTokens`, MAX_COMPACTION_TOKENS);
     const autoCompactionKeepRecentTokens = optionalBoundedPositiveInteger(input["autoCompactionKeepRecentTokens"], `${label}.autoCompactionKeepRecentTokens`, MAX_COMPACTION_TOKENS);
     return {
@@ -77,6 +81,7 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         customModel,
         permissionMode: enumeration(input["permissionMode"], PERMISSION_MODES, `${label}.permissionMode`),
         ...(autoCompactionEnabled === undefined ? {} : { autoCompactionEnabled }),
+        ...(autoCompactionTriggerTokens === undefined ? {} : { autoCompactionTriggerTokens }),
         ...(autoCompactionReserveTokens === undefined ? {} : { autoCompactionReserveTokens }),
         ...(autoCompactionKeepRecentTokens === undefined ? {} : { autoCompactionKeepRecentTokens }),
         ...(apiKey ? { apiKey } : {}),

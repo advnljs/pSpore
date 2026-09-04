@@ -112,6 +112,7 @@ const elements = {
     settingsPermissionHelp: byId("settings-permission-help"),
     settingsPermissionWarning: byId("settings-permission-warning"),
     settingsAutoCompaction: byId("settings-auto-compaction"),
+    settingsCompactionTrigger: byId("settings-compaction-trigger"),
     settingsCompactionReserve: byId("settings-compaction-reserve"),
     settingsCompactionKeepRecent: byId("settings-compaction-keep-recent"),
     settingsApiKey: byId("settings-api-key"),
@@ -472,6 +473,7 @@ function populateSettings(settings) {
     elements.settingsThinking.value = settings.thinking;
     elements.settingsPermissionMode.value = settings.permissionMode;
     elements.settingsAutoCompaction.checked = settings.autoCompactionEnabled;
+    elements.settingsCompactionTrigger.value = String(settings.autoCompactionTriggerTokens);
     elements.settingsCompactionReserve.value = String(settings.autoCompactionReserveTokens);
     elements.settingsCompactionKeepRecent.value = String(settings.autoCompactionKeepRecentTokens);
     configurePermissionFields();
@@ -491,6 +493,7 @@ async function saveSettings() {
         customModel: elements.settingsProvider.value === "custom-openai",
         permissionMode: elements.settingsPermissionMode.value,
         autoCompactionEnabled: elements.settingsAutoCompaction.checked,
+        autoCompactionTriggerTokens: elements.settingsCompactionTrigger.valueAsNumber,
         autoCompactionReserveTokens: elements.settingsCompactionReserve.valueAsNumber,
         autoCompactionKeepRecentTokens: elements.settingsCompactionKeepRecent.valueAsNumber,
         ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
