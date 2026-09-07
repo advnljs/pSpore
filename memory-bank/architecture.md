@@ -108,3 +108,5 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **瞬时事件背压契约**：`EventEnvelope.skipped` 是可选的“本连接在这条事件之前被丢弃的瞬时事件数”。网关在 socket 需要 drain 时丢弃非 durable 事件并计数，durable 事件永不丢弃（超限仍会断开慢客户端）。客户端的期望序号因此是 `cursor + 1 + skipped`，背压不再被误判为事件缺口。这消除了长任务中“丢连接—重连”循环的根因。
 - **界面连接稳定期**：GUI/TUI store 各自维护 2 秒 settle window，向视图暴露 `stableConnection`/`reconnecting`。窗口内的重连保持呈现为已连接（仅指示灯提示），超时才如实降级；GUI 对尚未写入 socket 的命令在该窗口内自动重试一次。
 - **overlay 边界**：overlay payload = 完整安装目录减去 Electron/Chromium 运行时清单，升级时在安装根目录整体替换。运行时版本/架构必须与目标完全一致，否则在写入前拒绝。升级后重跑随包的快捷方式安装器，保证已有桌面快捷方式指向本次升级的目录。
+
+- **发版触发**：`main` 上的 CI 在 `check` 通过后运行 `release` job。它以 `package.json` 版本是否已有 tag/Release 作为唯一开关：已存在则跳过，不存在则等待同 commit 的 ARM64 preview 成功，再创建 annotated `v<version>` 并显式 `gh workflow run "Release desktop" --ref <tag>`。显式派发是必需的——用 `GITHUB_TOKEN` 推送的 tag 不会触发 `on: push: tags`，`workflow_dispatch` 是 `GITHUB_TOKEN` 仍可触发的事件。`scripts/release.sh` 保留为“先在本机完整打包验证再打 tag”的手动路径，两条路径都受同一套不可变校验保护。

@@ -12,8 +12,15 @@ usage() {
   cat <<EOF
 Usage: $0 <version> [--prerelease]
 
-Builds and validates the Linux x86_64 release candidate, creates an immutable
-version tag, and pushes it. GitHub Actions then publishes x64 and ARM64 assets.
+Manual release path. Normally you do not need this: pushing a package.json
+version bump to main makes the CI "release" job tag the commit and start the
+Release workflow on its own (set the repository variable AUTO_RELEASE=false to
+turn that off).
+
+Use this script when you want the full x86_64 package built and verified on
+your own machine before the tag exists. It builds and validates the Linux
+x86_64 release candidate, creates an immutable version tag, and pushes it.
+GitHub Actions then publishes x64 and ARM64 assets.
 
 Examples:
   $0 0.1.0

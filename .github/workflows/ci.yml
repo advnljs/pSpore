@@ -36,3 +36,141 @@ jobs:
 
       - name: Verify committed dist matches the build
         run: git diff --exit-code -- dist
+
+  release:
+    name: Tag and release a new version
+    needs: check
+    # Only a push to main can release, and only when package.json carries a
+    # version that has never been tagged. A version bump is the opt-in; every
+    # other commit skips this job. Set the repository variable AUTO_RELEASE to
+    # "false" to disable it without editing this workflow.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.AUTO_RELEASE != 'false'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Decide whether this commit releases
+        id: decide
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION="$(node -p "require('./package.json').version")"
+          SOURCE_VERSION="$(node -p "(/PSPORE_VERSION = \"([^\"]+)\"/.exec(require('node:fs').readFileSync('src/version.ts','utf8')) || [])[1] || ''")"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "package.json version ${VERSION} is not a release SemVer"
+            exit 1
+          fi
+          if [[ "$SOURCE_VERSION" != "$VERSION" ]]; then
+            echo "src/version.ts (${SOURCE_VERSION}) does not match package.json (${VERSION})"
+            exit 1
+          fi
+          TAG="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; nothing to release for this commit."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists; refusing to republish an immutable version."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "Version ${VERSION} has no tag or Release yet; this commit will be released."
+          echo "release=true" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for the native ARM64 build of this commit
+        if: steps.decide.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The release workflow rebuilds ARM64 itself, but a tag is immutable:
+          # letting a commit through that cannot build on ARM64 would burn the
+          # version. Reuse the preview build that already runs on main.
+          DEADLINE=$(( SECONDS + 1800 ))
+          FIRST_SEEN_DEADLINE=$(( SECONDS + 300 ))
+          while :; do
+            RUN="$(gh run list --workflow "Package Linux ARM64" --commit "$GITHUB_SHA" \
+              --json status,conclusion --limit 1 \
+              --jq '.[0] | "\(.status) \(.conclusion // "")"' || true)"
+            if [[ -z "$RUN" ]]; then
+              if (( SECONDS > FIRST_SEEN_DEADLINE )); then
+                echo "No ARM64 preview run for ${GITHUB_SHA}; the release workflow will build ARM64 itself."
+                exit 0
+              fi
+              sleep 15
+              continue
+            fi
+            read -r STATUS CONCLUSION <<< "$RUN"
+            if [[ "$STATUS" == "completed" ]]; then
+              if [[ "$CONCLUSION" == "success" ]]; then
+                echo "ARM64 preview build succeeded for ${GITHUB_SHA}."
+                exit 0
+              fi
+              echo "ARM64 preview build concluded '${CONCLUSION}'; refusing to tag a version that cannot ship on ARM64."
+              exit 1
+            fi
+            if (( SECONDS > DEADLINE )); then
+              echo "Timed out waiting for the ARM64 preview build of ${GITHUB_SHA}."
+              exit 1
+            fi
+            sleep 20
+          done
+
+      - name: Tag the commit and start the Release workflow
+        if: steps.decide.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # Tagging and dispatching live in one step so a cancelled run cannot
+          # leave a pushed tag with no Release building behind it.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Release ${TAG}"
+          git push origin "refs/tags/${TAG}"
+          echo "Pushed annotated tag ${TAG} at ${GITHUB_SHA}."
+
+          # A tag pushed with GITHUB_TOKEN does not fire `on: push: tags`;
+          # workflow_dispatch is the one event GITHUB_TOKEN may still trigger.
+          gh workflow run "Release desktop" --ref "$TAG"
+          for _ in $(seq 1 20); do
+            RUN_ID="$(gh run list --workflow "Release desktop" --limit 20 \
+              --json databaseId,headBranch \
+              --jq "[.[] | select(.headBranch == \"${TAG}\")][0].databaseId // empty" || true)"
+            if [[ -n "$RUN_ID" ]]; then
+              echo "Release workflow queued: $(gh run view "$RUN_ID" --json url --jq .url)"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "Tag ${TAG} was pushed but no Release run started. Dispatch it manually:"
+          echo "  gh workflow run 'Release desktop' --ref ${TAG}"
+          exit 1
+
+      - name: Summarize
+        if: always() && steps.decide.outcome == 'success'
+        env:
+          RELEASING: ${{ steps.decide.outputs.release }}
+          TAG: ${{ steps.decide.outputs.tag }}
+        run: |
+          if [[ "$RELEASING" == "true" ]]; then
+            echo "Released ${TAG}; assets are built by the Release desktop workflow." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "package.json version is already released; nothing to do." >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -12,7 +12,7 @@
 | `docs/adr/0001-runtime-and-pi-baseline.md` | Node 24、Pi/Electron 锁定与 Phase 0 兼容决策 |
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择 |
-| `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查 |
+| `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查；`main` 上额外的 `release` job 在 `package.json` 版本尚无 tag 时自动创建 annotated tag 并派发 Release workflow |
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
@@ -90,6 +90,7 @@
 - 测试：`npm test`
 - 构建：`npm run build`
 - 全量阶段检查：`npm run check`
+- 发版：把 `package.json` 与 `src/version.ts` 的版本一起提升并推送 `main`，CI 的 `release` job 会在 `check` 通过、同 commit 的 ARM64 preview 成功后创建 annotated `v<version>` 并派发 `Release desktop`；版本未变更的提交不会发版。关闭方式是设置仓库变量 `AUTO_RELEASE=false`。需要先在本机完整打包验证时仍可用 `bash scripts/release.sh <version>`。
 - 源码 CLI：`npm run dev -- <command>`；构建后 CLI：`node dist/cli/main.js <command>`。
 - 初始化：`npm run dev -- init`。
 - 系统服务：`npm run dev -- service install|status|restart|logs|stop|uninstall`；生产 GUI/TUI 会自动 `enable --now`，退出壳层不停止服务。unit 生成入口为 `src/service/system-service.ts`，可用 `systemd-analyze --user verify pspore.service` 验证兼容性。
