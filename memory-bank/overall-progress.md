@@ -803,3 +803,11 @@
 - 验证方式与结果：`yaml.safe_load` 解析通过，两个 job 结构正确；对 job 内每段 `run` 脚本单独执行 `bash -n` 均通过；版本抽取一行式在本地实测得到 `package.json=0.1.15 / src/version.ts=0.1.15` 并匹配，SemVer 守卫正确接受 `0.1.15`/`0.2.0-rc.1` 并拒绝 `1.0`/`abc`；两条 `gh` 查询按 job 中完全相同的形式对真实仓库实测——ARM64 查询对 `4ccee4c` 返回 `completed success`，Release run 按 `headBranch == "v0.1.14"` 正确解析到 run `33855210573`，证实 tag 触发的 run 其 `headBranch` 就是 tag 名。仓库允许 `contents: write` 有既有证据：`release.yml` 的 `publish-release` job 已用同一权限成功发布过 `v0.1.13`/`v0.1.14`。
 - 当前状态：本次提交推送 `main` 后，`release` job 会对尚无 tag 的 `0.1.15` 生效，自动打 `v0.1.15` 并派发 Release workflow。
 - 遗留问题：`release` job 本身尚未在真实 CI 上跑过，首次运行即为本次；如果 `gh workflow run` 因仓库 Actions 设置被拒，job 会失败并提示手动派发命令，tag 已存在时需改用 `gh workflow run 'Release desktop' --ref v0.1.15` 补发。本轮未改动 Electron smoke 相关的既有待办。
+
+
+## 2026-09-07 CST — overlay 打包守卫加固
+
+- 起因：本地对 `package-desktop.sh` 的 overlay payload 构造做 dry-run（用真实 0.1.14 包布局做 fixture）时发现，"payload 不得含运行时条目"的断言遍历的是**与拷贝同一份** `ELECTRON_RUNTIME_ENTRIES`，因此只能发现拷贝 bug，永远发现不了清单过期。而清单过期正是真正危险的情形：Electron 新增或改名一个顶层文件后，它会静默进入 overlay，从而替换掉 overlay 承诺不碰的 Chromium 运行时。
+- 完成内容：新增与清单无关的独立守卫——payload 根目录只允许 `resources`、`*.sh`、`*.txt`，出现任何其他顶层条目立即失败并提示应加入运行时清单还是应用白名单；另加一条"payload 根目录不得含 ELF/可执行镜像"的检查（`resources/app.asar.unpacked` 下的原生 `.node` 不在范围内，属于合法内容）。
+- 验证方式与结果：以真实 `release-dist/pspore-desktop-0.1.14-linux-x64` 的目录布局构造 fixture，把 `package-desktop.sh` 中的 payload 构造段原样抽出执行。正常包产出恰好为 `resources/`、`创建桌面快捷方式.sh`、`安装说明.txt`，排除了全部 Chromium 条目且 `0755` 权限保留；删掉清单中的 `pspore-desktop` 模拟清单过期 → 加固前 exit 0（漏过），加固后正确失败；凭空新增 `libnewthing.so` → 正确失败；缺少快捷方式安装器、缺少 `app.asar` 两个既有守卫也分别正确失败。
+- 当前状态：`scripts/package-desktop.sh` 已加固，`release-scripts` 集成测试仍全部通过。

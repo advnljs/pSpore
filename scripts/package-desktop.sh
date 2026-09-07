@@ -165,6 +165,28 @@ for runtime in "${ELECTRON_RUNTIME_ENTRIES[@]}"; do
     exit 1
   fi
 done
+# The loop above shares the exclusion list with the copy, so it can only catch a
+# copy bug — never a stale list. This allowlist is the independent check: if
+# Electron ever ships a new top-level file, packaging fails here instead of
+# silently pushing a runtime file into an overlay that promises not to touch it.
+while IFS= read -r -d '' entry; do
+  name="$(basename -- "$entry")"
+  case "$name" in
+    resources|*.sh|*.txt) ;;
+    *)
+      echo "Error: unexpected top-level overlay payload entry '${name}'."
+      echo "       Add it to ELECTRON_RUNTIME_ENTRIES if it belongs to the Chromium runtime,"
+      echo "       or to this allowlist if it is genuinely part of the application payload."
+      exit 1
+      ;;
+  esac
+done < <(find "$STAGE_OVERLAY/payload" -mindepth 1 -maxdepth 1 -print0)
+# No executable image belongs at the payload root; native .node files under
+# resources/app.asar.unpacked are legitimate and deliberately not covered here.
+if find "$STAGE_OVERLAY/payload" -maxdepth 1 -type f -exec file {} + | grep -E "ELF|executable"; then
+  echo "Error: overlay payload root must not contain executable images"
+  exit 1
+fi
 echo "--- overlay payload entries: $(find "$STAGE_OVERLAY/payload" -mindepth 1 -maxdepth 1 -printf '%f ')"
 node - "$STAGE_OVERLAY/payload" "$VERSION" "$BUILT_ELECTRON_VERSION" "$BUILT_ARCH" <<'NODE' > "$STAGE_OVERLAY/overlay-manifest.json"
 const { createHash } = require("node:crypto");
