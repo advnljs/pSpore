@@ -858,3 +858,12 @@
 - **可诊断性**：`src/desktop/main.ts` 增加渲染器诊断缓冲（console-message / did-fail-load / preload-error / render-process-gone），`waitForRenderer` 超时时一并抛出，避免下次只看到一句无信息的 timeout。
 - 验证：`npm run check` 176/176 通过。版本保持 `0.1.16`（此前的 tag 被安全门拒绝，未被消耗）。
 - 反思：我先前判断"ARM 失败与我的改动无关"是错的。依据是一个纯文档提交也失败、而 v0.1.15 的 Release 用同一 workflow 构建 ARM 成功；但重跑两次仍失败推翻了该判断，最终静态追踪 import 图定位到确实是本轮改动引入。
+
+
+## 2026-09-07 CST — 打包环节两处自伤修复
+
+- 上一轮的渲染器修复**生效了**：ARM64 run 34097102036 的「Run Electron desktop smoke」步骤成功，失败点前移到「Package ARM64」。
+- **自伤 1：overlay 的 ELF 守卫误伤 shell 脚本**。我加的独立守卫用 `grep -E "ELF|executable"`，而 `file` 对 shell 脚本的描述是 `Bourne-Again shell script, ASCII text executable` —— 含 "executable"，于是随包的 `创建桌面快捷方式.sh` 直接把打包打挂。改为只匹配 `": *ELF "`。**此前的 fixture 用的是零字节 .sh 文件，`file` 报 "empty"，所以完全没覆盖到**；现在 fixture 改用真实内容（真 shell 脚本 + 真 ELF），并验证旧写法在该 fixture 下确实失败、新写法通过、放入真实二进制时仍被拒绝。
+- **自伤 2：ARM 构建容器没有 `unzip`**。fetch 脚本硬性要求它。改用 python3 的 `zipfile`（脚本本就依赖 python3 读 manifest），并显式从 `external_attr` 还原权限位。已在把 `unzip` 屏蔽成 exit 127 的 PATH 下实测跑通：校验 → 裁剪 59MB→51MB → 安装 → 二进制可执行。
+- 同时验证：skill 二进制位于 `payload/resources/app.asar.unpacked/dist/bundled-skills/...`，确实在 overlay payload 内 —— 即 overlay 升级会一并替换索引器（此前只是推断，现已由 fixture 证实）。
+- 验证：`npm run check` 176/176。

@@ -192,10 +192,12 @@ while IFS= read -r -d '' entry; do
       ;;
   esac
 done < <(find "$STAGE_OVERLAY/payload" -mindepth 1 -maxdepth 1 -print0)
-# No executable image belongs at the payload root; native .node files under
-# resources/app.asar.unpacked are legitimate and deliberately not covered here.
-if find "$STAGE_OVERLAY/payload" -maxdepth 1 -type f -exec file {} + | grep -E "ELF|executable"; then
-  echo "Error: overlay payload root must not contain executable images"
+# No compiled binary belongs at the payload root. The match is on "ELF"
+# specifically: `file` describes a shell script as "ASCII text executable", and
+# 创建桌面快捷方式.sh is supposed to be there. Native .node files under
+# resources/app.asar.unpacked are legitimate and deliberately out of scope.
+if find "$STAGE_OVERLAY/payload" -maxdepth 1 -type f -exec file {} + | grep -E ": *ELF "; then
+  echo "Error: overlay payload root must not contain compiled binaries"
   exit 1
 fi
 echo "--- overlay payload entries: $(find "$STAGE_OVERLAY/payload" -mindepth 1 -maxdepth 1 -printf '%f ')"

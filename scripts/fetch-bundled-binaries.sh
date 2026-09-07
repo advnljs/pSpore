@@ -35,7 +35,7 @@ if [[ ! -f "$MANIFEST" ]]; then
   echo "Error: missing ${MANIFEST}" >&2
   exit 1
 fi
-for tool in unzip python3; do
+for tool in python3; do
   command -v "$tool" >/dev/null || { echo "Error: ${tool} is required" >&2; exit 1; }
 done
 # A private upstream repository serves release assets only to authenticated
@@ -103,7 +103,17 @@ for entry in "${ENTRIES[@]}"; do
 
   rm -rf "$WORK/extract"
   mkdir -p "$WORK/extract"
-  unzip -q "$WORK/${ASSET}" -d "$WORK/extract"
+  # python3 rather than unzip: the ARM build container has no unzip, and python3
+  # is already required for reading the manifest.
+  python3 - "$WORK/${ASSET}" "$WORK/extract" <<'UNZIP'
+import sys, zipfile, os
+with zipfile.ZipFile(sys.argv[1]) as archive:
+    for info in archive.infolist():
+        extracted = archive.extract(info, sys.argv[2])
+        mode = info.external_attr >> 16
+        if mode:
+            os.chmod(extracted, mode & 0o7777)
+UNZIP
 
   BINARY="$(find "$WORK/extract" -type f -path "*/${BINARY_PATH}" -print -quit)"
   if [[ -z "$BINARY" ]]; then
