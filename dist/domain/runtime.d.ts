@@ -102,6 +102,23 @@ export interface TranscriptPage {
     messages: readonly RuntimeMessage[];
 }
 /**
+ * One message's text, sliced. A message can be far longer than the daemon will
+ * publish in a single string, so reading one in full is a paged request rather
+ * than one oversized frame.
+ */
+export interface TranscriptMessageSlice {
+    /** Persisted branch entry id, when the message has one. */
+    id?: string;
+    /** Index of the message within the full transcript. */
+    index: number;
+    role: string;
+    /** Character offset of `text` within the whole message. */
+    offset: number;
+    /** Total characters the message holds. */
+    length: number;
+    text: string;
+}
+/**
  * One addressable entry of a conversation. Streaming updates name the item they
  * belong to, so a delta never has to be described by re-sending the transcript
  * around it. Pi's own client/server protocol, Codex and OpenClaw all address
@@ -168,6 +185,17 @@ export interface AgentRuntimePort {
         from?: number;
         limit: number;
     }): TranscriptPage;
+    /**
+     * One transcript message's untruncated text, in slices. Addressed by branch
+     * entry id when the caller has one, because an index shifts as a run appends
+     * to the transcript underneath it.
+     */
+    transcriptMessage(sessionId: SessionId, options: {
+        id?: string;
+        index?: number;
+        offset?: number;
+        limit: number;
+    }): TranscriptMessageSlice;
     subscribe(sessionId: SessionId, sink: (event: RuntimeEvent) => void): () => void;
     waitForIdle(sessionId: SessionId): Promise<void>;
     dispose(sessionId: SessionId): Promise<void>;

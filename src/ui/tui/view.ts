@@ -31,6 +31,11 @@ export interface TuiRenderOptions {
   secretInput?: boolean;
   color?: boolean;
   animationFrame?: number;
+  /**
+   * Called when the requested window reaches past every message loaded, which
+   * is the only moment older history is worth fetching.
+   */
+  onHistoryExhausted?: () => void;
 }
 
 interface Question {
@@ -78,6 +83,10 @@ export class PsporeTuiView implements Component, Focusable {
       : this.#input.render(Math.max(1, width - 22))[0] ?? "";
     return renderTuiSnapshot(state, width, this.#options.height(), input, {
       scrollOffset: this.#scrollOffset,
+      // Broadcasts carry only the newest messages, so the page before them is
+      // requested when the reader scrolls past everything already loaded —
+      // not on every PageUp, which would pull in history nobody is reading.
+      onHistoryExhausted: () => this.#options.onScrollBack?.(),
       color: process.env["NO_COLOR"] === undefined && process.env["TERM"] !== "dumb",
       animationFrame: Math.floor(Date.now() / 120),
       ...(this.#question ? { promptLabel: this.#question.label, secretInput: this.#question.secret } : {}),
@@ -99,9 +108,6 @@ export class PsporeTuiView implements Component, Focusable {
       this.#scrollOffset = this.#options.state().panel
         ? Math.max(0, this.#scrollOffset - Math.max(4, this.#options.height() - 14))
         : this.#scrollOffset + Math.max(4, this.#options.height() - 14);
-      // Broadcasts carry only the newest messages, so reading further back has
-      // to ask the daemon for the page before them.
-      if (!this.#options.state().panel) this.#options.onScrollBack?.();
       this.#options.requestRender();
       return;
     }
@@ -214,7 +220,7 @@ export function renderTuiSnapshot(
     // The conversation label stays pinned at the top while messages grow upward from the prompt.
     const rows = Math.max(1, bodyRows - 1);
     const heading = `${paint("CONVERSATION", "section", color)}  ${paint(shortId(state.selectedSessionId), "lichen", color)}`;
-    const content = renderTranscriptWindow(state, mainWidth, color, animationFrame, rows, offset);
+    const content = renderTranscriptWindow(state, mainWidth, color, animationFrame, rows, offset, options.onHistoryExhausted);
     main = [heading, ...anchorBottom(content, rows)];
   }
   let body: string[];
@@ -324,6 +330,7 @@ function renderTranscriptWindow(
   animationFrame: number,
   rows: number,
   offset: number,
+  onHistoryExhausted?: () => void,
 ): string[] {
   const selected = state.kernel.sessions[state.selectedSessionId];
   const targetLines = Math.max(rows + Math.max(0, offset) + 8, rows);
@@ -366,6 +373,9 @@ function renderTranscriptWindow(
     messageChunks.unshift(chunk);
     collectedLines += chunk.length;
   }
+  // Every loaded message was formatted and the window still is not filled: the
+  // reader has scrolled past everything this client holds.
+  if (offset > 0 && collectedLines < targetLines) onHistoryExhausted?.();
   const content = [...messageChunks.flat(), ...tail];
   return windowLines(content, rows, offset);
 }

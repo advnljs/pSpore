@@ -1012,3 +1012,25 @@
   - 压测（同一场景）：1036 ms、0 次断开、单客户端 5.9 MiB、堆 124 MiB。
 - 当前状态：三阶段完成。事件只描述变化，快照与会话长度解耦，历史按需分页且比改造前更完整（compaction 不再吞掉可见历史）。
 - 遗留：GUI 回溯的实机滚动手感只有 CI 的 Electron smoke 覆盖，本机无 `xvfb-run`/`libnspr4`；`limits.ts` 的整体预算现在只是安全网，正常路径不会触发。
+
+
+## 2026-09-08 CST — 三阶段改造复审修复与单条超长消息按需取全文（`0.1.18`）
+
+- 阶段目标：复审 `391efff` 之后三个提交（`4626e5e`/`2d172a7`/`c99b745`）引入的问题，并实现 todo 里的"单条超长消息仍按 64 KiB 截断显示"。
+- 复审发现并修复：
+  - **回溯的历史会被下一次权威尾窗丢掉**（P1，`src/ui/shared/protocol-state.ts`）：`run.settled`/`compaction.completed` 携带 200 条尾窗时，客户端整体替换 `messages`，读者刚翻上来的历史立刻消失、视口跳动。改为 `mergeScrollback()`：同一 `upstreamSessionId` 且旧前缀能接上新尾窗时保留前缀；`session.replaced` 会重编号，因此仍整体替换。
+  - **`p-spore sessions` 的消息数被尾窗截断**（P2，`src/cli/main.ts:889`）：`session.messages.length` 最大只有 200，改用 `session.messageCount`。
+  - **`firstUserText` 缓存了"没找到"**（P2，`src/pi/pi-runtime-adapter.ts`）：新会话在第一条用户消息之前被 snapshot 时会把 `""` 永久缓存，此后标题回退永远拿不到首条用户消息。改为只缓存已经找到的值。
+  - **回填历史会重放尾部消息的入场动画**（P3，`src/desktop/renderer/renderer.ts`）：`messages.length > previousCount` 把"前插 200 条"误判为"尾部新增 200 条"。改为比较绝对位置 `messageOffset + length`。
+  - **TUI 每次 PageUp 都请求一页历史**（P3，`src/ui/tui/view.ts`）：不管有没有翻到已加载的最旧一条都发请求。改为由渲染发现"窗口已越过全部已加载消息"时才回调 `onHistoryExhausted`。
+- 单条超长消息按需取全文：
+  - `limits.ts` 新增 `publishedTextTruncation()`，解析 `boundPublishedText()` 自己写下的截断标记；标记格式仍只有一处定义。
+  - `AgentRuntimePort` 新增 `transcriptMessage(sessionId, {id|index, offset, limit})`，按持久化 branch entry id 定位（index 作为回退），**分片**返回原文；单片上限等于 `MAX_PUBLISHED_STRING_CHARS`，因此出站不会被二次截断。
+  - 新命令 `session.message`，desktop IPC 同步加入允许列表并做边界校验。
+  - GUI：被截断的消息下方出现"仅显示前 N / M 个字符 · 载入全文"；点击后由共享的 `readFullMessage()` 逐片取回、拼接、就地替换重渲染；失败按钮回到"重试载入全文"。已恢复的全文按 session+entry 缓存，最多保留 4 条。
+- 修改文件：`src/protocol/limits.ts`、`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/application/agent-application.ts`、`src/ui/shared/{protocol-state,full-message}.ts`、`src/ui/tui/view.ts`、`src/desktop/{ipc-contract,main,smoke-fixture}.ts`、`src/desktop/renderer/{renderer.ts,styles.css}`、`src/cli/main.ts`、`src/version.ts`、`package.json`、相应测试、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：**205 项、201 通过、4 跳过、0 失败**（严格 typecheck + 全量测试 + production build）。新增用例：权威尾窗到达时保留回溯历史且 `session.replaced` 仍整体替换；`session.message` 端到端把 300 000 字符消息分 5 片取回并与原文逐字相等，id 缺失时报错；adapter contract 按 entry id 分片读取；`readFullMessage` 的多片拼接、错位拒绝与空片保护；`publishedTextTruncation` 的正反例；desktop IPC 对 `session.message` 的边界与必填校验；TUI 只在越过已加载历史时请求下一页。
+  - `npm run test:electron`：**本机实跑通过**（此前 todo 记录本机缺 `xvfb-run`/`libnspr4`，本轮确认两者均已具备，`electron` 二进制经 npmmirror 下载）。`1920×1080` 主基准 + `1440×900`/`1180×720` 补测、双主题、owned/external Daemon、重连与 IPC allowlist 全部通过；新增两条断言：截断消息渲染出"载入全文"入口，且被拒绝的载入会把按钮恢复为"重试载入全文"。截图已人工复核（深/浅两套主题下提示行与按钮排版正确）。
+- 当前状态：`0.1.18` 已在本机完成全量检查与 Electron 实机验收，等待 CI 创建 `v0.1.18` 与双架构 Release。
+- 遗留：TUI 侧未提供"载入全文"入口（TUI 本身按宽度截行，价值低）；守护进程对每个非瞬时事件仍会渲染 200 条尾窗，虽然与会话长度无关，但对非结算事件是白做的。两项已记入 `todo.md`。

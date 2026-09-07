@@ -1,6 +1,8 @@
 /// <reference lib="DOM" />
+import { publishedTextTruncation } from "../../protocol/limits.js";
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
+import { readFullMessage } from "../../ui/shared/full-message.js";
 import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import { DAEMON_NOT_CONNECTED_MESSAGE, } from "../ipc-contract.js";
 import { composeMessageWithFileReferences, composerFileReference, composerFileReferenceName, mergeComposerFileReferences, } from "./composer-file-references.js";
@@ -32,7 +34,7 @@ let transcriptRenderFrame;
 let composerFileReferences = [];
 const transcriptState = {
     sessionId: "",
-    count: -1,
+    end: -1,
     loadingHistory: false,
     heights: new VirtualHeightIndex(180),
     nodes: new Map(),
@@ -46,6 +48,15 @@ const THEME_STORAGE_KEY = "pspore.desktop.theme";
 /** Distance from the top that triggers loading the page before the tail. */
 const HISTORY_BACKFILL_TRIGGER_PX = 240;
 const HISTORY_PAGE_SIZE = 200;
+/** How many restored full messages are kept, so scrollback cannot grow forever. */
+const FULL_TEXT_CACHE_ENTRIES = 4;
+/**
+ * Full text for messages the daemon had to cut, keyed by session and message.
+ * Bounded, and dropped oldest-first: restoring a few very long messages must not
+ * turn the transcript into an unbounded buffer.
+ */
+const fullMessageTexts = new Map();
+const loadingFullText = new Set();
 const elements = {
     appShell: byId("app-shell"),
     topbar: document.querySelector(".topbar") ?? missingElement(".topbar"),
@@ -1041,7 +1052,8 @@ function renderConversation(snapshot) {
     const streaming = snapshot.streamingText[snapshot.selectedSessionId];
     const thinking = snapshot.streamingThinking[snapshot.selectedSessionId];
     const sessionChanged = transcriptState.sessionId !== snapshot.selectedSessionId;
-    const previousCount = transcriptState.count;
+    const offset = session?.messageOffset ?? 0;
+    const previousEnd = transcriptState.end;
     if (sessionChanged) {
         if (transcriptState.measureFrame !== undefined)
             cancelAnimationFrame(transcriptState.measureFrame);
@@ -1053,7 +1065,7 @@ function renderConversation(snapshot) {
         transcriptState.followTail = true;
     }
     transcriptState.sessionId = snapshot.selectedSessionId;
-    transcriptState.count = messages.length;
+    transcriptState.end = offset + messages.length;
     if (messages.length === 0 && !streaming && !thinking) {
         transcriptState.heights.sync([]);
         const empty = emptyTranscript(Boolean(child));
@@ -1068,11 +1080,13 @@ function renderConversation(snapshot) {
         transcriptState.messageSource = messages;
         // Keyed by absolute transcript position, so prepending older history keeps
         // the keys — and therefore the measured heights — of what is on screen.
-        const offset = session?.messageOffset ?? 0;
-        transcriptState.items = messages.map((message, index) => ({
-            key: messageVirtualKey(message, offset + index),
-            message,
-        }));
+        transcriptState.items = messages.map((message, index) => {
+            const address = message.id === undefined ? { index: offset + index } : { id: message.id };
+            // A message restored in full replaces the cut copy the daemon published.
+            const restored = fullMessageTexts.get(fullTextKey(snapshot.selectedSessionId, address));
+            const resolved = restored === undefined ? message : { ...message, text: restored };
+            return { key: messageVirtualKey(resolved, offset + index), message: resolved, address };
+        });
     }
     if (messagesChanged || transcriptState.hasStreaming !== hasStreaming) {
         transcriptState.hasStreaming = hasStreaming;
@@ -1102,7 +1116,7 @@ function renderConversation(snapshot) {
             continue;
         const node = isStreaming
             ? renderStreamingMessage(streaming ?? "", thinking ?? "")
-            : cachedMessage(key, item?.message ?? { role: "assistant", text: "" });
+            : cachedMessage(key, item?.message ?? { role: "assistant", text: "" }, item?.address ?? { index });
         node.dataset["virtualKey"] = key;
         node.dataset["virtualIndex"] = String(index);
         node.setAttribute("aria-posinset", String(index + 1));
@@ -1117,21 +1131,24 @@ function renderConversation(snapshot) {
     if (sessionChanged) {
         animateMessagesIn(visibleMessages.slice(-14), true);
     }
-    else if (messages.length > previousCount) {
-        animateMessagesIn(visibleMessages.filter((node) => Number(node.dataset["virtualIndex"]) >= previousCount), false);
+    else if (transcriptState.end > previousEnd) {
+        // Compared at absolute positions: a history backfill grows the list without
+        // adding anything new at the tail, and must not replay the entrance.
+        const firstAppended = transcriptState.items.length - (transcriptState.end - previousEnd);
+        animateMessagesIn(visibleMessages.filter((node) => Number(node.dataset["virtualIndex"]) >= firstAppended), false);
     }
     if (shouldPin)
         transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
     scheduleTranscriptMeasurement();
 }
-function cachedMessage(key, message) {
+function cachedMessage(key, message, address) {
     const cached = transcriptState.nodes.get(key);
     if (cached) {
         transcriptState.nodes.delete(key);
         transcriptState.nodes.set(key, cached);
         return cached;
     }
-    const node = renderMessage(message);
+    const node = renderMessage(message, address);
     transcriptState.nodes.set(key, node);
     while (transcriptState.nodes.size > 128) {
         const oldest = transcriptState.nodes.keys().next().value;
@@ -1247,7 +1264,7 @@ function emptyTranscript(isChild) {
     empty.append(inner);
     return empty;
 }
-function renderMessage(message) {
+function renderMessage(message, address) {
     const role = normalizedRole(message.role);
     const article = element("article", `message ${role}`);
     const meta = element("div", "message-meta");
@@ -1268,7 +1285,88 @@ function renderMessage(message) {
         appendMarkdown(body, message.text || "（空消息）");
         article.append(meta, body);
     }
+    const truncation = publishedTextTruncation(message.text);
+    if (truncation)
+        article.append(truncationNotice(address, truncation));
     return article;
+}
+/**
+ * Offers the rest of a message the daemon had to cut. The publishing ceiling
+ * keeps one enormous message from crowding out everything else on the wire, so
+ * the full text is something a reader asks for rather than something every
+ * broadcast carries.
+ */
+function truncationNotice(address, truncation) {
+    const notice = element("div", "message-truncated");
+    const summary = element("span");
+    summary.textContent = `仅显示前 ${truncation.kept.toLocaleString("zh-CN")} / ${truncation.total.toLocaleString("zh-CN")} 个字符`;
+    const button = element("button", "ghost-button");
+    button.type = "button";
+    button.textContent = "载入全文";
+    button.addEventListener("click", () => {
+        button.disabled = true;
+        button.textContent = "载入中…";
+        void loadFullMessage(store.snapshot().selectedSessionId, address).then((loaded) => {
+            // A successful load re-renders the message without this notice; a failed
+            // one leaves it on screen, so the button has to become usable again.
+            if (loaded)
+                return;
+            button.disabled = false;
+            button.textContent = "重试载入全文";
+        });
+    });
+    notice.append(summary, button);
+    return notice;
+}
+/**
+ * Pulls one message's untruncated text in slices no larger than the daemon
+ * publishes, then re-renders with it in place. Slices rather than one frame,
+ * because raising the ceiling for a single message raises it for every one.
+ */
+async function loadFullMessage(sessionId, address) {
+    const key = fullTextKey(sessionId, address);
+    if (loadingFullText.has(key) || fullMessageTexts.has(key))
+        return false;
+    loadingFullText.add(key);
+    try {
+        const restored = await readFullMessage((offset, limit) => dispatchAcrossReconnect({
+            action: "session.message",
+            sessionId,
+            ...address,
+            offset,
+            limit,
+        }));
+        // Slices that do not line up would splice two versions of one message
+        // together, so the restore is abandoned rather than shown.
+        if (restored === undefined)
+            throw new Error("消息内容已变化");
+        rememberFullText(key, restored);
+        // The message array is unchanged, so the cached items have to be rebuilt
+        // for the restored text to reach the screen.
+        transcriptState.messageSource = undefined;
+        store.setNotice("载入全文：完成");
+        return true;
+    }
+    catch (error) {
+        store.setNotice(`载入全文失败：${toError(error).message}`);
+        return false;
+    }
+    finally {
+        loadingFullText.delete(key);
+        render();
+    }
+}
+function rememberFullText(key, value) {
+    fullMessageTexts.set(key, value);
+    while (fullMessageTexts.size > FULL_TEXT_CACHE_ENTRIES) {
+        const oldest = fullMessageTexts.keys().next().value;
+        if (oldest === undefined)
+            break;
+        fullMessageTexts.delete(oldest);
+    }
+}
+function fullTextKey(sessionId, address) {
+    return "id" in address ? `${sessionId}\u0000id:${address.id}` : `${sessionId}\u0000at:${String(address.index)}`;
 }
 function renderStreamingMessage(value, thinking) {
     const article = element("article", "message assistant streaming");

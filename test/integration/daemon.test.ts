@@ -16,11 +16,13 @@ import type {
   RuntimeEvent,
   SessionMetadata,
   SessionView,
+  TranscriptMessageSlice,
   TranscriptPage,
 } from "../../src/domain/runtime.js";
 import type { JobDefinition, RunRecord } from "../../src/automation/types.js";
 import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
 import { ProtocolClient } from "../../src/protocol/client.js";
+import { MAX_PUBLISHED_STRING_CHARS, publishedTextTruncation } from "../../src/protocol/limits.js";
 import type { EventEnvelope } from "../../src/protocol/schema.js";
 import { atomicWriteJson } from "../../src/storage/atomic.js";
 import { initializePsporeHome } from "../../src/storage/home.js";
@@ -479,12 +481,13 @@ describe("daemon vertical slice", () => {
     // A long tool result or a big model answer used to travel verbatim into the
     // authoritative snapshot. The desktop client rejected the frame, and since
     // the snapshot arrives on every reconnect, restarting never recovered it.
-    runtime.seedMessage("main", "assistant", "x".repeat(300_000));
+    const oversized = `${"x".repeat(299_999)}!`;
+    runtime.seedMessage("main", "assistant", oversized, "entry-oversized");
 
     const bridge = new DaemonBridge({
       socketPath: daemon.paths.socket,
       stagingRoot: join(home, "workspace", "staging"),
-      versions: { pspore: "0.1.17", pi: "0.84.1", electron: "43.3.0", node: process.versions.node },
+      versions: { pspore: "0.1.18", pi: "0.84.1", electron: "43.3.0", node: process.versions.node },
       reconnectDelay: () => 20,
     });
     cleanups.push(async () => {
@@ -505,6 +508,41 @@ describe("daemon vertical slice", () => {
     await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
     assert.equal(bridge.bootstrap().connection.phase, "connected");
     assert.equal(bridge.bootstrap().connection.attempt, 0);
+
+    // The published copy says how much it had to cut, and the reader can ask for
+    // the rest one publishable slice at a time.
+    const view = await client.command<SessionView>("session.snapshot", {}, { sessionId: "main" });
+    const published = view.messages.at(-1)?.text ?? "";
+    assert.equal(published.length, MAX_PUBLISHED_STRING_CHARS);
+    assert.deepEqual(publishedTextTruncation(published), { kept: MAX_PUBLISHED_STRING_CHARS, total: oversized.length });
+
+    let restored = "";
+    for (let request = 0; request < 10 && restored.length < oversized.length; request += 1) {
+      const slice = await client.command<TranscriptMessageSlice>(
+        "session.message",
+        { id: "entry-oversized", offset: restored.length, limit: MAX_PUBLISHED_STRING_CHARS },
+        { sessionId: "main" },
+      );
+      assert.equal(slice.offset, restored.length);
+      assert.equal(slice.length, oversized.length);
+      assert.ok(slice.text.length <= MAX_PUBLISHED_STRING_CHARS, "a slice must never need truncating on its way out");
+      restored += slice.text;
+    }
+    assert.equal(restored, oversized);
+
+    // An index addresses the same message, and an unknown one is an error rather
+    // than a silently wrong message.
+    const byIndex = await client.command<TranscriptMessageSlice>(
+      "session.message",
+      { index: view.messageOffset + view.messages.length - 1, limit: 4 },
+      { sessionId: "main" },
+    );
+    assert.equal(byIndex.id, "entry-oversized");
+    assert.equal(byIndex.text, "xxxx");
+    await assert.rejects(
+      client.command("session.message", { id: "entry-missing", limit: 4 }, { sessionId: "main" }),
+      /unavailable/,
+    );
   });
 
   test("broadcasts a bounded transcript tail and serves older history on request", async () => {
@@ -740,6 +778,26 @@ class FakeRuntime implements AgentRuntimePort {
     const from = Math.min(options.from ?? Math.max(0, messages.length - options.limit), messages.length);
     return { from, count: messages.length, messages: structuredClone(messages.slice(from, from + options.limit)) };
   }
+  transcriptMessage(
+    sessionId: string,
+    options: { id?: string; index?: number; offset?: number; limit: number },
+  ): TranscriptMessageSlice {
+    const messages = this.required(sessionId).messages;
+    const index = options.id === undefined
+      ? options.index ?? -1
+      : messages.findIndex((message) => message.id === options.id);
+    const message = index >= 0 ? messages[index] : undefined;
+    if (!message) throw new Error(`Transcript message is unavailable: ${options.id ?? String(options.index)}`);
+    const offset = Math.min(Math.max(0, options.offset ?? 0), message.text.length);
+    return {
+      ...(message.id === undefined ? {} : { id: message.id }),
+      index,
+      role: message.role,
+      offset,
+      length: message.text.length,
+      text: message.text.slice(offset, offset + Math.max(0, options.limit)),
+    };
+  }
   subscribe(sessionId: string, sink: (event: RuntimeEvent) => void): () => void {
     const listeners = this.#listeners.get(sessionId) ?? new Set();
     listeners.add(sink);
@@ -764,9 +822,12 @@ class FakeRuntime implements AgentRuntimePort {
     for (const pending of this.#settlers.splice(0)) pending.settle();
   }
 
-  seedMessage(sessionId: string, role: string, text: string): void {
+  seedMessage(sessionId: string, role: string, text: string, id?: string): void {
     const current = this.required(sessionId);
-    this.#snapshots.set(sessionId, { ...current, messages: [...current.messages, { role, text }] });
+    this.#snapshots.set(sessionId, {
+      ...current,
+      messages: [...current.messages, { ...(id === undefined ? {} : { id }), role, text }],
+    });
   }
 
   emit(sessionId: string, type: RuntimeEvent["type"], transient: boolean, payload: Record<string, unknown> = {}): void {

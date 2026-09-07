@@ -56,4 +56,14 @@ export declare function measurePublishedValue<T>(value: T, bounds?: PublishedVal
 };
 /** Bounds a single string the same way `boundPublishedValue` bounds nested ones. */
 export declare function boundPublishedText(value: string, maxChars?: number): string;
+/**
+ * Reads the marker `boundPublishedText` leaves behind, so a client can tell a
+ * message it received in full from one the daemon had to cut and offer to fetch
+ * the rest. The marker is generated here, so this is the only place that needs
+ * to know its shape.
+ */
+export declare function publishedTextTruncation(value: string): {
+    kept: number;
+    total: number;
+} | undefined;
 //# sourceMappingURL=limits.d.ts.map

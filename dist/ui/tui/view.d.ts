@@ -16,6 +16,11 @@ export interface TuiRenderOptions {
     secretInput?: boolean;
     color?: boolean;
     animationFrame?: number;
+    /**
+     * Called when the requested window reaches past every message loaded, which
+     * is the only moment older history is worth fetching.
+     */
+    onHistoryExhausted?: () => void;
 }
 export declare class PsporeTuiView implements Component, Focusable {
     #private;

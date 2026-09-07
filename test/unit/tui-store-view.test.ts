@@ -107,6 +107,87 @@ describe("TUI protocol store", () => {
     assert.equal(store.applyTranscriptPage({ sessionId: "main", from: 38, count: 41, messages: older }), false);
   });
 
+  test("keeps paged-back history when the daemon re-establishes its bounded tail", () => {
+    const store = new TuiStore();
+    const initial = hello();
+    const main = initial.snapshot.sessions["main"];
+    assert.ok(main);
+    store.applyHello({
+      ...initial,
+      snapshot: {
+        ...initial.snapshot,
+        sessions: {
+          ...initial.snapshot.sessions,
+          main: { ...main, messages: [{ role: "user", text: "recent" }], messageOffset: 40, messageCount: 41 },
+        },
+      },
+    });
+    assert.equal(
+      store.applyTranscriptPage({
+        sessionId: "main",
+        from: 38,
+        count: 41,
+        messages: [{ role: "assistant", text: "older 38" }, { role: "user", text: "older 39" }],
+      }),
+      true,
+    );
+
+    // A settled run ships the newest tail. Replacing outright would throw away
+    // the scrollback the reader just asked for.
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "settled-1",
+      streamId: "kernel",
+      seq: 1,
+      ts: "2026-08-09T00:00:06.000Z",
+      durable: true,
+      type: "run.settled",
+      payload: {
+        sessionId: "main",
+        upstreamSessionId: "pi-main",
+        revision: 6,
+        session: {
+          ...main,
+          messages: [{ role: "user", text: "recent" }, { role: "assistant", text: "answer" }],
+          messageOffset: 40,
+          messageCount: 42,
+        },
+      },
+    });
+    const merged = store.snapshot().kernel.sessions["main"];
+    assert.equal(merged?.messageOffset, 38);
+    assert.deepEqual(merged?.messages.map((message) => message.text), ["older 38", "older 39", "recent", "answer"]);
+
+    // A replaced upstream session renumbers the transcript, so its old prefix
+    // can no longer be joined onto the new tail.
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "replaced-1",
+      streamId: "kernel",
+      seq: 2,
+      ts: "2026-08-09T00:00:07.000Z",
+      durable: true,
+      type: "session.replaced",
+      payload: {
+        sessionId: "main",
+        upstreamSessionId: "pi-main-2",
+        revision: 7,
+        session: {
+          ...main,
+          upstreamSessionId: "pi-main-2",
+          messages: [{ role: "user", text: "fresh" }],
+          messageOffset: 3,
+          messageCount: 4,
+        },
+      },
+    });
+    const replaced = store.snapshot().kernel.sessions["main"];
+    assert.equal(replaced?.messageOffset, 3);
+    assert.deepEqual(replaced?.messages.map((message) => message.text), ["fresh"]);
+  });
+
   test("appends a finished item instead of waiting for the transcript to be re-sent", () => {
     const store = new TuiStore();
     store.applyHello(hello());
@@ -347,6 +428,47 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(plain, /history message 9999/);
     assert.doesNotMatch(plain, /history message 0(?:\D|$)/);
     assert.ok(textReads < 100, `expected a virtual tail, read ${textReads} message bodies`);
+  });
+
+  test("asks for older history only once the window reaches past what is loaded", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    const base = store.snapshot();
+    const main = base.kernel.sessions["main"];
+    assert.ok(main);
+    const state = {
+      ...base,
+      selectedSessionId: "main",
+      kernel: {
+        ...base.kernel,
+        agents: {},
+        sessions: {
+          main: {
+            ...main,
+            messages: Array.from({ length: 60 }, (_, index) => ({
+              role: index % 2 === 0 ? "user" : "assistant",
+              text: `loaded message ${index}`,
+            })),
+            messageOffset: 200,
+            messageCount: 260,
+          },
+        },
+      },
+    };
+
+    let requests = 0;
+    const onHistoryExhausted = () => {
+      requests += 1;
+    };
+    // Sitting at the tail, and one page up, both stay inside what is loaded.
+    renderTuiSnapshot(state, 96, 30, "", { color: false, onHistoryExhausted });
+    renderTuiSnapshot(state, 96, 30, "", { color: false, scrollOffset: 16, onHistoryExhausted });
+    assert.equal(requests, 0, "history was fetched before the reader ran out of it");
+
+    // Scrolling past every loaded message is the moment older history is worth
+    // asking for; a broadcast carries only the newest of a 260-message session.
+    renderTuiSnapshot(state, 96, 30, "", { color: false, scrollOffset: 400, onHistoryExhausted });
+    assert.equal(requests, 1);
   });
 
   test("opens the complete command palette and adapts to a compact terminal", () => {

@@ -886,7 +886,7 @@ async function printSessions(home: string): Promise<number> {
         id: session.sessionId,
         title: session.rootSession?.title,
         status: session.status,
-        messages: session.messages.length,
+        messages: session.messageCount,
         updatedAt: session.rootSession?.updatedAt,
       }));
     process.stdout.write(`${JSON.stringify(roots, null, 2)}\n`);

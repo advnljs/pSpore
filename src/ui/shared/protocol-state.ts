@@ -76,6 +76,26 @@ export function applyTranscriptPage(
   };
 }
 
+/**
+ * Keeps history a client has already paged in when an authoritative tail
+ * arrives. The tail is bounded, so without this every settled run would throw
+ * away the scrollback the reader just asked for. Older messages are kept only
+ * while they still join onto the new tail and still belong to the same upstream
+ * session: a replaced session renumbers the transcript, so its old prefix can
+ * no longer be trusted.
+ */
+function mergeScrollback(existing: SessionView | undefined, incoming: SessionView): SessionView {
+  if (!existing || existing.upstreamSessionId !== incoming.upstreamSessionId) return incoming;
+  if (existing.messageOffset >= incoming.messageOffset) return incoming;
+  const kept = incoming.messageOffset - existing.messageOffset;
+  if (existing.messages.length < kept) return incoming;
+  return {
+    ...incoming,
+    messageOffset: existing.messageOffset,
+    messages: [...existing.messages.slice(0, kept), ...incoming.messages],
+  };
+}
+
 export function selectProtocolSession(current: ProtocolUiState, id: string): ProtocolUiState {
   const sessionId = current.kernel.sessions[id] ? id : current.kernel.agents[id]?.sessionId;
   if (!sessionId || !current.kernel.sessions[sessionId]) throw new Error(`Session is not active: ${id}`);
@@ -155,7 +175,7 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
     // re-establishes the transcript, which is what makes it authoritative.
     const existing = kernel.sessions[session.sessionId];
     const next: SessionView = isSessionView(session)
-      ? structuredClone(session)
+      ? mergeScrollback(existing, structuredClone(session))
       : {
         ...structuredClone(session),
         messages: existing?.messages ?? [],

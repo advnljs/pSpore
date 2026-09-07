@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { CommandError } from "../protocol/errors.js";
+import { MAX_PUBLISHED_STRING_CHARS } from "../protocol/limits.js";
 /**
  * Runtime events whose broadcast carries the transcript tail. A finished item
  * already carries its own text, so clients append it themselves; the tail rides
@@ -20,6 +21,12 @@ const TRANSCRIPT_BEARING_EVENTS = new Set([
 const SESSION_VIEW_TAIL_MESSAGES = 200;
 /** Largest transcript page one `session.transcript` command may return. */
 const MAX_TRANSCRIPT_PAGE = 500;
+/**
+ * Largest slice of one message `session.message` may return. It matches the
+ * daemon's per-string publishing ceiling, so a slice is never cut a second time
+ * on its way out — a client asking for a long message pages through it instead.
+ */
+const MAX_MESSAGE_SLICE = MAX_PUBLISHED_STRING_CHARS;
 export class AgentRunBudgetError extends Error {
     constructor(message) {
         super(message);
@@ -81,6 +88,30 @@ export class AgentApplication {
                 const from = optionalBoundedIndex(payload["from"], "payload.from");
                 const page = this.#runtime.transcript(sessionId, { limit, ...(from === undefined ? {} : { from }) });
                 return { sessionId, ...page };
+            }
+            case "session.message": {
+                // A message longer than the publishing ceiling reaches clients cut, with
+                // a marker saying so. This returns the original in slices, so the reader
+                // can ask for the whole of one message without every broadcast paying
+                // for the possibility.
+                const payload = exactPayload(command.payload, ["id", "index", "offset", "limit"], command.type);
+                const sessionId = requiredSessionId(command);
+                if (!this.#sessions.has(sessionId))
+                    return null;
+                const id = optionalIdentifier(payload["id"], "payload.id");
+                const index = optionalBoundedIndex(payload["index"], "payload.index");
+                if (id === undefined && index === undefined) {
+                    throw new CommandError("invalid_payload", "payload.id or payload.index is required");
+                }
+                const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_MESSAGE_SLICE) ?? MAX_MESSAGE_SLICE;
+                const offset = optionalBoundedIndex(payload["offset"], "payload.offset");
+                const slice = this.#runtime.transcriptMessage(sessionId, {
+                    ...(id === undefined ? {} : { id }),
+                    ...(index === undefined ? {} : { index }),
+                    ...(offset === undefined ? {} : { offset }),
+                    limit,
+                });
+                return { sessionId, ...slice };
             }
             case "session.create": {
                 const payload = exactPayload(command.payload, ["title"], command.type);
@@ -676,6 +707,14 @@ function generatedRootSessionId(value) {
         throw new Error("Generated root session id is invalid");
     }
     return id;
+}
+function optionalIdentifier(value, path) {
+    if (value === undefined)
+        return undefined;
+    if (typeof value !== "string" || !value.trim() || value.length > 200) {
+        throw new CommandError("invalid_payload", `${path} must be a bounded non-empty string`);
+    }
+    return value;
 }
 function optionalBoundedIndex(value, path, maximum = Number.MAX_SAFE_INTEGER) {
     if (value === undefined)

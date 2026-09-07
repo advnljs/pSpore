@@ -66,8 +66,27 @@ export function boundPublishedText(value, maxChars = MAX_PUBLISHED_STRING_CHARS)
         return value;
     // The marker is part of the budget, and its own length depends only on values
     // the caller already knows, so the result is exactly `maxChars` characters.
-    const marker = `…[truncated to ${maxChars} of ${value.length} characters]`;
+    const marker = truncationMarker(maxChars, value.length);
     return `${value.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
+}
+function truncationMarker(kept, total) {
+    return `…[truncated to ${kept} of ${total} characters]`;
+}
+/**
+ * Reads the marker `boundPublishedText` leaves behind, so a client can tell a
+ * message it received in full from one the daemon had to cut and offer to fetch
+ * the rest. The marker is generated here, so this is the only place that needs
+ * to know its shape.
+ */
+export function publishedTextTruncation(value) {
+    const match = /…\[truncated to (\d+) of (\d+) characters]$/.exec(value);
+    if (!match)
+        return undefined;
+    const kept = Number(match[1]);
+    const total = Number(match[2]);
+    if (!Number.isSafeInteger(kept) || !Number.isSafeInteger(total) || total <= kept)
+        return undefined;
+    return { kept, total };
 }
 function bound(value, bounds, depth, budget) {
     if (typeof value === "string") {

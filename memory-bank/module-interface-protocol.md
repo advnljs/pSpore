@@ -35,7 +35,7 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 ## 注意事项
 
 - Snapshot/complete event 权威；delta/progress 可合并或丢弃。
-- Daemon 出站一律经 `src/protocol/limits.ts` 裁剪到客户端上限以内；瞬时事件不携带 session 快照，其余 durable 事件按 250 ms 节流携带。
+- Daemon 出站一律经 `src/protocol/limits.ts` 裁剪到客户端上限以内；瞬时事件不携带 session 视图，其余非瞬时事件带元数据，只有 `run.settled`/`session.replaced`/`runtime.error`/`compaction.completed` 额外带 transcript 尾窗。单条被裁剪的消息可用 `session.message` 分片取回原文。
 - 新客户端在 hello 中声明 `server-frame-chunks.v1`；新 Daemon 仅对声明该 capability 的连接分片。逻辑 server message 上限为 64 MiB，物理 frame 仍为 1 MiB；chunk 必须有序、同 ID/encoding/count/length，并在有界 gunzip 与完整 JSON/kind 校验后交付。普通小 frame 和未声明 capability 的旧客户端保持 v1 newline wire format。
 - 相同 command id 必须幂等；seq gap 触发 snapshot，不由客户端猜状态。
 - Electron renderer 已启用 context isolation/sandbox 并关闭 Node integration；只暴露 allowlisted preload API，main 对 command 与 server frame 再校验。
@@ -53,9 +53,9 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - `/work` 展示最近 30 个工作步骤，`/work <ID-prefix>` 展示一步的脱敏、限深、8 KB 限长详情；会话区不再重复渲染 raw tool result 消息。
 - 普通输入根据共享 `conversationIntent` 路由到当前选中的任意根 session/child，避免 child 输入误发给其他根会话；根 session 运行中由 Application 自动 follow-up。GUI 不显示发送模式，follow-up 每项仅显示“继续排队/直接发送消息”；TUI 用 `/send-now N` 执行同一操作，底层 Pi steer 术语不暴露。
 - GUI/TUI store 的协议 reducer 保持不可变更新并在 IPC 校验边界 clone；`snapshot()` 返回只读当前引用，避免 streaming delta 深拷贝完整历史。GUI 用共享 `VirtualHeightIndex` 窗口化 DOM，TUI 只格式化 `rows + scrollOffset + overscan` 的历史尾窗。
-- `message.thinking.delta` 只进入 `streamingThinking`，不拼进 `streamingText` 或持久 `messages`；`message.completed`、`run.settled`、`runtime.error` 和 `session.replaced` 会清理两类临时流。Desktop coalesced delta frame 必须显式携带 `channel: "text" | "thinking"`。
-- `AgentSnapshot.rootSession` 只为持久交互式根会话携带 title/createdAt/updatedAt；`presentSessions` 将多个根会话及各自 agent tree 分组呈现。
-- `AgentSnapshot` 不再有 `entries`：它是未经压缩的完整分支、随会话无界增长，而且没有任何客户端读它。需要分支（fork 定位 entry id）时用 `PiRuntimeAdapter.branch(sessionId)` 按需取。
+- `transcript.delta{kind:"thinking"}` 只进入 `streamingThinking`，不拼进 `streamingText` 或持久 `messages`；`transcript.item.finished`、`run.settled`、`runtime.error` 和 `session.replaced` 会清理两类临时流。Desktop coalesced delta frame 必须显式携带 `itemId` 与 `channel: "text" | "thinking"`。
+- `SessionMetadata.rootSession` 只为持久交互式根会话携带 title/createdAt/updatedAt；`presentSessions` 将多个根会话及各自 agent tree 分组呈现，没有 rootSession 时回退到 `firstUserText`。
+- `AgentSnapshot` 类型已删除：守护进程里没有任何地方需要"整份 transcript"这个对象。会话状态用 `SessionMetadata`（无 messages），历史用 `transcript()` 分页，单条原文用 `transcriptMessage()` 分片；需要完整分支（fork 定位 entry id）时才用 `PiRuntimeAdapter.branch(sessionId)`。
 - npm 分发包名为 `p-spore`，全局可执行命令为 `pspore`；纯 npm 包不包含 Electron 生产依赖，桌面端由 GitHub Release 全量 zip / overlay zip 分发。
 
 ## 常见修改点
@@ -101,3 +101,12 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 - `transcript()` 读 `sessionManager` 的持久化分支而非模型 context，因此 compaction 之后仍能翻到被压缩掉的历史；只渲染被请求的那一段文本。
 - 客户端用共享 `applyTranscriptPage` 前插历史：拒绝会留下空洞的页与已覆盖的重复页。GUI 在距顶 240px 处自动取前 200 条并按"距底距离"复位视口；虚拟列表 key 用绝对位置，前插不会让已测高度失效。TUI 用 PageUp 触发同一请求。
 - `session.snapshot` 命令返回有界的 `SessionView`（不再是完整 transcript）。
+
+## 2026-09-08：回溯保留与单条消息按需取全文
+
+- **权威尾窗不再吞掉回溯历史**：客户端收到带 `messages` 的 `SessionView` 时走 `mergeScrollback()`——`upstreamSessionId` 相同且已有前缀能接上新尾窗时保留前缀，否则整体替换。`session.replaced` 会重编号 transcript，所以那条路径仍是整体替换。
+- **`session.message {id?, index?, offset?, limit?}`**（sessionId 必填）返回 `TranscriptMessageSlice{id?, index, role, offset, length, text}`。优先按持久化 branch entry id 定位（index 只是回退，因为运行中的 transcript 会在客户端脚下位移）；单片上限 = `MAX_PUBLISHED_STRING_CHARS`(65 536)，因此响应不会被 `boundPublishedValue` 二次截断，长消息靠多次请求拼回。
+- `publishedTextTruncation()`（`src/protocol/limits.ts`）解析 `boundPublishedText()` 写下的截断标记，是客户端判断"这条消息被截过"的唯一依据；标记格式仍只在 `limits.ts` 定义一次。
+- 客户端拼接逻辑在 DOM 无关的 `src/ui/shared/full-message.ts`：`readFullMessage(fetchSlice)` 逐片取回，遇到 offset 对不上或空片不前进时返回 `undefined`，由调用方决定提示文案——避免把同一条消息的两个版本拼在一起。
+- GUI 在被截断的消息下方渲染 `.message-truncated`（"仅显示前 N / M 个字符" + 载入全文按钮）；恢复的全文按 `session + entry` 缓存，最多 4 条，被截断消息的虚拟 key 因文本变化自然失效并重测高度。
+- TUI 的历史回溯改为渲染侧触发：`renderTuiSnapshot` 发现请求窗口越过全部已加载消息时才回调 `onHistoryExhausted`，PageUp 本身不再无条件请求。

@@ -226,6 +226,32 @@ export class PiRuntimeAdapter {
             messages: entries.slice(from, from + limit).map(toBranchMessage),
         };
     }
+    /**
+     * One message's full text, sliced. The transcript on the wire is bounded per
+     * string, so a message longer than that ceiling arrives cut; this is how a
+     * client asks for the rest of it without widening the ceiling for everything.
+     */
+    transcriptMessage(sessionId, options) {
+        const record = this.#record(sessionId);
+        const entries = this.#branchEntries(record);
+        const index = options.id === undefined
+            ? options.index ?? -1
+            : entries.findIndex((entry) => entry.id === options.id);
+        const entry = index >= 0 ? entries[index] : undefined;
+        if (!entry) {
+            throw new Error(`Transcript message is unavailable: ${options.id ?? String(options.index)}`);
+        }
+        const message = toBranchMessage(entry);
+        const offset = Math.min(Math.max(0, options.offset ?? 0), message.text.length);
+        return {
+            ...(message.id === undefined ? {} : { id: message.id }),
+            index,
+            role: message.role,
+            offset,
+            length: message.text.length,
+            text: message.text.slice(offset, offset + Math.max(0, options.limit)),
+        };
+    }
     /** The persisted branch's message entries, unrendered. */
     branch(sessionId) {
         return this.#branchEntries(this.#record(sessionId)).map(toBranchMessage);
@@ -239,10 +265,15 @@ export class PiRuntimeAdapter {
         if (record.firstUserText !== undefined)
             return record.firstUserText || undefined;
         const first = entries.find((entry) => asRecord(entry.message)["role"] === "user");
+        // Nothing is cached until a user message exists: a session snapshotted at
+        // creation has none yet, and caching that absence would leave it untitled
+        // for the rest of its life.
+        if (!first)
+            return undefined;
         // Only ever used as a session title, so it never needs the whole message.
-        const text = first ? messageText(first.message).trim().slice(0, 200) : undefined;
-        record.firstUserText = text ?? "";
-        return text;
+        const text = messageText(first.message).trim().slice(0, 200);
+        record.firstUserText = text;
+        return text || undefined;
     }
     async fork(sessionId, entryId, position = "at") {
         const record = this.#record(sessionId);

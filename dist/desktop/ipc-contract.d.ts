@@ -89,6 +89,13 @@ export type DesktopCommand = {
     from?: number;
     limit?: number;
 } | {
+    action: "session.message";
+    sessionId: string;
+    id?: string;
+    index?: number;
+    offset?: number;
+    limit?: number;
+} | {
     action: "queue.send-now";
     sessionId: string;
     index: number;

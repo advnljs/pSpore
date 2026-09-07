@@ -22,6 +22,7 @@
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
+| `src/protocol/limits.ts` | 客户端/守护进程双侧出站上限、`boundPublishedValue` 裁剪与 `publishedTextTruncation` 截断标记解析（标记格式的唯一定义处）|
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
 | `src/daemon/supervisor.ts` | Electron smoke 隔离使用的临时 Daemon owned/external 生命周期管理 |
@@ -45,6 +46,7 @@
 | `test/unit/renderer-module-graph.test.ts` | 静态遍历渲染器 import 图，禁止其触达 Node 内置模块（沙箱渲染器加载不了，类型检查与 x64 CI 都发现不了）|
 | `src/ui/shared/markdown.ts` | 共享纯 Markdown 解析器（CommonMark/GFM 子集），无 DOM 依赖、可单测 |
 | `src/ui/shared/virtual-list.ts` | GUI 变高虚拟历史的 Fenwick 索引，以及“接近底部”尾随状态判定 |
+| `src/ui/shared/full-message.ts` | 被出站上限截断的单条消息的分片重组（`readFullMessage`），DOM 无关、可单测 |
 | `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制与惰性链接 |
 | `src/desktop/renderer/composer-file-references.ts` | GUI 拖入文件/目录的绝对路径校验、去重上限、展示名称与 path-only `@` 引用序列化 |
 | `src/ui/tui/` | Pi TUI 客户端、wizard/命令配置、动态工作步骤、`/work`、160×45 双栏与 96×30 单栏 renderer |

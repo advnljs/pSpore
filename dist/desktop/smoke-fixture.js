@@ -1,4 +1,5 @@
 import { initialKernelState } from "../kernel/state.js";
+import { boundPublishedText } from "../protocol/limits.js";
 const NOW = "2026-08-10T08:30:00.000Z";
 export function createDesktopSmokeState(base, includeApproval) {
     const seed = base ?? initialKernelState();
@@ -47,6 +48,12 @@ export function createDesktopSmokeState(base, includeApproval) {
                 "",
                 "详见 [详细设计](https://example.com/pspore/detailed-design)。",
             ].join("\n"),
+        },
+        {
+            role: "assistant",
+            // Cut by the real publishing ceiling, so the smoke renders the same
+            // "载入全文" affordance a genuinely oversized message gets.
+            text: boundPublishedText(`巡检输出：${"检查项通过。".repeat(400)}`, 220),
         },
     ];
     const childMessages = [

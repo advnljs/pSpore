@@ -365,6 +365,18 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     const tail = adapter.transcript("main", { limit: 2 });
     assert.equal(tail.from, page.count - 2);
     assert.equal(tail.messages.length, 2);
+
+    // One message reads back in slices, addressed by its persisted entry id, so
+    // a client can restore text the publishing ceiling had to cut.
+    const long = page.messages.find((message) => message.text.includes("create history 0"));
+    assert.ok(long?.id);
+    const head = adapter.transcriptMessage("main", { id: long.id, limit: 16 });
+    assert.equal(head.offset, 0);
+    assert.equal(head.length, long.text.length);
+    assert.equal(head.text, long.text.slice(0, 16));
+    const rest = adapter.transcriptMessage("main", { id: long.id, offset: 16, limit: long.text.length });
+    assert.equal(`${head.text}${rest.text}`, long.text);
+    assert.throws(() => adapter.transcriptMessage("main", { id: "absent", limit: 4 }), /unavailable/);
   });
 
   test("automatically compacts at the configured direct context-token threshold", async () => {

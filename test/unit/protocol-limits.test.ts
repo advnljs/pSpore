@@ -10,6 +10,7 @@ import {
   MAX_PUBLISHED_COLLECTION_ENTRIES,
   MAX_PUBLISHED_STRING_CHARS,
   MAX_PUBLISHED_VALUE_CHARS,
+  publishedTextTruncation,
 } from "../../src/protocol/limits.js";
 import { assertSafeProtocolValue } from "../../src/desktop/validation.js";
 
@@ -39,6 +40,19 @@ describe("published protocol bounds", () => {
     const value = { session: { messages: [{ role: "user", text: "short" }] } };
     assert.equal(boundPublishedValue(value), value);
     assert.equal(boundPublishedText("short"), "short");
+  });
+
+  test("reports what a cut string lost, so a client can offer to fetch the rest", () => {
+    const original = "z".repeat(MAX_PUBLISHED_STRING_CHARS + 1_234);
+    const bounded = boundPublishedText(original);
+    assert.deepEqual(publishedTextTruncation(bounded), {
+      kept: MAX_PUBLISHED_STRING_CHARS,
+      total: original.length,
+    });
+    // Text that merely mentions truncation is not a marker this parser accepts.
+    assert.equal(publishedTextTruncation("nothing was truncated here"), undefined);
+    assert.equal(publishedTextTruncation(boundPublishedText("short")), undefined);
+    assert.equal(publishedTextTruncation("…[truncated to 10 of 4 characters]"), undefined);
   });
 
   test("replaces values nested past the published depth instead of dropping the frame", () => {

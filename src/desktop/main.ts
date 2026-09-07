@@ -67,6 +67,8 @@ interface SmokeReport {
     thinkingVisible: boolean;
     thinkingSeparate: boolean;
     thinkingHiddenAfterCompletion: boolean;
+    truncationNoticeVisible: boolean;
+    truncationRetryOffered: boolean;
     legacyComposerModes: number;
     virtualIndices: number[];
     scrollDistance: number;
@@ -483,11 +485,13 @@ async function runSmoke(
       thinkingVisible: Boolean(document.querySelector('.thinking-stream')),
       thinkingSeparate: Boolean(document.querySelector('.thinking-stream') && document.querySelector('.message.streaming > .message-body')),
       thinkingHiddenAfterCompletion: false,
+      truncationNoticeVisible: Boolean(document.querySelector('#transcript .message-truncated button')),
+      truncationRetryOffered: false,
       legacyComposerModes: document.querySelectorAll('#composer-mode, .mode-select').length,
       virtualIndices: Array.from(document.querySelectorAll('#transcript > .message')).map((node) => Number(node.dataset.virtualIndex)),
       scrollDistance: transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1,
       renderedMessages: document.querySelectorAll('#transcript > .message').length,
-      authoritativeMessages: 1007,
+      authoritativeMessages: 1008,
       historyBrowseRequestedTop: -1,
       historyBrowseAfterIdleTop: -1,
       historyBrowseAfterDeltaTop: -1,
@@ -543,6 +547,18 @@ async function runSmoke(
       return transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1;
     })()`);
     mainVisual.thinkingHiddenAfterCompletion = true;
+
+    // Clicking "载入全文" reaches the daemon through the allowlisted command.
+    // The smoke fixture's transcript is not the daemon's, so the request is
+    // refused — which is exactly the path that has to leave the button usable.
+    await target.webContents.executeJavaScript(
+      "document.querySelector('#transcript .message-truncated button')?.click()",
+    );
+    mainVisual.truncationRetryOffered = await waitForRenderer(
+      target,
+      "(() => { const b = document.querySelector('#transcript .message-truncated button'); return Boolean(b && !b.disabled && b.textContent === '重试载入全文'); })()",
+      5_000,
+    ).then(() => true, () => false);
   }
   const darkTheme = await readThemeSnapshot(target);
   const typography: Record<string, number> = await target.webContents.executeJavaScript(`(() => {
@@ -817,6 +833,8 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.mainVisual.streamingVisible) failures.push("streaming delta is not visible in the main capture");
     if (!report.mainVisual.thinkingVisible || !report.mainVisual.thinkingSeparate) failures.push("thinking was not rendered separately from response text");
     if (!report.mainVisual.thinkingHiddenAfterCompletion) failures.push("thinking did not hide after message completion");
+    if (!report.mainVisual.truncationNoticeVisible) failures.push("a message cut by the publishing ceiling offered no way to load it in full");
+    if (!report.mainVisual.truncationRetryOffered) failures.push("a refused full-text load left its button stuck");
     if (report.mainVisual.legacyComposerModes !== 0) failures.push("legacy composer mode controls are still visible");
     if (report.mainVisual.authoritativeMessages < 1_000 || report.mainVisual.renderedMessages >= 40) failures.push("long history was not virtualized");
     if (report.mainVisual.historyBrowseRequestedTop <= 0) failures.push("history scroll fixture did not move above the transcript tail");

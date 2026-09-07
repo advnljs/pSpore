@@ -1,3 +1,4 @@
+import { MAX_PUBLISHED_STRING_CHARS } from "../protocol/limits.js";
 import { decodeIndexingSettingsUpdate, } from "../settings/indexing-settings.js";
 import { decodeLlmSettingsUpdate, } from "../settings/llm-settings.js";
 export const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
@@ -53,6 +54,23 @@ export function decodeDesktopCommand(value) {
                 sessionId: identifier(input["sessionId"], "session.transcript.sessionId"),
                 ...(from === undefined ? {} : { from: nonNegativeInteger(from, "session.transcript.from", Number.MAX_SAFE_INTEGER) }),
                 ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "session.transcript.limit", 500) }),
+            };
+        }
+        case "session.message": {
+            exactKeys(input, ["action", "sessionId", "id", "index", "offset", "limit"], action, ["id", "index", "offset", "limit"]);
+            const id = input["id"];
+            const index = input["index"];
+            const offset = input["offset"];
+            const limit = input["limit"];
+            if (id === undefined && index === undefined)
+                throw new Error("session.message needs id or index");
+            return {
+                action,
+                sessionId: identifier(input["sessionId"], "session.message.sessionId"),
+                ...(id === undefined ? {} : { id: boundedString(id, "session.message.id", 200) }),
+                ...(index === undefined ? {} : { index: nonNegativeInteger(index, "session.message.index", Number.MAX_SAFE_INTEGER) }),
+                ...(offset === undefined ? {} : { offset: nonNegativeInteger(offset, "session.message.offset", Number.MAX_SAFE_INTEGER) }),
+                ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "session.message.limit", MAX_PUBLISHED_STRING_CHARS) }),
             };
         }
         case "queue.send-now":
@@ -157,6 +175,17 @@ export function toProtocolInvocation(command, paths) {
                 type: "session.transcript",
                 payload: {
                     ...(command.from === undefined ? {} : { from: command.from }),
+                    ...(command.limit === undefined ? {} : { limit: command.limit }),
+                },
+                sessionId: command.sessionId,
+            };
+        case "session.message":
+            return {
+                type: "session.message",
+                payload: {
+                    ...(command.id === undefined ? {} : { id: command.id }),
+                    ...(command.index === undefined ? {} : { index: command.index }),
+                    ...(command.offset === undefined ? {} : { offset: command.offset }),
                     ...(command.limit === undefined ? {} : { limit: command.limit }),
                 },
                 sessionId: command.sessionId,

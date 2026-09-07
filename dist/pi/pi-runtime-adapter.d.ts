@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptPage } from "../domain/runtime.js";
+import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptMessageSlice, TranscriptPage } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 type Clock = () => Date;
 type IdFactory = () => string;
@@ -43,6 +43,17 @@ export declare class PiRuntimeAdapter implements AgentRuntimePort {
         from?: number;
         limit: number;
     }): TranscriptPage;
+    /**
+     * One message's full text, sliced. The transcript on the wire is bounded per
+     * string, so a message longer than that ceiling arrives cut; this is how a
+     * client asks for the rest of it without widening the ceiling for everything.
+     */
+    transcriptMessage(sessionId: SessionId, options: {
+        id?: string;
+        index?: number;
+        offset?: number;
+        limit: number;
+    }): TranscriptMessageSlice;
     /** The persisted branch's message entries, unrendered. */
     branch(sessionId: SessionId): readonly RuntimeMessage[];
     fork(sessionId: SessionId, entryId: string, position?: "before" | "at"): Promise<AgentHandle>;

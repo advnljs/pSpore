@@ -40,6 +40,22 @@ test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
     sessionId: "session-1",
     index: 2,
   });
+  assert.deepEqual(
+    decodeDesktopCommand({ action: "session.message", sessionId: "session-1", id: "entry-7", offset: 0, limit: 65_536 }),
+    { action: "session.message", sessionId: "session-1", id: "entry-7", offset: 0, limit: 65_536 },
+  );
+  assert.deepEqual(decodeDesktopCommand({ action: "session.message", sessionId: "session-1", index: 4 }), {
+    action: "session.message",
+    sessionId: "session-1",
+    index: 4,
+  });
+  // A slice larger than the daemon can publish would be cut on its way back, so
+  // the renderer is not allowed to ask for one.
+  assert.throws(
+    () => decodeDesktopCommand({ action: "session.message", sessionId: "session-1", index: 4, limit: 65_537 }),
+    /limit/,
+  );
+  assert.throws(() => decodeDesktopCommand({ action: "session.message", sessionId: "session-1" }), /needs id or index/);
   assert.throws(() => decodeDesktopCommand({ action: "shell.exec", command: "id" }), /not allowlisted/);
   assert.throws(() => decodeDesktopCommand({ action: "abort", channel: "arbitrary" }), /unknown fields/);
   assert.throws(() => decodeDesktopCommand({ action: "resources.inspect", stagingName: "../escape" }), /top-level staging/);

@@ -1,4 +1,5 @@
 import type { KernelState } from "../kernel/state.js";
+import { MAX_PUBLISHED_STRING_CHARS } from "../protocol/limits.js";
 import type { EventEnvelope } from "../protocol/schema.js";
 import {
   decodeIndexingSettingsUpdate,
@@ -79,6 +80,7 @@ export type DesktopCommand =
   | { action: "compact"; sessionId: string }
   | { action: "session.create"; title?: string }
   | { action: "session.transcript"; sessionId: string; from?: number; limit?: number }
+  | { action: "session.message"; sessionId: string; id?: string; index?: number; offset?: number; limit?: number }
   | { action: "queue.send-now"; sessionId: string; index: number }
   | { action: "approval.resolve"; approvalId: string; approved: boolean; scope: "once" | "session" | "job" }
   | { action: "jobs.list" }
@@ -187,6 +189,22 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
         ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "session.transcript.limit", 500) }),
       };
     }
+    case "session.message": {
+      exactKeys(input, ["action", "sessionId", "id", "index", "offset", "limit"], action, ["id", "index", "offset", "limit"]);
+      const id = input["id"];
+      const index = input["index"];
+      const offset = input["offset"];
+      const limit = input["limit"];
+      if (id === undefined && index === undefined) throw new Error("session.message needs id or index");
+      return {
+        action,
+        sessionId: identifier(input["sessionId"], "session.message.sessionId"),
+        ...(id === undefined ? {} : { id: boundedString(id, "session.message.id", 200) }),
+        ...(index === undefined ? {} : { index: nonNegativeInteger(index, "session.message.index", Number.MAX_SAFE_INTEGER) }),
+        ...(offset === undefined ? {} : { offset: nonNegativeInteger(offset, "session.message.offset", Number.MAX_SAFE_INTEGER) }),
+        ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "session.message.limit", MAX_PUBLISHED_STRING_CHARS) }),
+      };
+    }
     case "queue.send-now":
       exactKeys(input, ["action", "sessionId", "index"], action);
       return {
@@ -292,6 +310,17 @@ export function toProtocolInvocation(
         type: "session.transcript",
         payload: {
           ...(command.from === undefined ? {} : { from: command.from }),
+          ...(command.limit === undefined ? {} : { limit: command.limit }),
+        },
+        sessionId: command.sessionId,
+      };
+    case "session.message":
+      return {
+        type: "session.message",
+        payload: {
+          ...(command.id === undefined ? {} : { id: command.id }),
+          ...(command.index === undefined ? {} : { index: command.index }),
+          ...(command.offset === undefined ? {} : { offset: command.offset }),
           ...(command.limit === undefined ? {} : { limit: command.limit }),
         },
         sessionId: command.sessionId,
