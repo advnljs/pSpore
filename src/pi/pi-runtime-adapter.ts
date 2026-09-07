@@ -234,14 +234,6 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       ...(model ? { model: { provider: model.provider, model: model.id } } : {}),
       thinking: session.thinkingLevel,
       messages: session.messages.map(toRuntimeMessage),
-      entries: session.sessionManager
-        .getBranch()
-        .filter((entry) => entry.type === "message")
-        .map((entry) => ({
-          id: entry.id,
-          role: entry.message.role,
-          text: messageText(entry.message),
-        })),
       queue: {
         steering: [...record.queue.steering],
         followUp: [...record.queue.followUp],
@@ -289,6 +281,23 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       throw new Error("Pi cancelled session switch");
     }
     return this.#handle(record);
+  }
+
+  /**
+   * The persisted branch, including entries compaction has already dropped from
+   * the model context. It is materialised on demand because it grows without
+   * bound: rebuilding it inside every snapshot made streaming cost grow with
+   * the length of the conversation.
+   */
+  branch(sessionId: SessionId): readonly RuntimeMessage[] {
+    return this.#record(sessionId).runtime.session.sessionManager
+      .getBranch()
+      .filter((entry) => entry.type === "message")
+      .map((entry) => ({
+        id: entry.id,
+        role: entry.message.role,
+        text: messageText(entry.message),
+      }));
   }
 
   async fork(sessionId: SessionId, entryId: string, position: "before" | "at" = "at"): Promise<AgentHandle> {

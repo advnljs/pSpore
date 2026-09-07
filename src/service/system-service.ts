@@ -40,6 +40,8 @@ export interface SystemServiceStatus {
 export interface SystemServiceEnsureResult extends SystemServiceStatus {
   unitChanged: boolean;
   lingerWarning?: string;
+  /** Set when a previously failed unit had to be reset before it could start. */
+  recoveredFromFailure?: boolean;
 }
 
 export interface SystemServiceManagerOptions {
@@ -79,6 +81,7 @@ export class SystemServiceManager {
     if (unitChanged) await this.#systemctl("daemon-reload");
 
     const wasActive = await this.#isSystemctlState("is-active");
+    const recoveredFromFailure = wasActive ? false : await this.#resetFailedUnit();
     if (!wasActive) await this.#beforeStart?.();
     if (unitChanged && wasActive) {
       await this.#systemctl("restart", this.unitName);
@@ -101,6 +104,7 @@ export class SystemServiceManager {
     return {
       ...status,
       unitChanged,
+      ...(recoveredFromFailure ? { recoveredFromFailure } : {}),
       ...(lingerWarning === undefined ? {} : { lingerWarning }),
     };
   }
@@ -120,10 +124,12 @@ export class SystemServiceManager {
   }
 
   async restart(): Promise<void> {
+    await this.#resetFailedUnit();
     await this.#systemctl("restart", this.unitName);
   }
 
   async start(): Promise<void> {
+    await this.#resetFailedUnit();
     await this.#systemctl("enable", "--now", this.unitName);
   }
 
@@ -179,6 +185,20 @@ export class SystemServiceManager {
   async #systemctl(...args: string[]): Promise<void> {
     const result = await this.#runner("systemctl", ["--user", ...args]);
     if (result.code !== 0) throw new Error(commandFailure(`systemctl --user ${args.join(" ")} failed`, result));
+  }
+
+  /**
+   * A daemon that crashes repeatedly trips `StartLimitBurst`, and systemd then
+   * refuses every further start with "start request repeated too quickly". The
+   * unit stays failed across client restarts, so clients report a permanently
+   * lost connection until the failure is cleared. Clearing it is safe: it only
+   * resets systemd's bookkeeping, never a running service.
+   */
+  async #resetFailedUnit(): Promise<boolean> {
+    const result = await this.#runner("systemctl", ["--user", "is-failed", this.unitName]);
+    if (result.stdout.trim() !== "failed") return false;
+    await this.#runner("systemctl", ["--user", "reset-failed", this.unitName]);
+    return true;
   }
 
   async #isSystemctlState(command: "is-active" | "is-enabled"): Promise<boolean> {

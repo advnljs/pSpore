@@ -150,6 +150,15 @@ export class PsporeDaemon {
         id: idFactory(),
         ts: clock().toISOString(),
       }) as KernelEvent;
+      // A rejected dispatch from a callback would otherwise surface as an
+      // unhandled rejection and end the process. Restart loops trip the service
+      // start limit, and a unit stuck in `failed` is what leaves clients unable
+      // to reconnect even after a restart.
+      const emit = (input: KernelEventInput): void => {
+        void kernel.dispatch(event(input)).catch((error: unknown) => {
+          warn(`kernel dispatch for ${input.type} failed: ${describeError(error)}`);
+        });
+      };
       const notifications = new NotificationService({
         path: join(paths.events, "notifications.jsonl"),
         recoveryDirectory: join(paths.artifacts, "recovery"),
@@ -167,9 +176,9 @@ export class PsporeDaemon {
         timeoutMs: config.permissions.approvalTimeoutMs,
         clock,
         idFactory,
-        onRequested: (request) => void kernel.dispatch(event({ type: "approval.requested", request })),
+        onRequested: (request) => emit({ type: "approval.requested", request }),
         onResolved: (request, resolution) =>
-          void kernel.dispatch(event({ type: "approval.resolved", request, resolution })),
+          emit({ type: "approval.resolved", request, resolution }),
       });
       await approvals.initialize();
       const policy = await PolicyEngine.create({
@@ -188,7 +197,7 @@ export class PsporeDaemon {
         trustPath: paths.resourceTrust,
         activations: config.plugins,
         clock,
-        onHealth: (health) => void kernel.dispatch(event({ type: "resource.health", health })),
+        onHealth: (health) => emit({ type: "resource.health", health }),
       });
       await extensions.startHostPlugins();
       // Continuous indexing runs the binary from the bundled skill's workspace
@@ -200,7 +209,7 @@ export class PsporeDaemon {
         intervalMs: config.indexing.intervalMinutes * 60_000,
         enabled: config.indexing.enabled,
         clock,
-        onStatus: (status) => void kernel.dispatch(event({ type: "indexing.status", status })),
+        onStatus: (status) => emit({ type: "indexing.status", status }),
       });
       mcp = await McpManager.create({
         configs: config.mcpServers,
@@ -208,7 +217,7 @@ export class PsporeDaemon {
         auditPath: join(paths.audit, "mcp.jsonl"),
         clock,
         idFactory,
-        onHealth: (health) => void kernel.dispatch(event({ type: "mcp.health", health })),
+        onHealth: (health) => emit({ type: "mcp.health", health }),
         onError: (error) => void markDegraded(kernel, event, error),
       });
       const shell = new ShellService({
@@ -305,8 +314,8 @@ export class PsporeDaemon {
         maxConcurrentAgents: config.runtime.maxConcurrentAgents,
         clock,
         idFactory,
-        onAgent: (agent) => void kernel.dispatch(event({ type: "agent.updated", agent })),
-        onMessage: (message) => void kernel.dispatch(event({ type: "agent.message", message })),
+        onAgent: (agent) => emit({ type: "agent.updated", agent }),
+        onMessage: (message) => emit({ type: "agent.message", message }),
         onError: (error) => void markDegraded(kernel, event, error),
       });
       application.setAgents(agents);
@@ -330,7 +339,7 @@ export class PsporeDaemon {
         }),
         maxConcurrentRuns: config.scheduler.maxConcurrentRuns,
         clock,
-        onRun: (run) => void kernel.dispatch(event({ type: "automation.run", run })),
+        onRun: (run) => emit({ type: "automation.run", run }),
         deliverRun: (run) => notifications.deliverRun(run),
         onError: (error) => void markDegraded(kernel, event, error),
       });
@@ -343,6 +352,7 @@ export class PsporeDaemon {
         snapshot: () => kernel.snapshot(),
         handleCommand: async (command) => application?.handleCommand(command),
         idFactory,
+        onWarning: warn,
       });
       await gateway.start();
       daemon = new PsporeDaemon({
@@ -527,6 +537,15 @@ async function markDegraded(
       daemon: { ...current, phase: "degraded", error: error instanceof Error ? error.message : String(error) },
     }),
   );
+}
+
+/** Diagnostics for a daemon that has no interactive console: journal only. */
+function warn(message: string): void {
+  process.stderr.write(`pSpore daemon: ${message}\n`);
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

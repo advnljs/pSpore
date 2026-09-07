@@ -71,3 +71,10 @@ config migration、目录 schema、retention、event/run persistence、session m
 - `parseConfig` 先经 `withConfigDefaults(value, home)` 按段/按键补齐缺失默认值：已有值一律保留，缺失键取 `defaultConfig(home)`，未知键仍严格拒绝（拼写错误不会被静默吞掉）。
 - `initializePsporeHome` 通过 `sectionsComplete` 判断存储文档是否已含本版本全部键；缺键时把合并结果原子写回 `0600`。
 - 效果：overlay 只替换应用文件也不会因为新版本新增配置段而启动失败，用户已有取值（自定义 workspace、并发上限、权限模式等）一字不改。
+
+
+## 2026-09-07：systemd failed 状态自愈与守护进程诊断
+
+- **start limit 死锁**：unit 是 `Restart=always` + `StartLimitBurst=5`/`StartLimitIntervalSec=30`。守护进程连续崩溃 5 次后 unit 进入 `failed`，此后每次 `enable --now` 都被 "start request repeated too quickly" 拒绝，且该状态跨客户端重启保留——表现正是"重启应用也一直 lost connection"。
+- **自愈**：`SystemServiceManager` 在 `ensureRunning`（仅当 unit 非 active 时）、`start()`、`restart()` 前先查 `is-failed`，为 `failed` 时执行 `reset-failed`。这只重置 systemd 的记账，不会影响正在运行的服务。恢复动作经 `SystemServiceEnsureResult.recoveredFromFailure` 上报，CLI/GUI 打印一行说明。
+- **诊断**：`p-spore daemon` 注册 `unhandledRejection` 处理器，只写 journal 不结束进程（进程里是全部活跃会话）；`LocalGateway` 的 `onWarning` 把"客户端停止读取"与"帧无法编码"两类断开原因写进 journal。出问题时用 `p-spore service logs` 就能看到原因。

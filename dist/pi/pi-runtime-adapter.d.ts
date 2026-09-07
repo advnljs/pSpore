@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, AgentSnapshot, ModelRef, ResumeSessionSpec, RuntimeEvent, SessionId, ToolGate } from "../domain/runtime.js";
+import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, AgentSnapshot, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, ToolGate } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 type Clock = () => Date;
 type IdFactory = () => string;
@@ -33,6 +33,13 @@ export declare class PiRuntimeAdapter implements AgentRuntimePort {
     waitForIdle(sessionId: SessionId): Promise<void>;
     newSession(sessionId: SessionId): Promise<AgentHandle>;
     switchSession(sessionId: SessionId, sessionFile: string): Promise<AgentHandle>;
+    /**
+     * The persisted branch, including entries compaction has already dropped from
+     * the model context. It is materialised on demand because it grows without
+     * bound: rebuilding it inside every snapshot made streaming cost grow with
+     * the length of the conversation.
+     */
+    branch(sessionId: SessionId): readonly RuntimeMessage[];
     fork(sessionId: SessionId, entryId: string, position?: "before" | "at"): Promise<AgentHandle>;
     dispose(sessionId: SessionId): Promise<void>;
     disposeAll(): Promise<void>;

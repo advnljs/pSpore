@@ -263,7 +263,6 @@ function session(
     model: { provider: "local", model: "v1-smoke" },
     thinking: "medium",
     messages,
-    entries: messages,
     queue: { steering: [], followUp: [] },
     usage,
   };

@@ -12,13 +12,17 @@ export class KernelLoop {
     snapshot() {
         return structuredClone(this.#state);
     }
+    /**
+     * Commits `event` and resolves with the resulting state. Like the effect
+     * runner's argument, that state is shared and must be treated as read-only.
+     */
     dispatch(event) {
         const operation = this.#tail.then(() => {
             const reduction = reduceKernel(this.#state, event);
             this.#state = reduction.state;
             for (const effect of reduction.effects)
                 this.#startEffect(effect, reduction.state);
-            return this.snapshot();
+            return this.#state;
         });
         this.#tail = operation.then(() => undefined, () => undefined);
         return operation;
@@ -32,7 +36,7 @@ export class KernelLoop {
     #startEffect(effect, state) {
         let task;
         task = Promise.resolve()
-            .then(async () => this.#effectRunner(effect, structuredClone(state)))
+            .then(async () => this.#effectRunner(effect, state))
             .finally(() => this.#effectTasks.delete(task));
         this.#effectTasks.add(task);
         void task.catch(() => undefined);

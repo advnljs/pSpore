@@ -73,4 +73,7 @@
 | P1 | 排序 boost 取值实机调优 | Done | 无 | 在 75 篇（含 60 篇共享查询字的干扰文档）语料上实测：「授信业务」仅 5 篇整串文档命中；「授信 业务」整串文档占据前五、0.05–0.077 对其余 0.008–0.012，约 5–7 倍。受控实验（等长等词频）下整串/拆字 130 倍、近距离/远距离 11.3 倍，确认三个 boost 均生效，**无需调整**。已用 `test/integration/aegis-search-ranking.test.ts` 锁定该行为（二进制缺失时自动跳过）|
 | P2 | 索引目录的 GUI 设置项 | Done | 无 | 设置弹层新增「本机索引」区：启用开关、间隔、文件类型、目录列表（经主进程原生选择器添加、可逐条移除）。渲染器无文件系统权限，绝对路径只能由 `dialog.showOpenDialog` 提供 |
 | P0 | 在 pSpore 仓库创建 `BUNDLED_BINARIES_TOKEN` secret | Pending | 需要用户创建对 advnljs/aegis-searcher 只读的 fine-grained PAT | 没有它时 CI 打出的包不含索引二进制，skill 运行时报 unavailable；workflow 已写好 `secrets.BUNDLED_BINARIES_TOKEN || github.token` 的回退 |
+| P0 | 长任务掉线与重启后仍 lost connection | Done | 无 | 根因是每 token 复制整份会话 + 每 durable 事件搬运整份 transcript + 超限内容让桌面端永久拒帧 + systemd start limit 死锁。已用出站裁剪、快照节流、共享不可变 state、`reset-failed` 自愈修复；压测由 147.5 s/66 次断开降到 2.3 s/0 次断开，300000 字符消息场景由 5 秒 95 次重连变为立即连接 |
+| P2 | GUI transcript 只显示最近 2000 条 / 8 MiB | Pending | 出站裁剪的取舍：先保证客户端永不被大会话锁死 | 若要客户端保留完整历史，改为按 offset 的增量 transcript 协议（快照带 `messageOffset`/`messageCount`，客户端按 offset 合并），并让 GUI 在选中会话时按需拉取更早的历史 |
+| P3 | hello 的 8 MiB 预算在多个大会话间按插入顺序分配 | Pending | 单值预算是防止 hello 超过 64 MiB 逻辑消息上限 | 可改为按会话平分预算，或只给选中会话完整 transcript、其余给摘要 |
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

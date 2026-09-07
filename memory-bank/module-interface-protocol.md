@@ -35,12 +35,13 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 ## 注意事项
 
 - Snapshot/complete event 权威；delta/progress 可合并或丢弃。
+- Daemon 出站一律经 `src/protocol/limits.ts` 裁剪到客户端上限以内；瞬时事件不携带 session 快照，其余 durable 事件按 250 ms 节流携带。
 - 新客户端在 hello 中声明 `server-frame-chunks.v1`；新 Daemon 仅对声明该 capability 的连接分片。逻辑 server message 上限为 64 MiB，物理 frame 仍为 1 MiB；chunk 必须有序、同 ID/encoding/count/length，并在有界 gunzip 与完整 JSON/kind 校验后交付。普通小 frame 和未声明 capability 的旧客户端保持 v1 newline wire format。
 - 相同 command id 必须幂等；seq gap 触发 snapshot，不由客户端猜状态。
 - Electron renderer 已启用 context isolation/sandbox 并关闭 Node integration；只暴露 allowlisted preload API，main 对 command 与 server frame 再校验。
 - UI 同底层指共享 domain/protocol、权威 snapshot/event reducer、presentation model、会话输入路由、设置与 Daemon 生命周期；终端与 DOM 组件保持平台原生。
 - Electron 视觉基准为 `1920 × 1080`，补测 `1440×900`、`1180×720`；TUI 主基准为 `160×45`，补测 `96×30` 单栏。均只覆盖桌面/终端，不实现手机布局。
-- 当前 replay window 位于内存；Daemon 重启后的 durable event replay 尚待 event log 实现，重连仍可用最新 snapshot 恢复。
+- 当前 replay window 位于内存，受 1024 条与 16 MiB 双上限约束；Daemon 重启后的 durable event replay 尚待 event log 实现，重连仍可用最新 snapshot 恢复。
 - TUI clientId 在进程内稳定，seq gap 会断开并指数退避重连；相同 command ID 由 Daemon 缓存首次响应。
 - job/run/notification 状态已经进入 Kernel snapshot；CLI/TUI 可列出 job/run/notification、触发 job、取消 run，CLI/agent 可原子更新 job。
 - Electron bridge 保存 cursor、检测 gap、指数退避重连，并在不改变 seq 语义的前提下按 `text` / `thinking` channel 分别合并连续同 session delta；renderer 只保留可丢弃 store。
@@ -54,6 +55,7 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 - GUI/TUI store 的协议 reducer 保持不可变更新并在 IPC 校验边界 clone；`snapshot()` 返回只读当前引用，避免 streaming delta 深拷贝完整历史。GUI 用共享 `VirtualHeightIndex` 窗口化 DOM，TUI 只格式化 `rows + scrollOffset + overscan` 的历史尾窗。
 - `message.thinking.delta` 只进入 `streamingThinking`，不拼进 `streamingText` 或持久 `messages`；`message.completed`、`run.settled`、`runtime.error` 和 `session.replaced` 会清理两类临时流。Desktop coalesced delta frame 必须显式携带 `channel: "text" | "thinking"`。
 - `AgentSnapshot.rootSession` 只为持久交互式根会话携带 title/createdAt/updatedAt；`presentSessions` 将多个根会话及各自 agent tree 分组呈现。
+- `AgentSnapshot` 不再有 `entries`：它是未经压缩的完整分支、随会话无界增长，而且没有任何客户端读它。需要分支（fork 定位 entry id）时用 `PiRuntimeAdapter.branch(sessionId)` 按需取。
 - npm 分发包名为 `p-spore`，全局可执行命令为 `pspore`；纯 npm 包不包含 Electron 生产依赖，桌面端由 GitHub Release 全量 zip / overlay zip 分发。
 
 ## 常见修改点
@@ -69,3 +71,13 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 - **desktop delta 合并**：`DaemonBridge` 的 delta 合并在跨越 skip 时仍可继续，`DesktopFrame.delta` 只在 `skipped > 0` 时携带该字段。
 - **界面稳定期**：`DesktopStore`/`TuiStore` 各持有 2 秒 settle window（`CONNECTION_SETTLE_MS` / `TUI_CONNECTION_SETTLE_MS`），对外暴露 `stableConnection`/`reconnecting`。窗口内保持呈现为已连接，只有指示灯变暖色呼吸；超时才降级并更新状态行。渲染层用 250ms 定时器驱动 `settleConnection()`，保证无新帧时真实掉线也会显现。
 - **重连期命令**：GUI 只对 `DAEMON_NOT_CONNECTED_MESSAGE`（bridge 在写 socket 之前抛出）重试一次，等待连接恢复后再发，因此不会重复已经执行的命令。
+
+## 2026-09-07：出站上限、快照节流与掉线自愈
+
+- **协议出站上限（`src/protocol/limits.ts`）**：客户端上限（单串 262144 字符、集合 10000 项、深度 32、节点 2000000）与守护进程上限（单串 65536 字符、集合 2000 项、深度 24、单值 8 MiB）在同一处定义；`desktop/validation.ts` 直接引用客户端常量，两侧不会漂移。
+- **裁剪点在网关**：`LocalGateway` 对 hello 快照、每条事件 payload、每条命令响应各裁剪一次（`boundPublishedValue`/`measurePublishedValue`，未超限时结构共享、零拷贝）。字符串保留头部并注明截断到多少；数组保留**尾部**（transcript 都是追加型，客户端看的就是尾巴），共享预算也从尾部开始花，用尽后丢弃更旧的条目。
+- **为什么必须裁剪**：客户端校验失败会关连接，而权威快照每次重连都会重发同一份内容——一条超限消息一旦进入会话，桌面端就会永久重连失败，重启守护进程也无效（快照从 JSONL 恢复）。裁剪把这一整类"永久锁死"变成"最旧内容被截断"。
+- **快照附带策略**：`runtime.received` 新增 `publishSnapshot`。瞬时事件（token delta、tool partial）完全不构建快照；durable 事件中 `run.started`/`run.settled`/`session.replaced`/`runtime.error`/`message.completed`/`compaction.completed`/`queue.updated` 必带，其余每个 session 每 250 ms 最多带一次。Kernel state 始终吸收快照，只是广播不重复搬运整份 transcript。
+- **背压**：进出预算分离——`maxPendingBytes` 只管连接的入站缓冲，新增 `maxOutgoingBytes`（默认 64 MiB）管出站；只有真正停止读取的客户端才会被断开，断开原因经 `onWarning` 写入 journal。
+- **replay window 双上限**：除 1024 条外还有 16 MiB 字节上限（`maxReplayBytes`）。durable 事件带快照，只按条数计会在长任务中滞留数百 MiB transcript；游标落在窗口外的客户端改由 hello 快照恢复。
+- **诊断**：`DaemonBridge` 记录自己拒帧/判缺口的原因并作为断线消息上报，重连不再静默；退避睡眠可被 `stop()` 打断，关窗不必等定时器。

@@ -43,7 +43,18 @@ export type KernelEvent =
   | (EventMetadata & { type: "daemon.transition"; daemon: DaemonSnapshot })
   | (EventMetadata & { type: "session.snapshot"; snapshot: AgentSnapshot })
   | (EventMetadata & { type: "session.closed"; sessionId: string })
-  | (EventMetadata & { type: "runtime.received"; event: RuntimeEvent; snapshot?: AgentSnapshot })
+  | (EventMetadata & {
+      type: "runtime.received";
+      event: RuntimeEvent;
+      snapshot?: AgentSnapshot;
+      /**
+       * Whether the broadcast carries the session snapshot. State always
+       * absorbs it; clients only need it often enough to stay current, and
+       * attaching a whole transcript to every tool event is what saturated the
+       * socket during long runs.
+       */
+      publishSnapshot?: boolean;
+    })
   | (EventMetadata & { type: "approval.requested"; request: ApprovalRequest })
   | (EventMetadata & { type: "automation.run"; run: RunRecord })
   | (EventMetadata & { type: "notification.created"; notification: NotificationRecord })

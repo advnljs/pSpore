@@ -36,6 +36,7 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       const next = snapshot
         ? changed(state, { ...state, sessions: { ...state.sessions, [snapshot.sessionId]: snapshot } })
         : state;
+      const publishSnapshot = snapshot !== undefined && !event.event.transient && event.publishSnapshot !== false;
       return broadcast(
         next,
         event,
@@ -45,7 +46,7 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
           upstreamSessionId: event.event.upstreamSessionId,
           ...event.event.payload,
           ...(snapshot ? { revision: next.revision } : {}),
-          ...(snapshot && !event.event.transient ? { session: snapshot } : {}),
+          ...(publishSnapshot ? { session: snapshot } : {}),
         },
         !event.event.transient,
       );

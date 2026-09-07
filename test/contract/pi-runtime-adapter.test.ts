@@ -179,7 +179,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
 
     await adapter.prompt("main", "fork me");
     await adapter.waitForIdle("main");
-    const userEntry = adapter.snapshot("main").entries.find((entry) => entry.role === "user" && entry.text === "fork me");
+    const userEntry = adapter.branch("main").find((entry) => entry.role === "user" && entry.text === "fork me");
     assert.ok(userEntry?.id);
     await adapter.fork("main", userEntry.id, "at");
     const forkedUpstreamId = adapter.snapshot("main").upstreamSessionId;

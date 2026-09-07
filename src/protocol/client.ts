@@ -42,6 +42,8 @@ export class ProtocolClient {
   readonly #pendingCommands = new Map<string, PendingCommand>();
   #socket: Socket | undefined;
   #pending = Buffer.alloc(0);
+  /** Offset into `#pending` already scanned for a frame delimiter. */
+  #scanned = 0;
   #helloWaiter: PendingCommand | undefined;
   #hello: ServerHelloFrame | undefined;
   #lastSeq: Record<string, number>;
@@ -69,6 +71,7 @@ export class ProtocolClient {
     const socket = createConnection(this.#options.socketPath);
     this.#socket = socket;
     this.#pending = Buffer.alloc(0);
+    this.#scanned = 0;
     this.#decoder.reset();
     socket.setNoDelay(true);
     socket.on("data", (chunk: Buffer) => this.#receive(chunk));
@@ -155,10 +158,17 @@ export class ProtocolClient {
     this.#pending = Buffer.concat([this.#pending, chunk]);
     const maxFrameBytes = this.#options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
     for (;;) {
-      const delimiter = this.#pending.indexOf(0x0a);
-      if (delimiter < 0) break;
+      // A megabyte-sized chunk frame arrives as many small reads. Scanning only
+      // the newly arrived bytes keeps that linear instead of quadratic, which
+      // matters on the streaming traffic of a long run.
+      const delimiter = this.#pending.indexOf(0x0a, this.#scanned);
+      if (delimiter < 0) {
+        this.#scanned = this.#pending.byteLength;
+        break;
+      }
       const line = this.#pending.subarray(0, delimiter);
       this.#pending = this.#pending.subarray(delimiter + 1);
+      this.#scanned = 0;
       if (line.byteLength > maxFrameBytes) {
         this.#socket?.destroy(new Error("Server frame exceeded protocol limit"));
         return;
@@ -182,18 +192,24 @@ export class ProtocolClient {
         this.#socket?.destroy(new Error("Server sent duplicate hello acknowledgement"));
         return;
       }
-      this.#hello = structuredClone(frame);
+      // The frame was just decoded from the wire and is referenced nowhere else,
+      // so the handshake hands it over as-is. Cloning a whole kernel snapshot
+      // twice per connect is pure cost on exactly the path a reconnect retries.
+      this.#hello = frame;
       const resolve = this.#resolveHello;
       this.#resolveHello = undefined;
       this.#helloWaiter = undefined;
-      resolve?.(this.hello as ServerHelloFrame);
+      resolve?.(frame);
       for (const listener of this.#connectionListeners) listener(true);
       return;
     }
     if (frame.kind === "event") {
       const previous = this.#lastSeq[frame.streamId] ?? 0;
       if (frame.seq > previous) this.#lastSeq[frame.streamId] = frame.seq;
-      for (const listener of this.#listeners) listener(structuredClone(frame));
+      // A single subscriber cannot observe another's mutations, and the client
+      // keeps no reference to the event, so only a shared fan-out needs copies.
+      const shared = this.#listeners.size > 1;
+      for (const listener of this.#listeners) listener(shared ? structuredClone(frame) : frame);
       return;
     }
     if (frame.kind === "response") {
@@ -213,6 +229,8 @@ export class ProtocolClient {
     const wasConnected = this.#socket !== undefined || this.#hello !== undefined;
     this.#socket = undefined;
     this.#hello = undefined;
+    this.#pending = Buffer.alloc(0);
+    this.#scanned = 0;
     this.#decoder.reset();
     this.#resolveHello = undefined;
     this.#helloWaiter?.reject(error);

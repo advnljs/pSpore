@@ -33,6 +33,7 @@ export class SystemServiceManager {
         if (unitChanged)
             await this.#systemctl("daemon-reload");
         const wasActive = await this.#isSystemctlState("is-active");
+        const recoveredFromFailure = wasActive ? false : await this.#resetFailedUnit();
         if (!wasActive)
             await this.#beforeStart?.();
         if (unitChanged && wasActive) {
@@ -57,6 +58,7 @@ export class SystemServiceManager {
         return {
             ...status,
             unitChanged,
+            ...(recoveredFromFailure ? { recoveredFromFailure } : {}),
             ...(lingerWarning === undefined ? {} : { lingerWarning }),
         };
     }
@@ -77,9 +79,11 @@ export class SystemServiceManager {
         return true;
     }
     async restart() {
+        await this.#resetFailedUnit();
         await this.#systemctl("restart", this.unitName);
     }
     async start() {
+        await this.#resetFailedUnit();
         await this.#systemctl("enable", "--now", this.unitName);
     }
     async stop() {
@@ -133,6 +137,20 @@ export class SystemServiceManager {
         const result = await this.#runner("systemctl", ["--user", ...args]);
         if (result.code !== 0)
             throw new Error(commandFailure(`systemctl --user ${args.join(" ")} failed`, result));
+    }
+    /**
+     * A daemon that crashes repeatedly trips `StartLimitBurst`, and systemd then
+     * refuses every further start with "start request repeated too quickly". The
+     * unit stays failed across client restarts, so clients report a permanently
+     * lost connection until the failure is cleared. Clearing it is safe: it only
+     * resets systemd's bookkeeping, never a running service.
+     */
+    async #resetFailedUnit() {
+        const result = await this.#runner("systemctl", ["--user", "is-failed", this.unitName]);
+        if (result.stdout.trim() !== "failed")
+            return false;
+        await this.#runner("systemctl", ["--user", "reset-failed", this.unitName]);
+        return true;
     }
     async #isSystemctlState(command) {
         const result = await this.#runner("systemctl", ["--user", command, this.unitName]);

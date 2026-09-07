@@ -193,6 +193,9 @@ async function startDesktop(): Promise<void> {
     });
     const ensured = await systemService.ensureRunning(launch);
     if (ensured.lingerWarning) process.stderr.write(`pSpore service warning: ${ensured.lingerWarning}\n`);
+    if (ensured.recoveredFromFailure) {
+      process.stderr.write("pSpore service: cleared a failed unit state before starting the daemon\n");
+    }
   }
   bridge = new DaemonBridge({
     socketPath: paths.socket,

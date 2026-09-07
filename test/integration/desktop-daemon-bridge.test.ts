@@ -58,6 +58,46 @@ test("desktop daemon bridge validates commands and coalesces text and thinking i
   await bridge.stop();
 });
 
+test("reports why a rejected daemon frame closed the connection", async () => {
+  const client = new FakeProtocolClient();
+  const bridge = new DaemonBridge({
+    socketPath: "/unused/daemon.sock",
+    stagingRoot: "/private/workspace/staging",
+    versions: { pspore: "0.1.0", pi: "0.84.1", electron: "43.3.0", node: "24.19.0" },
+    reconnectDelay: () => 5_000,
+    clientFactory: () => client,
+  });
+  bridge.start();
+  await waitFor(() => bridge.bootstrap().connection.phase === "connected");
+
+  // Silently reconnecting forever is what made this failure impossible to
+  // diagnose from the client: the banner has to name the rejected frame.
+  client.emit(event(1, "message.delta", { sessionId: "main", delta: 42 as unknown as string }));
+  await waitFor(() => bridge.bootstrap().connection.phase === "disconnected");
+  const connection = bridge.bootstrap().connection;
+  assert.equal(connection.phase, "disconnected");
+  assert.match(connection.message ?? "", /Rejected a message\.delta event from the daemon/);
+  await bridge.stop();
+});
+
+test("reports an unexplained sequence jump instead of closing silently", async () => {
+  const client = new FakeProtocolClient();
+  const bridge = new DaemonBridge({
+    socketPath: "/unused/daemon.sock",
+    stagingRoot: "/private/workspace/staging",
+    versions: { pspore: "0.1.0", pi: "0.84.1", electron: "43.3.0", node: "24.19.0" },
+    reconnectDelay: () => 5_000,
+    clientFactory: () => client,
+  });
+  bridge.start();
+  await waitFor(() => bridge.bootstrap().connection.phase === "connected");
+
+  client.emit(event(7, "message.delta", { sessionId: "main", delta: "late" }));
+  await waitFor(() => bridge.bootstrap().connection.phase === "disconnected");
+  assert.match(bridge.bootstrap().connection.message ?? "", /Event gap on stream-1: expected 1, received 7/);
+  await bridge.stop();
+});
+
 class FakeProtocolClient {
   readonly commands: Array<{ type: string; payload: unknown; options: Record<string, unknown> }> = [];
   readonly #events = new Set<(event: EventEnvelope) => void>();

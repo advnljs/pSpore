@@ -22,6 +22,8 @@ export interface SystemServiceStatus {
 export interface SystemServiceEnsureResult extends SystemServiceStatus {
     unitChanged: boolean;
     lingerWarning?: string;
+    /** Set when a previously failed unit had to be reset before it could start. */
+    recoveredFromFailure?: boolean;
 }
 export interface SystemServiceManagerOptions {
     home: string;

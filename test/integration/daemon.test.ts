@@ -17,7 +17,9 @@ import type {
   RuntimeEvent,
 } from "../../src/domain/runtime.js";
 import type { JobDefinition, RunRecord } from "../../src/automation/types.js";
+import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
 import { ProtocolClient } from "../../src/protocol/client.js";
+import type { EventEnvelope } from "../../src/protocol/schema.js";
 import { atomicWriteJson } from "../../src/storage/atomic.js";
 import { initializePsporeHome } from "../../src/storage/home.js";
 
@@ -459,6 +461,97 @@ describe("daemon vertical slice", () => {
     await second.stop();
     assert.match(await readFile(marker, "utf8"), /stop:daemon shutdown/);
   });
+
+  test("stays reachable for the desktop client when a session holds an oversized message", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime();
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("oversized-daemon"),
+    });
+    const seed = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "oversized-seed" });
+    await seed.connect();
+    await seed.command<Accepted>("session.prompt", { text: "read the log", mode: "prompt" }, { sessionId: "main" });
+    await seed.close();
+    // A long tool result or a big model answer used to travel verbatim into the
+    // authoritative snapshot. The desktop client rejected the frame, and since
+    // the snapshot arrives on every reconnect, restarting never recovered it.
+    runtime.seedMessage("main", "assistant", "x".repeat(300_000));
+
+    const bridge = new DaemonBridge({
+      socketPath: daemon.paths.socket,
+      stagingRoot: join(home, "workspace", "staging"),
+      versions: { pspore: "0.1.17", pi: "0.84.1", electron: "43.3.0", node: process.versions.node },
+      reconnectDelay: () => 20,
+    });
+    cleanups.push(async () => {
+      await bridge.stop();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    bridge.start();
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
+
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "oversized-client" });
+    cleanups.push(async () => client.close());
+    const events: EventEnvelope[] = [];
+    client.subscribe((event) => events.push(event));
+    await client.connect();
+    runtime.emit("main", "message.completed", false, { role: "assistant", text: "done" });
+    await waitFor(() => events.some((event) => event.type === "message.completed"), 5_000);
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
+    assert.equal(bridge.bootstrap().connection.phase, "connected");
+    assert.equal(bridge.bootstrap().connection.attempt, 0);
+  });
+
+  test("keeps streaming cheap by attaching the session only where clients need it", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime();
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("stream-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "stream-client" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+    const events: EventEnvelope[] = [];
+    client.subscribe((event) => events.push(event));
+
+    await client.command<Accepted>("session.prompt", { text: "hello", mode: "prompt" }, { sessionId: "main" });
+    await waitFor(() => events.some((event) => event.type === "run.settled"));
+
+    // A transcript rebuilt and shipped for every streamed token is what made a
+    // long run stall the daemon and drop its clients.
+    runtime.emit("main", "message.delta", true, { delta: "chunk" });
+    runtime.emit("main", "tool.started", false, { toolName: "shell" });
+    runtime.emit("main", "tool.completed", false, { toolName: "shell" });
+    await waitFor(() => events.filter((event) => event.type === "tool.completed").length === 1);
+    // Once the window has passed, the next tool event refreshes clients again.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    runtime.emit("main", "tool.started", false, { toolName: "shell" });
+    await waitFor(() => events.filter((event) => event.type === "tool.started").length === 2);
+
+    const payload = (type: string): Record<string, unknown> =>
+      events.find((event) => event.type === type)?.payload as Record<string, unknown>;
+    assert.equal(payload("message.delta")["session"], undefined);
+    assert.equal(payload("message.delta")["revision"], undefined);
+    assert.ok(payload("message.completed")["session"], "a settled message must carry the authoritative session");
+    assert.ok(payload("run.settled")["session"], "a settled run must carry the authoritative session");
+    // The settled run published the transcript microseconds earlier, so the
+    // tool events that follow it add nothing a client needs a full copy for.
+    assert.equal(payload("tool.started")["session"], undefined, "the coalescing window suppresses a redundant copy");
+    assert.equal(payload("tool.completed")["session"], undefined, "the coalescing window suppresses a redundant copy");
+    const refreshed = events.filter((event) => event.type === "tool.started").at(-1)?.payload as Record<string, unknown>;
+    assert.ok(refreshed["session"], "a tool event past the window carries the session again");
+    // State stays authoritative even where the broadcast omits the snapshot.
+    assert.equal(daemon.kernel.snapshot().sessions["main"]?.messages.at(-1)?.text, "fake reply");
+  });
 });
 
 class FakeRuntime implements AgentRuntimePort {
@@ -601,7 +694,12 @@ class FakeRuntime implements AgentRuntimePort {
     for (const pending of this.#settlers.splice(0)) pending.settle();
   }
 
-  #emit(sessionId: string, type: RuntimeEvent["type"], transient: boolean): void {
+  seedMessage(sessionId: string, role: string, text: string): void {
+    const current = this.required(sessionId);
+    this.#snapshots.set(sessionId, { ...current, messages: [...current.messages, { role, text }] });
+  }
+
+  emit(sessionId: string, type: RuntimeEvent["type"], transient: boolean, payload: Record<string, unknown> = {}): void {
     const event: RuntimeEvent = {
       id: `runtime-${type}-${Math.random()}`,
       sessionId,
@@ -609,9 +707,13 @@ class FakeRuntime implements AgentRuntimePort {
       type,
       ts: new Date().toISOString(),
       transient,
-      payload: {},
+      payload,
     };
     for (const listener of this.#listeners.get(sessionId) ?? []) listener(event);
+  }
+
+  #emit(sessionId: string, type: RuntimeEvent["type"], transient: boolean): void {
+    this.emit(sessionId, type, transient);
   }
 
   required(sessionId: string): AgentSnapshot {
@@ -662,7 +764,6 @@ function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {
     status: "idle",
     thinking: "off",
     messages: [],
-    entries: [],
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };

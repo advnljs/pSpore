@@ -28,12 +28,13 @@ export function reduceKernel(state, event) {
             const next = snapshot
                 ? changed(state, { ...state, sessions: { ...state.sessions, [snapshot.sessionId]: snapshot } })
                 : state;
+            const publishSnapshot = snapshot !== undefined && !event.event.transient && event.publishSnapshot !== false;
             return broadcast(next, event, event.event.type, {
                 sessionId: event.event.sessionId,
                 upstreamSessionId: event.event.upstreamSessionId,
                 ...event.event.payload,
                 ...(snapshot ? { revision: next.revision } : {}),
-                ...(snapshot && !event.event.transient ? { session: snapshot } : {}),
+                ...(publishSnapshot ? { session: snapshot } : {}),
             }, !event.event.transient);
         }
         case "approval.requested": {

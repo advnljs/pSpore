@@ -12,6 +12,7 @@ import type {
   SessionId,
 } from "../domain/runtime.js";
 import type { KernelLoop } from "../kernel/loop.js";
+import type { KernelEvent } from "../kernel/state.js";
 import type { McpHealthRecord, McpToolDescriptor } from "../mcp/types.js";
 import type { NotificationService } from "../notifications/notification-service.js";
 import type { ApprovalService } from "../policy/approval-service.js";
@@ -81,6 +82,20 @@ export interface ResourceControl {
   list(): ResourceCatalogEntry[];
 }
 
+/** Runtime events whose broadcast always carries the authoritative session. */
+const SETTLING_RUNTIME_EVENTS = new Set<RuntimeEvent["type"]>([
+  "run.started",
+  "run.settled",
+  "session.replaced",
+  "runtime.error",
+  "message.completed",
+  "compaction.completed",
+  "queue.updated",
+]);
+
+/** Minimum spacing between snapshot-carrying broadcasts for one session. */
+const SNAPSHOT_PUBLISH_INTERVAL_MS = 250;
+
 export class AgentRunBudgetError extends Error {
   constructor(message: string) {
     super(message);
@@ -104,6 +119,7 @@ export class AgentApplication implements AgentSessionHost {
   readonly #rootSessions = new Map<SessionId, RootSessionMetadata>();
   readonly #unsubscribers = new Map<SessionId, () => void>();
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
+  readonly #snapshotPublishedAt = new Map<SessionId, number>();
   #automation: AutomationControl | undefined;
   #agents: AgentControl | undefined;
   #mcp: McpControl | undefined;
@@ -585,21 +601,54 @@ export class AgentApplication implements AgentSessionHost {
   }
 
   #onRuntimeEvent(event: RuntimeEvent): void {
-    const snapshot = this.#snapshot(event.sessionId);
-    void this.#kernel.dispatch({
+    // Transient events arrive per streamed token. Rebuilding and cloning the
+    // whole session for each one makes streaming cost grow with the length of
+    // the conversation, which stalls the daemon's event loop on long runs until
+    // clients are dropped for falling behind. They carry no snapshot anyway.
+    const snapshot = event.transient ? undefined : this.#snapshot(event.sessionId);
+    void this.#dispatch({
       id: event.id,
       ts: event.ts,
       type: "runtime.received",
       event,
-      snapshot,
+      ...(snapshot === undefined ? {} : { snapshot, publishSnapshot: this.#shouldPublishSnapshot(event) }),
     });
-    if (this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
+    if (snapshot && this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
       void this.#sessionCatalog.touch(event.sessionId, {
         ...(snapshot.sessionFile === undefined ? {} : { sessionFile: snapshot.sessionFile }),
       }).then((record) => {
         if (record) this.#rootSessions.set(event.sessionId, rootMetadata(record));
       }).catch((error: unknown) => this.#onError(toError(error)));
     }
+  }
+
+  /**
+   * Settling events always ship the session so clients land on the authoritative
+   * transcript; the rest ship it at most once per interval. Without this, a run
+   * with many tool calls re-sends the entire transcript several times per call.
+   */
+  #shouldPublishSnapshot(event: RuntimeEvent): boolean {
+    if (SETTLING_RUNTIME_EVENTS.has(event.type)) {
+      this.#snapshotPublishedAt.set(event.sessionId, this.#clock().getTime());
+      return true;
+    }
+    const now = this.#clock().getTime();
+    const last = this.#snapshotPublishedAt.get(event.sessionId);
+    if (last !== undefined && now - last < SNAPSHOT_PUBLISH_INTERVAL_MS) return false;
+    this.#snapshotPublishedAt.set(event.sessionId, now);
+    return true;
+  }
+
+  /**
+   * A rejected dispatch must never become an unhandled rejection: that ends the
+   * daemon process, and repeated restarts trip the service start limit, which
+   * leaves clients unable to reconnect at all.
+   */
+  #dispatch(event: KernelEvent): Promise<unknown> {
+    return this.#kernel.dispatch(event).catch((error: unknown) => {
+      this.#onError(toError(error));
+      return undefined;
+    });
   }
 
   #snapshot(sessionId: SessionId): AgentSnapshot {
@@ -623,6 +672,7 @@ export class AgentApplication implements AgentSessionHost {
     this.#unsubscribers.delete(sessionId);
     this.#sessions.delete(sessionId);
     this.#rootSessions.delete(sessionId);
+    this.#snapshotPublishedAt.delete(sessionId);
     let failure: unknown;
     try {
       await this.#runtime.dispose(sessionId);

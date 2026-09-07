@@ -220,7 +220,6 @@ function snapshot(sessionId: string, cwd: string): AgentSnapshot {
     status: "idle",
     thinking: "off",
     messages: [],
-    entries: [],
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };

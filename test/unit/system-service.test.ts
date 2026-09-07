@@ -98,6 +98,57 @@ test("installs, enables, restarts and removes an isolated systemd user unit", as
   }
 });
 
+test("clears a failed unit before starting so a start-limit lockout self-heals", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pspore-system-service-failed-"));
+  const config = join(root, "config");
+  const home = join(root, "home");
+  const workspace = join(home, "workspace");
+  await mkdir(workspace, { recursive: true });
+  // A daemon that crashes repeatedly leaves the unit failed. Without a reset,
+  // systemd refuses every later start and clients stay offline for good.
+  let failed = true;
+  let active = false;
+  const calls: string[][] = [];
+  const runner = async (executable: string, args: readonly string[]): Promise<SystemServiceCommandResult> => {
+    calls.push([executable, ...args]);
+    if (executable === "systemctl" && args.includes("is-active")) {
+      return result(active ? 0 : 3, active ? "active\n" : "failed\n");
+    }
+    if (executable === "systemctl" && args.includes("is-enabled")) return result(0, "enabled\n");
+    if (executable === "systemctl" && args.includes("is-failed")) {
+      return result(failed ? 0 : 1, failed ? "failed\n" : "active\n");
+    }
+    if (executable === "systemctl" && args.includes("reset-failed")) {
+      failed = false;
+      return result(0);
+    }
+    if (executable === "systemctl" && args.includes("enable")) {
+      if (failed) return result(1, "", "Failed to start: start request repeated too quickly");
+      active = true;
+    }
+    if (executable === "loginctl" && args.includes("show-user")) return result(0, "yes\n");
+    return result(0);
+  };
+  const manager = new SystemServiceManager({ home, userConfigDirectory: config, username: "fixture-user", runner });
+  const spec = { executable: "/usr/bin/node", args: ["/opt/pspore/main.js", "daemon"], workingDirectory: workspace };
+  try {
+    const ensured = await manager.ensureRunning(spec);
+    assert.equal(ensured.recoveredFromFailure, true);
+    assert.equal(ensured.active, true);
+    const order = calls.map((call) => call.join(" "));
+    const reset = order.findIndex((call) => call.includes("reset-failed"));
+    const start = order.findIndex((call) => call.includes("enable --now"));
+    assert.ok(reset >= 0 && reset < start, "the reset must precede the start it unblocks");
+
+    // A healthy unit is left alone.
+    active = false;
+    const second = await manager.ensureRunning(spec);
+    assert.equal(second.recoveredFromFailure, undefined);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("builds Node SEA and Electron-as-Node service launch commands", async () => {
   const root = await mkdtemp(join(tmpdir(), "pspore-service-launch-"));
   const desktopEntry = join(root, "dist", "desktop", "main.js");

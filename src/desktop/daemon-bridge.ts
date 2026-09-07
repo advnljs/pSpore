@@ -59,8 +59,11 @@ export class DaemonBridge {
   #running = false;
   #loop: Promise<void> | undefined;
   #wakeDisconnect: (() => void) | undefined;
+  #wakeRetry: (() => void) | undefined;
   #pendingDelta: PendingDelta | undefined;
   #deltaTimer: NodeJS.Timeout | undefined;
+  /** Why this bridge tore the last connection down, for the offline banner. */
+  #protocolFailure: string | undefined;
 
   constructor(options: DaemonBridgeOptions) {
     this.#versions = structuredClone(options.versions);
@@ -89,6 +92,7 @@ export class DaemonBridge {
     this.#running = false;
     this.#flushDelta();
     this.#wakeDisconnect?.();
+    this.#wakeRetry?.();
     await this.#client?.close().catch(() => undefined);
     await this.#loop;
     this.#loop = undefined;
@@ -173,9 +177,16 @@ export class DaemonBridge {
         await client.close().catch(() => undefined);
       }
       if (!this.#running) break;
-      const message = disconnectError?.message ?? "Daemon connection closed";
+      // A frame this bridge rejected closes the socket from the client side, so
+      // the socket error says nothing useful. Reporting the real reason is what
+      // makes an otherwise silent reconnect loop diagnosable.
+      const failure = this.#protocolFailure;
+      this.#protocolFailure = undefined;
+      const message = failure ?? disconnectError?.message ?? "Daemon connection closed";
       this.#setConnection({ phase: "disconnected", attempt: Math.max(1, attempt), message });
-      await delay(this.#reconnectDelay(Math.max(1, attempt)));
+      // Shutdown must not have to outwait a backoff timer: a quitting window
+      // would otherwise hang for as long as the next retry is scheduled.
+      await this.#sleep(this.#reconnectDelay(Math.max(1, attempt)));
     }
   }
 
@@ -183,7 +194,9 @@ export class DaemonBridge {
     let event: EventEnvelope;
     try {
       event = validateEventEnvelope(candidate);
-    } catch {
+    } catch (error) {
+      const type = String(candidate.type).slice(0, 64);
+      this.#protocolFailure = `Rejected a ${type} event from the daemon: ${toError(error).message}`;
       void client.close();
       return;
     }
@@ -193,6 +206,7 @@ export class DaemonBridge {
     // backpressure. Only a jump beyond that is a real loss worth reconnecting for.
     const expected = previous + 1 + (event.skipped ?? 0);
     if (event.seq !== expected) {
+      this.#protocolFailure = `Event gap on ${event.streamId}: expected ${expected}, received ${event.seq}`;
       void client.close();
       return;
     }
@@ -252,10 +266,20 @@ export class DaemonBridge {
   #emit(frame: DesktopFrame): void {
     for (const listener of this.#listeners) listener(structuredClone(frame));
   }
-}
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+  async #sleep(milliseconds: number): Promise<void> {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.#wakeRetry = undefined;
+        resolve();
+      }, milliseconds);
+      this.#wakeRetry = () => {
+        clearTimeout(timer);
+        this.#wakeRetry = undefined;
+        resolve();
+      };
+    });
+  }
 }
 
 function toError(error: unknown): Error {

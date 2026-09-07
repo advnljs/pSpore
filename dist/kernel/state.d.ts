@@ -49,6 +49,13 @@ export type KernelEvent = (EventMetadata & {
     type: "runtime.received";
     event: RuntimeEvent;
     snapshot?: AgentSnapshot;
+    /**
+     * Whether the broadcast carries the session snapshot. State always
+     * absorbs it; clients only need it often enough to stay current, and
+     * attaching a whole transcript to every tool event is what saturated the
+     * socket during long runs.
+     */
+    publishSnapshot?: boolean;
 }) | (EventMetadata & {
     type: "approval.requested";
     request: ApprovalRequest;

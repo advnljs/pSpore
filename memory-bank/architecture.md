@@ -118,3 +118,12 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **链接与版本**：默认建立 symlink，指向发行版内的真实目录，因此 overlay 就地升级后链接自动指向新版本。若 workspace 中已存在：symlink 指向别的安装路径就重新指向；真实目录带 `.pspore-bundled.json` 标记则按 SemVer 比对，只有发行版更新时才替换；没有标记的目录视为用户自己的内容，**永不覆盖**。
 - **asar 边界**：Electron 包里模块位于 `app.asar` 内，其中的条目不是真实文件，无法被 symlink 指向也无法执行。因此 `bundled-skills` 通过 `asarUnpack` 落到 `app.asar.unpacked/`，`bundledSkillsRoots()` 会把路径中的 `.asar/` 改写为 `.asar.unpacked/` 并优先选用。
 - **持续索引**：`config.indexing`（enabled/directories/intervalMinutes/extensions）驱动 `IndexService`，它按间隔调用 bundled skill 里的 `aegis-search index --json`，解析进度并通过 `indexing.status` 领域事件进入 Kernel 权威状态，GUI 检查器"自动化"页只读展示。索引是增量的（CLI 依据 mtime/size 指纹跳过未变化文件），与 Aegis Searcher 桌面版共用同一份索引目录。默认关闭且目录为空——未经用户指定就索引整个 home 目录既慢又越权。
+
+## 2026-09-07 变更：出站数据量成为协议的一等约束
+
+- **约束**：守护进程发给客户端的任何值都必须落在客户端校验上限之内，且体量与"会话有多长"解耦。理由是权威快照在每次重连时重发：一条客户端拒收的内容会让该客户端**永久**连不上，重启守护进程也无效（快照从 JSONL 恢复）。
+- **裁剪层**：`src/protocol/limits.ts` 同时定义客户端上限与守护进程出站上限，`LocalGateway` 在 hello/事件/响应三个出口各裁剪一次，`desktop/validation.ts` 引用同一组客户端常量。未超限时结构共享，正常路径无额外拷贝。
+- **快照搬运频率**：session 快照只在 settling 事件上必带，其余 durable 事件每 session 250 ms 最多一次；瞬时事件（token delta、tool partial）根本不构建快照。Kernel state 仍吸收每个非瞬时快照，权威性不变。
+- **不可变共享**：kernel state 在 `dispatch()` 返回值与 effect runner 参数上按不可变约定共享，不再逐事件深拷贝；深拷贝只保留在 `snapshot()` 这一协议边界。
+- **内存**：replay window 同时受条数与字节上限约束，避免 durable 事件携带的快照在长任务中滞留数百 MiB。
+- **可恢复性**：systemd unit 进入 `failed` 后，客户端在启动服务前先 `reset-failed`；守护进程的未捕获 rejection 只写 journal 不退出，避免崩溃—重启—触发 start limit 的死锁。

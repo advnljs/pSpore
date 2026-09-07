@@ -154,15 +154,28 @@ async function runDaemon(home: string): Promise<number> {
     stopping = true;
     void daemon.stop().catch(() => undefined);
   };
+  // The service holds every live session. Ending the process over a stray
+  // rejection loses them all and, once systemd's start limit is reached, leaves
+  // clients unable to reconnect at all; a journal entry is the better trade.
+  const reportRejection = (reason: unknown) => {
+    process.stderr.write(`pSpore daemon: unhandled rejection: ${describeUnknownError(reason)}\n`);
+  };
+  process.on("unhandledRejection", reportRejection);
   process.once("SIGINT", stop);
   process.once("SIGTERM", stop);
   try {
     await daemon.whenStopped();
     return 0;
   } finally {
+    process.off("unhandledRejection", reportRejection);
     process.off("SIGINT", stop);
     process.off("SIGTERM", stop);
   }
+}
+
+function describeUnknownError(reason: unknown): string {
+  if (reason instanceof Error) return reason.stack ?? reason.message;
+  return String(reason);
 }
 
 async function printStatus(home: string): Promise<number> {
@@ -250,6 +263,9 @@ async function runTui(home: string): Promise<number> {
   const service = await cliSystemService(home, paths.workspace);
   const ensured = await service.manager.ensureRunning(service.spec);
   if (ensured.lingerWarning) process.stderr.write(`pSpore service warning: ${ensured.lingerWarning}\n`);
+  if (ensured.recoveredFromFailure) {
+    process.stderr.write("pSpore service: cleared a failed unit state before starting the daemon\n");
+  }
   const settings = new LlmSettingsService(home, paths);
   await new PsporeTuiApp({
     socketPath: paths.socket,

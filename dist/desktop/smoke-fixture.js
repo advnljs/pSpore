@@ -250,7 +250,6 @@ function session(sessionId, upstreamSessionId, messages, status, usage) {
         model: { provider: "local", model: "v1-smoke" },
         thinking: "medium",
         messages,
-        entries: messages,
         queue: { steering: [], followUp: [] },
         usage,
     };

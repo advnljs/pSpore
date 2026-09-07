@@ -1,7 +1,16 @@
-const MAX_DEPTH = 32;
-const MAX_NODES = 100_000;
-const MAX_STRING_LENGTH = 262_144;
-const MAX_COLLECTION_ENTRIES = 10_000;
+import { MAX_PROTOCOL_COLLECTION_ENTRIES, MAX_PROTOCOL_DEPTH, MAX_PROTOCOL_NODES, MAX_PROTOCOL_STRING_CHARS, } from "../protocol/limits.js";
+/**
+ * Ceilings for anything the daemon sends this process. They exist to stop a
+ * broken peer from exhausting memory, not to police size: the daemon bounds its
+ * own output far below them, so a frame that trips one of these is a defect
+ * rather than a large session. Keeping the headroom wide matters because a
+ * rejected authoritative snapshot cannot be skipped — it returns on every
+ * reconnect and locks the client out for good.
+ */
+const MAX_DEPTH = MAX_PROTOCOL_DEPTH;
+const MAX_NODES = MAX_PROTOCOL_NODES;
+const MAX_STRING_LENGTH = MAX_PROTOCOL_STRING_CHARS;
+const MAX_COLLECTION_ENTRIES = MAX_PROTOCOL_COLLECTION_ENTRIES;
 const EVENT_TYPES = new Set([
     "daemon.state",
     "indexing.status",
@@ -207,7 +216,6 @@ function validateAgentSnapshot(value, path) {
     if (status !== "idle" && status !== "running" && status !== "failed")
         throw new Error(`${path}.status is invalid`);
     validateMessageArray(snapshot["messages"], `${path}.messages`);
-    validateMessageArray(snapshot["entries"], `${path}.entries`);
     const queue = record(snapshot["queue"], `${path}.queue`);
     validateStringArray(queue["steering"], `${path}.queue.steering`);
     validateStringArray(queue["followUp"], `${path}.queue.followUp`);

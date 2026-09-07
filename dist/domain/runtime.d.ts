@@ -69,7 +69,6 @@ export interface AgentSnapshot {
     model?: ModelRef;
     thinking: ThinkingLevel;
     messages: readonly RuntimeMessage[];
-    entries: readonly RuntimeMessage[];
     queue: RuntimeQueueSnapshot;
     usage: RuntimeUsage;
     rootSession?: RootSessionMetadata;

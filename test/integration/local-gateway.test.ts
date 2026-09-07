@@ -5,9 +5,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 
+import {
+  validateEventEnvelope,
+  validateProtocolResult,
+  validateServerHello,
+} from "../../src/desktop/validation.js";
 import { LocalGateway } from "../../src/gateway/local-gateway.js";
 import { initialKernelState } from "../../src/kernel/state.js";
 import { ProtocolClient } from "../../src/protocol/client.js";
+import { MAX_PROTOCOL_STRING_CHARS, MAX_PUBLISHED_STRING_CHARS } from "../../src/protocol/limits.js";
+import type { EventEnvelope } from "../../src/protocol/schema.js";
 
 const cleanups: Array<() => Promise<void>> = [];
 
@@ -194,7 +201,6 @@ describe("local UDS gateway", () => {
           status: "idle" as const,
           thinking: "off" as const,
           messages: [{ role: "assistant", text }],
-          entries: [],
           queue: { steering: [], followUp: [] },
           usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, costUsd: 0 },
         },
@@ -238,6 +244,114 @@ describe("local UDS gateway", () => {
       payload: { text },
     });
     assert.equal(await received, text);
+  });
+
+  test("bounds oversized snapshots and payloads so a client never has to reject a frame", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-bounded-"));
+    const socketPath = join(root, "daemon.sock");
+    // A single huge tool result or pasted message used to travel verbatim. The
+    // desktop client rejects such a frame, and because the snapshot carries it
+    // on every reconnect, that rejection locked the client out permanently.
+    const huge = "x".repeat(MAX_PROTOCOL_STRING_CHARS + 4_096);
+    const state = {
+      ...initialKernelState(),
+      revision: 3,
+      daemon: { phase: "ready" as const },
+      sessions: {
+        main: {
+          sessionId: "main",
+          upstreamSessionId: "upstream-main",
+          cwd: root,
+          status: "idle" as const,
+          thinking: "off" as const,
+          messages: [{ role: "user", text: huge }],
+          queue: { steering: [], followUp: [] },
+          usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, costUsd: 0 },
+        },
+      },
+    };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-bounded",
+      snapshot: () => state,
+      handleCommand: async () => ({ result: huge }),
+      idFactory: sequence("server-bounded"),
+    });
+    await gateway.start();
+    const client = new ProtocolClient({ socketPath, clientId: "bounded-client", idFactory: sequence("client-bounded") });
+    cleanups.push(async () => {
+      await client.close();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    const hello = validateServerHello(await client.connect());
+    assert.equal(hello.snapshot.sessions["main"]?.messages[0]?.text.length, MAX_PUBLISHED_STRING_CHARS);
+
+    const events: EventEnvelope[] = [];
+    client.subscribe((event) => events.push(event));
+    gateway.publish({
+      id: "tool-completed",
+      ts: "2026-09-07T00:00:00.000Z",
+      durable: true,
+      type: "tool.completed",
+      payload: { sessionId: "main", upstreamSessionId: "upstream-main", toolName: "shell", result: huge },
+    });
+    await waitFor(() => events.length === 1);
+    const validated = validateEventEnvelope(events[0]);
+    assert.equal((validated.payload as { result: string }).result.length, MAX_PUBLISHED_STRING_CHARS);
+
+    const response = await client.command<{ result: string }>("status.get", {});
+    assert.equal(validateProtocolResult(response).result.length, MAX_PUBLISHED_STRING_CHARS);
+  });
+
+  test("caps the retained replay window by size and still recovers a lagging client", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-replay-"));
+    const socketPath = join(root, "daemon.sock");
+    const state = { ...initialKernelState(), revision: 1, daemon: { phase: "ready" as const } };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-replay",
+      snapshot: () => state,
+      handleCommand: async () => ({}),
+      maxReplayBytes: 40_000,
+      idFactory: sequence("server-replay"),
+    });
+    await gateway.start();
+    cleanups.push(async () => {
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    // Durable events carry session snapshots; counting only events let the
+    // window retain hundreds of megabytes of transcripts during a long run.
+    for (let index = 0; index < 20; index += 1) {
+      gateway.publish({
+        id: `snapshot-${index}`,
+        ts: "2026-09-07T00:00:00.000Z",
+        durable: true,
+        type: "session.snapshot",
+        payload: { sessionId: "main", text: "z".repeat(10_000) },
+      });
+    }
+
+    const client = new ProtocolClient({
+      socketPath,
+      clientId: "lagging-client",
+      cursors: { kernel: 1 },
+      idFactory: sequence("client-replay"),
+    });
+    cleanups.push(async () => client.close());
+    const replayed: number[] = [];
+    client.subscribe((event) => replayed.push(event.seq));
+    const hello = await client.connect();
+
+    // The window no longer reaches this client's cursor, so the handshake
+    // snapshot is what brings it back rather than an unbounded replay buffer.
+    assert.ok(hello.replayFromSeq > 1, "the oldest retained event moved past the lagging cursor");
+    assert.equal(hello.latestSeq, 20);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(replayed, []);
   });
 });
 

@@ -334,7 +334,6 @@ function hello(): ServerHelloFrame {
       { role: "user", text: "hello" },
       { role: "assistant", text: "hello from fake" },
     ],
-    entries: [],
     queue: { steering: [], followUp: [] },
     usage: { input: 12, output: 4, cacheRead: 6, cacheWrite: 2, total: 24, costUsd: 0 },
   };

@@ -9,9 +9,16 @@ export interface LocalGatewayOptions {
     replayCapacity?: number;
     commandCacheCapacity?: number;
     maxFrameBytes?: number;
+    /** Ceiling for a single connection's undecoded *incoming* buffer. */
     maxPendingBytes?: number;
+    /** Ceiling for a single connection's queued *outgoing* bytes. */
+    maxOutgoingBytes?: number;
     maxServerMessageBytes?: number;
+    /** Ceiling for the retained replay window, measured in payload characters. */
+    maxReplayBytes?: number;
     idFactory?: () => string;
+    /** Reports a dropped connection or an undeliverable frame to the daemon log. */
+    onWarning?: (message: string) => void;
 }
 export declare class LocalGateway {
     #private;

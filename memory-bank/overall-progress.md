@@ -895,3 +895,61 @@
 - **preload API 面被固定，新增方法会让 smoke 失败**：`main.ts` 用一个精确字符串固定 preload 暴露的方法名，这是有意的安全断言——preload 是渲染器唯一的能力面。本轮新增 `getIndexing`/`saveIndexing`/`pickIndexDirectory` 后未同步该列表，ARM smoke 报 `preload API surface changed`。已更新固定列表并让失败信息打印实际值与期望值。
 - **新增漂移守护**：`test/unit/desktop-security.test.ts` 增加一项用例，解析 `preload.cjs` 实际暴露的方法名与 `main.ts` 固定列表比对。已用"临时给 preload 加一个方法"验证该用例确实失败。此前这类漂移只有那个跑真实 Electron 的 ARM job 能发现。
 - 验证：`npm run check` **184/184**。
+
+
+## 2026-09-07 CST — 长任务掉线与"重启也连不上"的根因修复
+
+- 阶段目标：用户报告长任务运行中与守护进程 `lost connection`，且出现后重启应用一直保持 lost connection。定位真实根因并修复，而不是继续调重连体验。
+
+### 复现（用当前发布代码 HEAD `1deca2f`，在临时 worktree 中跑同一套压测脚本）
+
+| 场景 | 修复前 | 修复后 |
+|---|---|---|
+| 长任务：1 MiB transcript（2000 条消息）+ 20000 个流式 token + 200 次工具调用 | 耗时 **147561 ms**，GUI bridge **断开 66 次**，结束时仍停在 `connecting`，守护进程堆 **752 MiB** | 耗时 **2341 ms**，GUI bridge **断开 0 次**，`connected`，堆 **167 MiB** |
+| 会话中存在一条 300000 字符的消息（大文件读取/长构建日志/长回答） | GUI bridge 5 秒内 **重连 95 次**，消息为 `Protocol string exceeds 262144 characters`；因为该消息在权威快照里、快照又从 JSONL 恢复，**重启守护进程也永远连不上** | 立即 `connected`，attempts `0` |
+
+### 根因
+
+1. **每个流式 token 都要复制整份会话**。`AgentApplication.#onRuntimeEvent` 对所有 runtime 事件（含 `message.delta`）重建 `AgentSnapshot`：`session.messages.map()` 再加 `sessionManager.getBranch()` 全量渲染文本；reducer 又 `structuredClone` 一次；`KernelLoop` 还对**每个事件**深拷贝整份 kernel state（effect runner 参数）以及 `dispatch()` 的返回快照。实测 1 MiB transcript 下单次深拷贝 1.33 ms，20000 token 的一轮任务光复制就要 26.5 s，事件循环被占满 → socket 积压 → 客户端被判定为"太慢"而断开。
+2. **每个 durable 事件都把整份 transcript 搬上线**。一次工具调用产生 4 条 durable 事件，每条都带完整 `session`，`AgentSnapshot.entries`（未压缩的完整分支、全项目无人读取）还让体积翻倍。
+3. **超限内容会永久锁死客户端**。桌面端校验单串 262144 字符/集合 10000 项/深度 32/节点 100000，超限即关连接；权威快照每次重连都重发同一份内容，`entries` 又随会话无界增长，于是"一次超限 = 永久掉线"，且重启无效。
+4. **systemd start limit**。守护进程若反复崩溃（例如未捕获 rejection 或内存压力），5 次后 unit 进入 `failed`，之后 `enable --now` 一直被 "start request repeated too quickly" 拒绝，跨客户端重启保留——这是"重启应用也没用"的第二条路径。
+
+### 完成内容
+
+- 新增 `src/protocol/limits.ts`：客户端上限与守护进程出站上限集中定义；`boundPublishedValue`/`measurePublishedValue` 未超限时结构共享（典型 delta payload 0.001 ms），超限时截断字符串（保留头部并注明截断量）、保留数组尾部、按 8 MiB 单值预算从尾部开始分配，深度超限替换为占位串。
+- `LocalGateway`：hello 快照 / 事件 payload / 命令响应各裁剪一次；进出背压预算分离（新增 `maxOutgoingBytes`，默认 64 MiB），只有真正停止读取的客户端才被断开；replay window 增加 16 MiB 字节上限；帧编码失败只断开该连接而不影响其它客户端与守护进程；断开原因经 `onWarning` 写 journal。收包缓冲改为带扫描偏移，不再对每次读取重扫整段。
+- `ProtocolClient`：同样的扫描偏移；hello 与单订阅者事件不再重复 `structuredClone`。
+- `AgentApplication`：瞬时事件不再构建快照；`runtime.received` 新增 `publishSnapshot`，settling 事件（run.started/run.settled/session.replaced/runtime.error/message.completed/compaction.completed/queue.updated）必带快照，其余每 session 250 ms 最多带一次；kernel state 始终吸收快照，因此 `status.get`/hello 仍然权威。
+- `KernelLoop`：`dispatch()` 返回值与 effect runner 参数改为共享不可变 state（注释写明约定），去掉每事件两次整份 state 深拷贝；`snapshot()` 作为协议边界仍深拷贝。
+- 删除 `AgentSnapshot.entries`，改由 `PiRuntimeAdapter.branch(sessionId)` 按需取（fork 定位 entry id 的能力保留）。
+- `SystemServiceManager`：启动/重启前检查 `is-failed` 并 `reset-failed`，结果经 `recoveredFromFailure` 上报，CLI/GUI 各打印一行。
+- 守护进程可诊断性：`p-spore daemon` 注册 `unhandledRejection` 只写 journal 不退出；`daemon.ts` 中所有回调式 `kernel.dispatch` 经带 catch 的 `emit` 包装。
+- `DaemonBridge`：拒帧/缺口的真实原因作为断线消息上报（此前静默重连无从诊断）；退避睡眠可被 `stop()` 打断（关窗不再最多等 5 秒）。
+- `desktop/validation.ts` 改为引用共享常量，节点上限提到 2000000（守护进程出站已远低于此，留足余量避免"合法但大"被误杀）。
+
+### 修改文件
+
+- 新增：`src/protocol/limits.ts`、`test/unit/protocol-limits.test.ts`
+- 协议/网关：`src/gateway/local-gateway.ts`、`src/protocol/client.ts`
+- 内核/应用：`src/kernel/loop.ts`、`src/kernel/reducer.ts`、`src/kernel/state.ts`、`src/application/agent-application.ts`、`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/daemon/daemon.ts`
+- 客户端/服务：`src/desktop/validation.ts`、`src/desktop/daemon-bridge.ts`、`src/desktop/smoke-fixture.ts`、`src/desktop/main.ts`、`src/cli/main.ts`、`src/service/system-service.ts`
+- 测试：`test/unit/protocol-limits.test.ts`、`test/unit/system-service.test.ts`、`test/integration/local-gateway.test.ts`、`test/integration/daemon.test.ts`、`test/integration/desktop-daemon-bridge.test.ts`、`test/contract/pi-runtime-adapter.test.ts` 及移除 `entries` 的若干 fixture
+- `dist/**`（构建产物同步）
+
+### 验证方式与结果
+
+- `npm run check`：**195/195** 通过（严格 typecheck + 全量测试 + production build）。新增 9 项用例：出站裁剪四项（客户端上限内、结构共享、深度占位、整体预算优先保留尾部）、网关裁剪与 replay 字节上限两项、守护进程"超长消息下桌面端仍可连接"与"快照按需附带"两项、systemd `reset-failed` 一项、bridge 拒帧/缺口原因两项。
+- 前后对比压测：见上表，脚本在 scratchpad（`stress.ts` / `lockout-check.mts`），基线用 `git worktree` 跑 HEAD，未污染工作树。
+- 微基准：1 MiB transcript 深拷贝 1.327 ms/次、JSON 编码 1.461 ms/次；`boundPublishedValue` 对典型 delta payload 0.001 ms、对整份快照 0.541 ms。
+- **未执行 Electron 实机 smoke**：本机缺 `xvfb-run` 与 `libnspr4`（与历史记录一致），由 CI 的 ARM64 job 执行 `npm run test:electron`。本轮改动触及 `daemon-bridge`/`validation`/`smoke-fixture`，需要关注 CI 的 reconnect 与 preload 断言。
+
+### 当前状态
+
+- 长任务掉线与"重启也连不上"两条链路均已在真实守护进程 + 真实 UDS + 真实 GUI bridge 上验证修复。
+- 未发版；`dist/` 已随源码同步。
+
+### 遗留问题
+
+- GUI transcript 现在最多显示最近 2000 条消息 / 8 MiB；超出部分只在守护进程侧保留（JSONL 完整）。若要在客户端保留完整历史，需要改为按 offset 的增量 transcript 协议，见 `todo.md`。
+- 多根会话都很大时，hello 的 8 MiB 预算按 sessions 插入顺序分配，靠后的会话可能拿到较短的 transcript；它们在下一次自身 settling 事件时会恢复。

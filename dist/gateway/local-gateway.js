@@ -2,8 +2,25 @@ import { randomUUID } from "node:crypto";
 import { chmod, lstat, unlink } from "node:fs/promises";
 import { createServer } from "node:net";
 import { CommandError } from "../protocol/errors.js";
+import { boundPublishedValue, measurePublishedValue } from "../protocol/limits.js";
 import { DEFAULT_MAX_SERVER_MESSAGE_BYTES, encodeServerFrame, SERVER_FRAME_CHUNKS_CAPABILITY, } from "../protocol/server-frame-codec.js";
 import { decodeClientFrame, DEFAULT_MAX_FRAME_BYTES, encodeFrame, PROTOCOL_VERSION, ProtocolError, toEventEnvelope, } from "../protocol/schema.js";
+/**
+ * Long agent runs push far more through a connection than an idle session does,
+ * and a client that is busy rendering can legitimately fall a few megabytes
+ * behind. Dropping it at that point is what surfaced as "lost connection" in
+ * the middle of a task, so the ceiling is generous enough that only a client
+ * which has genuinely stopped reading reaches it.
+ */
+const DEFAULT_MAX_OUTGOING_BYTES = 64 * 1_048_576;
+/**
+ * Durable events carry session snapshots, so a replay window counted only in
+ * events retains one transcript copy per entry — hundreds of megabytes over a
+ * long run. A reconnecting client whose cursor falls outside the window simply
+ * takes the authoritative snapshot from the handshake instead, so trading
+ * replay depth for bounded memory costs nothing but a little extra traffic.
+ */
+const DEFAULT_MAX_REPLAY_BYTES = 16 * 1_048_576;
 export class LocalGateway {
     #socketPath;
     #instanceId;
@@ -14,10 +31,14 @@ export class LocalGateway {
     #commandCacheCapacity;
     #maxFrameBytes;
     #maxPendingBytes;
+    #maxOutgoingBytes;
     #maxServerMessageBytes;
+    #maxReplayBytes;
     #idFactory;
+    #onWarning;
     #connections = new Set();
     #replay = [];
+    #replayBytes = 0;
     #commandCache = new Map();
     #server;
     #seq = 0;
@@ -31,8 +52,11 @@ export class LocalGateway {
         this.#commandCacheCapacity = options.commandCacheCapacity ?? 2_048;
         this.#maxFrameBytes = options.maxFrameBytes ?? DEFAULT_MAX_FRAME_BYTES;
         this.#maxPendingBytes = options.maxPendingBytes ?? this.#maxFrameBytes * 2;
+        this.#maxOutgoingBytes = options.maxOutgoingBytes ?? DEFAULT_MAX_OUTGOING_BYTES;
         this.#maxServerMessageBytes = options.maxServerMessageBytes ?? DEFAULT_MAX_SERVER_MESSAGE_BYTES;
+        this.#maxReplayBytes = options.maxReplayBytes ?? DEFAULT_MAX_REPLAY_BYTES;
         this.#idFactory = options.idFactory ?? randomUUID;
+        this.#onWarning = options.onWarning ?? (() => undefined);
     }
     get latestSeq() {
         return this.#seq;
@@ -66,11 +90,15 @@ export class LocalGateway {
         }
     }
     publish(event) {
-        const envelope = toEventEnvelope(event, this.#streamId, ++this.#seq);
+        const bounded = measurePublishedValue(event.payload);
+        const envelope = toEventEnvelope({ ...event, payload: bounded.value }, this.#streamId, ++this.#seq);
         if (event.durable) {
-            this.#replay.push(envelope);
-            if (this.#replay.length > this.#replayCapacity)
-                this.#replay.shift();
+            this.#replay.push({ envelope, cost: bounded.cost });
+            this.#replayBytes += bounded.cost;
+            while (this.#replay.length > this.#replayCapacity
+                || (this.#replayBytes > this.#maxReplayBytes && this.#replay.length > 1)) {
+                this.#replayBytes -= this.#replay.shift()?.cost ?? 0;
+            }
         }
         for (const connection of this.#connections) {
             if (!connection.authenticated)
@@ -104,6 +132,7 @@ export class LocalGateway {
             authenticated: false,
             clientId: undefined,
             pending: Buffer.alloc(0),
+            scanned: 0,
             processing: Promise.resolve(),
             supportsServerFrameChunks: false,
             failed: false,
@@ -119,11 +148,17 @@ export class LocalGateway {
             return;
         connection.pending = Buffer.concat([connection.pending, chunk]);
         for (;;) {
-            const delimiter = connection.pending.indexOf(0x0a);
-            if (delimiter < 0)
+            // Rescanning from byte zero on every read makes a large frame that
+            // arrives in many small reads quadratic, which is exactly the shape of a
+            // long run's traffic. Only the bytes that just arrived need scanning.
+            const delimiter = connection.pending.indexOf(0x0a, connection.scanned);
+            if (delimiter < 0) {
+                connection.scanned = connection.pending.byteLength;
                 break;
+            }
             const line = connection.pending.subarray(0, delimiter);
             connection.pending = connection.pending.subarray(delimiter + 1);
+            connection.scanned = 0;
             connection.processing = connection.processing
                 .then(async () => this.#handleFrame(connection, line))
                 .catch((error) => this.#protocolFailure(connection, normalizeProtocolError(error)));
@@ -158,7 +193,7 @@ export class LocalGateway {
         connection.clientId = hello.clientId;
         connection.supportsServerFrameChunks = hello.capabilities.includes(SERVER_FRAME_CHUNKS_CAPABILITY);
         const cursor = hello.cursors[this.#streamId] ?? 0;
-        const oldest = this.#replay[0]?.seq ?? this.#seq + 1;
+        const oldest = this.#replay[0]?.envelope.seq ?? this.#seq + 1;
         const acknowledgement = {
             v: PROTOCOL_VERSION,
             kind: "hello_ack",
@@ -168,13 +203,16 @@ export class LocalGateway {
             streamId: this.#streamId,
             latestSeq: this.#seq,
             replayFromSeq: oldest,
-            snapshot: this.#snapshot(),
+            // An unbounded snapshot is the one frame a client can never skip: it
+            // rides on every reconnect, so a client that rejects it once rejects it
+            // forever. Bounding it here keeps a huge session recoverable.
+            snapshot: boundPublishedValue(this.#snapshot()),
         };
         this.#write(connection, acknowledgement);
         if (cursor >= oldest - 1) {
-            for (const event of this.#replay) {
-                if (event.seq > cursor)
-                    this.#write(connection, event);
+            for (const entry of this.#replay) {
+                if (entry.envelope.seq > cursor)
+                    this.#write(connection, entry.envelope);
             }
         }
     }
@@ -199,7 +237,7 @@ export class LocalGateway {
                     id: this.#idFactory(),
                     commandId: command.id,
                     ok: true,
-                    payload,
+                    payload: boundPublishedValue(payload),
                 };
             }
             catch (error) {
@@ -239,12 +277,13 @@ export class LocalGateway {
             connection.skippedEvents += 1;
             return;
         }
-        if (connection.socket.writableLength > this.#maxPendingBytes) {
+        if (connection.socket.writableLength > this.#maxOutgoingBytes) {
             if (transient) {
                 connection.skippedEvents += 1;
                 return;
             }
-            connection.socket.destroy(new Error("Protocol client is too slow"));
+            this.#drop(connection, `client ${connection.clientId ?? "unknown"} stopped reading with `
+                + `${connection.socket.writableLength} bytes queued`);
             return;
         }
         // Only an event can carry the pending skip count forward, so hello and
@@ -252,28 +291,31 @@ export class LocalGateway {
         // the client behind the sequence with nothing to explain the jump.
         const carriesSkip = frame.kind === "event" && connection.skippedEvents > 0;
         const outgoing = carriesSkip ? { ...frame, skipped: connection.skippedEvents } : frame;
-        if (!connection.supportsServerFrameChunks) {
-            connection.socket.write(encodeFrame(outgoing));
-            if (frame.kind === "event")
-                connection.skippedEvents = 0;
-            return;
-        }
         let encoded;
         try {
-            encoded = encodeServerFrame(outgoing, {
-                maxFrameBytes: this.#maxFrameBytes,
-                maxMessageBytes: this.#maxServerMessageBytes,
-                idFactory: this.#idFactory,
-            });
+            encoded = connection.supportsServerFrameChunks
+                ? encodeServerFrame(outgoing, {
+                    maxFrameBytes: this.#maxFrameBytes,
+                    maxMessageBytes: this.#maxServerMessageBytes,
+                    idFactory: this.#idFactory,
+                })
+                : [encodeFrame(outgoing)];
         }
         catch (error) {
-            connection.socket.destroy(toError(error));
+            // Encoding is per connection, but a failure here means this frame can
+            // never reach this client. Dropping only the connection keeps the rest of
+            // the broadcast — and the daemon — intact.
+            this.#drop(connection, `frame ${frame.kind} could not be encoded: ${toError(error).message}`);
             return;
         }
         for (const chunk of encoded)
             connection.socket.write(chunk);
         if (frame.kind === "event")
             connection.skippedEvents = 0;
+    }
+    #drop(connection, reason) {
+        this.#onWarning(`Dropped protocol connection: ${reason}`);
+        connection.socket.destroy(new Error(reason));
     }
     #protocolFailure(connection, error) {
         if (connection.failed || connection.socket.destroyed)

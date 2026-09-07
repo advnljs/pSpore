@@ -1,5 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { CommandError } from "../protocol/errors.js";
+/** Runtime events whose broadcast always carries the authoritative session. */
+const SETTLING_RUNTIME_EVENTS = new Set([
+    "run.started",
+    "run.settled",
+    "session.replaced",
+    "runtime.error",
+    "message.completed",
+    "compaction.completed",
+    "queue.updated",
+]);
+/** Minimum spacing between snapshot-carrying broadcasts for one session. */
+const SNAPSHOT_PUBLISH_INTERVAL_MS = 250;
 export class AgentRunBudgetError extends Error {
     constructor(message) {
         super(message);
@@ -22,6 +34,7 @@ export class AgentApplication {
     #rootSessions = new Map();
     #unsubscribers = new Map();
     #sessionTails = new Map();
+    #snapshotPublishedAt = new Map();
     #automation;
     #agents;
     #mcp;
@@ -480,15 +493,19 @@ export class AgentApplication {
         await this.#publishSnapshot(this.#snapshot(sessionId));
     }
     #onRuntimeEvent(event) {
-        const snapshot = this.#snapshot(event.sessionId);
-        void this.#kernel.dispatch({
+        // Transient events arrive per streamed token. Rebuilding and cloning the
+        // whole session for each one makes streaming cost grow with the length of
+        // the conversation, which stalls the daemon's event loop on long runs until
+        // clients are dropped for falling behind. They carry no snapshot anyway.
+        const snapshot = event.transient ? undefined : this.#snapshot(event.sessionId);
+        void this.#dispatch({
             id: event.id,
             ts: event.ts,
             type: "runtime.received",
             event,
-            snapshot,
+            ...(snapshot === undefined ? {} : { snapshot, publishSnapshot: this.#shouldPublishSnapshot(event) }),
         });
-        if (this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
+        if (snapshot && this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
             void this.#sessionCatalog.touch(event.sessionId, {
                 ...(snapshot.sessionFile === undefined ? {} : { sessionFile: snapshot.sessionFile }),
             }).then((record) => {
@@ -496,6 +513,34 @@ export class AgentApplication {
                     this.#rootSessions.set(event.sessionId, rootMetadata(record));
             }).catch((error) => this.#onError(toError(error)));
         }
+    }
+    /**
+     * Settling events always ship the session so clients land on the authoritative
+     * transcript; the rest ship it at most once per interval. Without this, a run
+     * with many tool calls re-sends the entire transcript several times per call.
+     */
+    #shouldPublishSnapshot(event) {
+        if (SETTLING_RUNTIME_EVENTS.has(event.type)) {
+            this.#snapshotPublishedAt.set(event.sessionId, this.#clock().getTime());
+            return true;
+        }
+        const now = this.#clock().getTime();
+        const last = this.#snapshotPublishedAt.get(event.sessionId);
+        if (last !== undefined && now - last < SNAPSHOT_PUBLISH_INTERVAL_MS)
+            return false;
+        this.#snapshotPublishedAt.set(event.sessionId, now);
+        return true;
+    }
+    /**
+     * A rejected dispatch must never become an unhandled rejection: that ends the
+     * daemon process, and repeated restarts trip the service start limit, which
+     * leaves clients unable to reconnect at all.
+     */
+    #dispatch(event) {
+        return this.#kernel.dispatch(event).catch((error) => {
+            this.#onError(toError(error));
+            return undefined;
+        });
     }
     #snapshot(sessionId) {
         const snapshot = this.#runtime.snapshot(sessionId);
@@ -517,6 +562,7 @@ export class AgentApplication {
         this.#unsubscribers.delete(sessionId);
         this.#sessions.delete(sessionId);
         this.#rootSessions.delete(sessionId);
+        this.#snapshotPublishedAt.delete(sessionId);
         let failure;
         try {
             await this.#runtime.dispose(sessionId);
