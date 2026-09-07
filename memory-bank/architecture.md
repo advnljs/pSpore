@@ -99,3 +99,12 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - 2026-09-02：Linux 桌面/SEA 打包从硬编码 x64 改为原生 `x64|arm64` 参数化；新增 glibc 2.31 ARM64 GitHub CI 链，覆盖 ARM optional dependency、Electron PC smoke、ELF/动态链接器/运行时架构与 checksum 验证。正式 tag Release 改为等待 x64/ARM64 两条原生链后统一发布，`main` 仍只产生短期 ARM 预览 artifact。
 - 2026-09-04：Electron composer 增加文件/目录拖拽引用；安全桥只解析真实拖入对象的路径，renderer 不获得 Node/文件读取能力，真实 CDP 拖拽 smoke 覆盖路径引用与不自动提交。
 - 2026-09-04：长会话 UDS 响应增加协商式 gzip/base64 有界分片，消除单个 1 MiB server frame 失败且不放宽物理边界；共享自动 compact 设置增加默认 100000 tokens 的直接触发阈值，GUI/TUI/CLI 和新建/恢复 Pi session 使用同一配置。
+
+
+## 2026-09-07 变更：配置事实源与瞬时事件背压
+
+- **配置事实源**：`~/.pspore/config.json` 是设置面板每一项的权威存储，包括此前只存在于 `state/pi/models.json` 的 `baseUrl`/`api`/`customModel`。`models.json` 变为由 `LlmSettingsService.save()` 生成的 Pi 运行时派生产物；读取时只在缺少 `config.model` 端点字段（0.1.15 之前的 home）时回退到它。凭据本身仍只落在 `credentials/<provider>.{api-key,cookie}`（`0600`），`config.json` 只记录其绝对路径。
+- **配置增量升级**：`parseConfig` 先经 `withConfigDefaults` 按段/按键补齐缺失默认值；已有值一律保留，未知键仍严格拒绝。`initializePsporeHome` 检测到缺键时把合并结果原子写回，因此 overlay 只替换应用文件也不会让新版本因缺字段启动失败。
+- **瞬时事件背压契约**：`EventEnvelope.skipped` 是可选的“本连接在这条事件之前被丢弃的瞬时事件数”。网关在 socket 需要 drain 时丢弃非 durable 事件并计数，durable 事件永不丢弃（超限仍会断开慢客户端）。客户端的期望序号因此是 `cursor + 1 + skipped`，背压不再被误判为事件缺口。这消除了长任务中“丢连接—重连”循环的根因。
+- **界面连接稳定期**：GUI/TUI store 各自维护 2 秒 settle window，向视图暴露 `stableConnection`/`reconnecting`。窗口内的重连保持呈现为已连接（仅指示灯提示），超时才如实降级；GUI 对尚未写入 socket 的命令在该窗口内自动重试一次。
+- **overlay 边界**：overlay payload = 完整安装目录减去 Electron/Chromium 运行时清单，升级时在安装根目录整体替换。运行时版本/架构必须与目标完全一致，否则在写入前拒绝。升级后重跑随包的快捷方式安装器，保证已有桌面快捷方式指向本次升级的目录。

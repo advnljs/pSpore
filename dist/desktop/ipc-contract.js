@@ -4,6 +4,11 @@ export const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
 export const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
 export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+/**
+ * Thrown before a command is written to the socket, so a caller may safely retry
+ * it once the bridge reconnects. Never used for a command that was already sent.
+ */
+export const DAEMON_NOT_CONNECTED_MESSAGE = "pSpore daemon is not connected";
 export function decodeDesktopLlmSettingsUpdate(value) {
     return decodeLlmSettingsUpdate(value, "desktop LLM settings");
 }

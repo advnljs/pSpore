@@ -27,8 +27,9 @@ export function applyProtocolDelta(current, delta) {
     const previous = current.cursors[delta.streamId] ?? 0;
     if (delta.seq <= previous)
         return { state: current, applied: false };
-    if (delta.fromSeq !== previous + 1 || delta.seq < delta.fromSeq) {
-        return { state: withGap(current, delta.streamId, previous + 1, delta.fromSeq), applied: false };
+    const expected = previous + 1 + (delta.skipped ?? 0);
+    if (delta.fromSeq !== expected || delta.seq < delta.fromSeq) {
+        return { state: withGap(current, delta.streamId, expected, delta.fromSeq), applied: false };
     }
     const field = delta.channel === "thinking" ? "streamingThinking" : "streamingText";
     const values = current[field];
@@ -48,8 +49,11 @@ export function applyProtocolEvent(current, event) {
     const previous = current.cursors[event.streamId] ?? 0;
     if (event.seq <= previous)
         return { state: current, applied: false };
-    if (event.seq !== previous + 1) {
-        return { state: withGap(current, event.streamId, previous + 1, event.seq), applied: false };
+    // Transient events the daemon shed under backpressure are announced through
+    // `skipped`, so the cursor jumps forward without being treated as data loss.
+    const expected = previous + 1 + (event.skipped ?? 0);
+    if (event.seq !== expected) {
+        return { state: withGap(current, event.streamId, expected, event.seq), applied: false };
     }
     const payload = asRecord(event.payload);
     let kernel = current.kernel;

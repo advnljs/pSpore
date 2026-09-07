@@ -589,8 +589,10 @@ function printModelSettings(settings) {
         `Compact trigger tokens: ${settings.autoCompactionTriggerTokens}`,
         `Compact reserve tokens: ${settings.autoCompactionReserveTokens}`,
         `Compact keep recent tokens: ${settings.autoCompactionKeepRecentTokens}`,
-        `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
-        `Cookie: ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
+        `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"} — ${settings.apiKeyPath}`,
+        `Cookie: ${settings.hasCookie ? "configured (hidden)" : "not configured"} — ${settings.cookiePath}`,
+        `Config file: ${settings.configPath}`,
+        `Derived model catalog: ${settings.modelsPath}`,
     ].join("\n") + "\n");
 }
 /** Visible single-line prompt; secrets must go through readSecretInput instead. */

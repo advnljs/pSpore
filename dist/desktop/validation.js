@@ -83,7 +83,7 @@ export function validateServerHello(value) {
 export function validateEventEnvelope(value) {
     assertSafeProtocolValue(value);
     const event = record(value, "event");
-    exactKeys(event, ["v", "kind", "id", "streamId", "seq", "ts", "correlationId", "causationId", "durable", "type", "payload"], "event", ["correlationId", "causationId"]);
+    exactKeys(event, ["v", "kind", "id", "streamId", "seq", "ts", "correlationId", "causationId", "durable", "skipped", "type", "payload"], "event", ["correlationId", "causationId", "skipped"]);
     if (event["v"] !== 1 || event["kind"] !== "event")
         throw new Error("Event has an unsupported version or kind");
     identifier(event["id"], "event.id");
@@ -94,6 +94,8 @@ export function validateEventEnvelope(value) {
     optionalIdentifier(event["causationId"], "event.causationId");
     if (typeof event["durable"] !== "boolean")
         throw new Error("event.durable must be boolean");
+    if (event["skipped"] !== undefined)
+        nonNegativeInteger(event["skipped"], "event.skipped");
     const type = boundedString(event["type"], "event.type", 128);
     if (!EVENT_TYPES.has(type))
         throw new Error(`Event type is not allowlisted: ${type}`);

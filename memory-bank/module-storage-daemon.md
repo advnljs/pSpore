@@ -64,3 +64,10 @@ Node.js 24 filesystem/process/net API 与 Linux `/proc/<pid>/stat`。
 ## 常见修改点
 
 config migration、目录 schema、retention、event/run persistence、session mapping/recovery、shutdown grace deadline 与 CLI diagnostics。
+
+
+## 2026-09-07：config.json 增量升级
+
+- `parseConfig` 先经 `withConfigDefaults(value, home)` 按段/按键补齐缺失默认值：已有值一律保留，缺失键取 `defaultConfig(home)`，未知键仍严格拒绝（拼写错误不会被静默吞掉）。
+- `initializePsporeHome` 通过 `sectionsComplete` 判断存储文档是否已含本版本全部键；缺键时把合并结果原子写回 `0600`。
+- 效果：overlay 只替换应用文件也不会因为新版本新增配置段而启动失败，用户已有取值（自定义 workspace、并发上限、权限模式等）一字不改。

@@ -47,30 +47,44 @@ export class LlmSettingsService {
     return config.model !== null;
   }
 
+  /**
+   * `config.json` is authoritative for every field the settings panel edits.
+   * `state/pi/models.json` is a derived catalog for the Pi runtime, so it is only
+   * consulted to recover endpoint values written by a pre-0.1.15 build that had
+   * nowhere else to store them.
+   */
   async get(): Promise<LlmSettings> {
     const config = await loadConfig(this.#home);
     const provider = providerOption(config.model?.provider ?? DEFAULT_PROVIDER);
     const model = config.model?.model ?? DEFAULT_MODEL;
     const models = await this.#readModels();
     const providerConfig = record(models.providers[provider]);
-    const api = modelApi(providerConfig?.["api"]);
-    const customModel = Array.isArray(providerConfig?.["models"])
+    const legacyCustomModel = Array.isArray(providerConfig?.["models"])
       && providerConfig["models"].some((candidate) => record(candidate)?.["id"] === model);
+    const baseUrl = config.model?.baseUrl
+      ?? (typeof providerConfig?.["baseUrl"] === "string" ? providerConfig["baseUrl"] : "");
+    const api = config.model?.api ?? modelApi(providerConfig?.["api"]);
+    const apiKeyPath = config.model?.apiKeyFile ?? this.#credentialPath(provider);
+    const cookiePath = config.model?.cookieFile ?? this.#cookiePath(provider);
     return {
       version: 1,
       provider,
       model,
-      baseUrl: typeof providerConfig?.["baseUrl"] === "string" ? providerConfig["baseUrl"] : "",
+      baseUrl,
       api,
       thinking: config.model?.thinking ?? "off",
-      customModel,
+      customModel: config.model?.customModel ?? legacyCustomModel,
       permissionMode: config.permissions.mode,
       autoCompactionEnabled: config.context.autoCompaction.enabled,
       autoCompactionTriggerTokens: config.context.autoCompaction.triggerTokens,
       autoCompactionReserveTokens: config.context.autoCompaction.reserveTokens,
       autoCompactionKeepRecentTokens: config.context.autoCompaction.keepRecentTokens,
-      hasApiKey: await this.#hasApiKey(provider, providerConfig),
-      hasCookie: await this.#hasCookie(provider, providerConfig),
+      hasApiKey: await this.#hasApiKey(apiKeyPath, providerConfig),
+      hasCookie: await this.#hasCookie(cookiePath, providerConfig),
+      configPath: this.#paths.config,
+      apiKeyPath,
+      cookiePath,
+      modelsPath: this.#modelsPath(),
     };
   }
 
@@ -120,7 +134,17 @@ export class LlmSettingsService {
     const nextConfig = parseConfig(
       {
         ...currentConfig,
-        model: { provider: update.provider, model: update.model, thinking: update.thinking },
+        model: {
+          provider: update.provider,
+          model: update.model,
+          thinking: update.thinking,
+          ...(update.baseUrl ? { baseUrl: update.baseUrl } : {}),
+          api: update.api,
+          customModel: update.customModel,
+          // Record where the secrets live, never the secrets themselves.
+          apiKeyFile: credentialPath,
+          cookieFile: cookiePath,
+        },
         permissions: { ...currentConfig.permissions, mode: update.permissionMode },
         context: {
           ...currentConfig.context,
@@ -145,7 +169,7 @@ export class LlmSettingsService {
     if (update.cookie) {
       await atomicWriteFile(cookiePath, update.cookie, 0o600);
     }
-    await atomicWriteJson(join(this.#paths.agentDir, "models.json"), nextModels, 0o600);
+    await atomicWriteJson(this.#modelsPath(), nextModels, 0o600);
     await atomicWriteJson(this.#paths.config, nextConfig, 0o600);
     if (update.clearApiKey) await unlink(credentialPath).catch(ignoreMissingFile);
     if (update.clearCookie) await unlink(cookiePath).catch(ignoreMissingFile);
@@ -153,7 +177,7 @@ export class LlmSettingsService {
   }
 
   async #readModels(): Promise<ModelsFile> {
-    const path = join(this.#paths.agentDir, "models.json");
+    const path = this.#modelsPath();
     let source: string;
     try {
       source = await readFile(path, "utf8");
@@ -189,13 +213,13 @@ export class LlmSettingsService {
     }
   }
 
-  async #hasApiKey(provider: string, providerConfig: Record<string, unknown> | undefined): Promise<boolean> {
-    if (await exists(this.#credentialPath(provider))) return true;
+  async #hasApiKey(path: string, providerConfig: Record<string, unknown> | undefined): Promise<boolean> {
+    if (await exists(path)) return true;
     return typeof providerConfig?.["apiKey"] === "string" && providerConfig["apiKey"].length > 0;
   }
 
-  async #hasCookie(provider: string, providerConfig: Record<string, unknown> | undefined): Promise<boolean> {
-    if (await exists(this.#cookiePath(provider))) return true;
+  async #hasCookie(path: string, providerConfig: Record<string, unknown> | undefined): Promise<boolean> {
+    if (await exists(path)) return true;
     const headers = record(providerConfig?.["headers"]);
     return typeof headers?.["Cookie"] === "string" && headers["Cookie"].length > 0;
   }
@@ -206,6 +230,10 @@ export class LlmSettingsService {
 
   #cookiePath(provider: string): string {
     return join(this.#paths.credentials, `${provider}.cookie`);
+  }
+
+  #modelsPath(): string {
+    return join(this.#paths.agentDir, "models.json");
   }
 }
 

@@ -59,3 +59,13 @@ TUI 使用 Pi TUI primitives；Daemon/TUI/Electron main 使用 Node UDS。Electr
 ## 常见修改点
 
 schema version、event mapping、共享 reducer/presentation、replay window、backpressure、nonce/auth、TUI keymap/wizard、Electron action allowlist/store、visual tests。
+
+
+## 2026-09-07：瞬时事件背压与界面连接稳定期
+
+- **根因**：`LocalGateway.publish()` 过去在 `socket.writableNeedDrain` 时直接跳过非 durable 事件，但全局 `seq` 已经自增。客户端按 `seq === cursor + 1` 判定连续性，于是把背压当成事件缺口并主动 `close()`，长任务的高频 `message.delta` 会不断触发“断开—重连”，界面随之跳动。
+- **协议**：`EventEnvelope` 新增可选 `skipped`，语义是“本连接在这条事件之前被丢弃的瞬时事件数”。网关按连接累计并在下一条投递的事件上携带后清零，因此同一 `seq` 对不同连接可携带不同 `skipped`。客户端期望序号变为 `cursor + 1 + skipped`；超出仍视为真实缺口并重连取快照。
+- **丢弃策略**：durable 事件永不丢弃；超过 `maxPendingBytes` 时只有 durable/response/hello 会断开慢客户端，瞬时事件一律计数丢弃。
+- **desktop delta 合并**：`DaemonBridge` 的 delta 合并在跨越 skip 时仍可继续，`DesktopFrame.delta` 只在 `skipped > 0` 时携带该字段。
+- **界面稳定期**：`DesktopStore`/`TuiStore` 各持有 2 秒 settle window（`CONNECTION_SETTLE_MS` / `TUI_CONNECTION_SETTLE_MS`），对外暴露 `stableConnection`/`reconnecting`。窗口内保持呈现为已连接，只有指示灯变暖色呼吸；超时才降级并更新状态行。渲染层用 250ms 定时器驱动 `settleConnection()`，保证无新帧时真实掉线也会显现。
+- **重连期命令**：GUI 只对 `DAEMON_NOT_CONNECTED_MESSAGE`（bridge 在写 socket 之前抛出）重试一次，等待连接恢复后再发，因此不会重复已经执行的命令。

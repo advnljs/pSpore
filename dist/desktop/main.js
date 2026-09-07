@@ -221,9 +221,16 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     await waitForRenderer(target, "document.documentElement.dataset.ready === 'true'", 10_000);
     await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 8_000).catch(() => undefined);
     let reconnectVerified = false;
+    let reconnectMasked = false;
     if (fixture && daemonBridge.bootstrap().connection.phase === "connected") {
         await daemonBridge.stop();
-        await waitForRenderer(target, "document.documentElement.dataset.connection === 'disconnected'", 5_000);
+        // A long run drops and re-establishes the socket constantly; the shell must
+        // keep presenting the last good state until the settle window expires,
+        // instead of strobing the badge, banner and every connection-gated control.
+        await waitForRenderer(target, "document.documentElement.dataset.reconnecting === 'true'", 3_000);
+        reconnectMasked = await target.webContents.executeJavaScript("document.documentElement.dataset.connection === 'connected'");
+        // A genuine outage still has to surface once the window elapses.
+        await waitForRenderer(target, "document.documentElement.dataset.connection === 'disconnected'", 8_000);
         daemonBridge.start();
         await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 8_000);
         await waitForRenderer(target, "document.documentElement.dataset.connection === 'connected'", 5_000);
@@ -487,6 +494,7 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         connection: daemonBridge.bootstrap().connection,
         daemonOwnership: daemonSupervisor?.ownership ?? "external",
         reconnectVerified,
+        reconnectMasked,
         images: {
             main: mainImage.getSize(),
             light: lightImage.getSize(),
@@ -516,6 +524,8 @@ function assertSmokeReport(report, fixture) {
         failures.push("desktop did not connect to the real daemon");
     if (fixture && !report.reconnectVerified)
         failures.push("desktop reconnect path was not verified");
+    if (fixture && !report.reconnectMasked)
+        failures.push("a brief outage was surfaced instead of being settled");
     if (report.images.main.width !== 1_920 || report.images.main.height !== 1_080)
         failures.push("main capture is not 1920x1080");
     if (report.images.light.width !== 1_920 || report.images.light.height !== 1_080)

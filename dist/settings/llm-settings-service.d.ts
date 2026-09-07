@@ -8,6 +8,12 @@ export declare class LlmSettingsService {
      * with `model_not_configured`, so this is what "not configured yet" means to a client.
      */
     isModelConfigured(): Promise<boolean>;
+    /**
+     * `config.json` is authoritative for every field the settings panel edits.
+     * `state/pi/models.json` is a derived catalog for the Pi runtime, so it is only
+     * consulted to recover endpoint values written by a pre-0.1.15 build that had
+     * nowhere else to store them.
+     */
     get(): Promise<LlmSettings>;
     save(update: LlmSettingsUpdate): Promise<LlmSettings>;
 }

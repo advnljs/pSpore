@@ -32,6 +32,7 @@ export class PsporeTuiApp {
     #client;
     #stopping = false;
     #retryTimer;
+    #settleTimer;
     #retryMs = 250;
     #lastInterruptAt = 0;
     #resolveExit;
@@ -65,6 +66,8 @@ export class PsporeTuiApp {
             this.#stopping = true;
             if (this.#retryTimer)
                 clearTimeout(this.#retryTimer);
+            if (this.#settleTimer)
+                clearTimeout(this.#settleTimer);
             await this.#client?.close().catch(() => undefined);
             this.#view?.dispose();
             this.#tui.stop();
@@ -93,6 +96,7 @@ export class PsporeTuiApp {
             if (connected)
                 return;
             this.#store.disconnected(error?.message ?? "Disconnected");
+            this.#scheduleSettle();
             this.#tui.requestRender();
             this.#scheduleReconnect();
         });
@@ -108,9 +112,23 @@ export class PsporeTuiApp {
         }
         catch (error) {
             this.#store.disconnected(`Daemon unavailable: ${toError(error).message}`);
+            this.#scheduleSettle();
             this.#tui.requestRender();
             this.#scheduleReconnect();
         }
+    }
+    /** Surfaces a genuine outage once the store's masking window expires. */
+    #scheduleSettle() {
+        if (this.#stopping || this.#settleTimer)
+            return;
+        this.#settleTimer = setTimeout(() => {
+            this.#settleTimer = undefined;
+            if (this.#store.settleConnection())
+                this.#tui.requestRender();
+            else if (this.#store.snapshot().reconnecting)
+                this.#scheduleSettle();
+        }, 250);
+        this.#settleTimer.unref();
     }
     #scheduleReconnect() {
         if (this.#stopping || this.#retryTimer)
@@ -628,6 +646,7 @@ export class PsporeTuiApp {
         const thinking = parseThinking(thinkingValue.trim() || current.thinking);
         this.#showWizardStep(5, "Manage the API key", [
             `Status   ${current.hasApiKey ? "configured (hidden)" : "not configured"}`,
+            `File     ${current.apiKeyPath}`,
             "keep    Leave the managed key unchanged",
             "set     Enter a new key through hidden input",
             "clear   Remove the managed key",
@@ -649,6 +668,7 @@ export class PsporeTuiApp {
         }
         this.#showWizardStep(6, "Optional LLM proxy cookie", [
             `Status   ${current.hasCookie ? "configured (hidden)" : "not configured"}`,
+            `File     ${current.cookiePath}`,
             "keep    Leave the managed cookie unchanged",
             "set     Enter a Cookie header through hidden input",
             "clear   Remove the managed cookie",
@@ -873,7 +893,11 @@ function settingsLines(settings) {
         `Approvals  ${settings.permissionMode} — ${permissionModeSummary(settings.permissionMode)}`,
         `Compact    ${settings.autoCompactionEnabled ? "on" : "off"} · trigger ${settings.autoCompactionTriggerTokens} · reserve ${settings.autoCompactionReserveTokens} · keep ${settings.autoCompactionKeepRecentTokens}`,
         `API key    ${settings.hasApiKey ? "configured (hidden)" : "not configured"}`,
+        `  file     ${settings.apiKeyPath}`,
         `Cookie     ${settings.hasCookie ? "configured (hidden)" : "not configured"}`,
+        `  file     ${settings.cookiePath}`,
+        `Config     ${settings.configPath}`,
+        `Catalog    ${settings.modelsPath}`,
         "",
         "Use /config wizard for guided setup, or /help for direct commands.",
     ];

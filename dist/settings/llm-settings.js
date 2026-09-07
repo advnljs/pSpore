@@ -1,11 +1,6 @@
 import { MAX_COMPACTION_TOKENS } from "./compaction-settings.js";
-export const MODEL_APIS = [
-    "provider-default",
-    "openai-completions",
-    "openai-responses",
-    "anthropic-messages",
-    "google-generative-ai",
-];
+import { MODEL_APIS } from "./model-api.js";
+export { MODEL_APIS } from "./model-api.js";
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const PROVIDER_OPTIONS = ["deepseek", "openai", "custom-openai"];
 export const PERMISSION_MODES = ["ask_risky", "ask_all", "allow_all", "deny"];

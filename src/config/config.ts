@@ -13,9 +13,12 @@ import {
   MAX_COMPACTION_TOKENS,
   type AutoCompactionConfig,
 } from "../settings/compaction-settings.js";
+import { MODEL_APIS, type ModelApi } from "../settings/model-api.js";
 
 export { DEFAULT_AUTO_COMPACTION, MAX_COMPACTION_TOKENS } from "../settings/compaction-settings.js";
 export type { AutoCompactionConfig } from "../settings/compaction-settings.js";
+export { CUSTOM_MODEL_APIS, MODEL_APIS } from "../settings/model-api.js";
+export type { ModelApi } from "../settings/model-api.js";
 
 export type PermissionMode = "deny" | "ask_all" | "ask_risky" | "allow_all";
 
@@ -32,7 +35,24 @@ export interface PsporeConfig {
     maxConcurrentAgents: number;
     shutdownGraceMs: number;
   };
-  model: (ModelRef & { thinking: ThinkingLevel }) | null;
+  /**
+   * Everything the settings panel persists about the active model, including the
+   * endpoint overrides that used to live only in `state/pi/models.json`. Pi still
+   * reads `models.json`, but `config.json` is now the single authoritative source
+   * and the settings service derives `models.json` from it.
+   */
+  model: (ModelRef & {
+    thinking: ThinkingLevel;
+    /** Endpoint override; empty/absent means the provider default. */
+    baseUrl?: string;
+    api?: ModelApi;
+    /** True when `model` is user-declared rather than part of a built-in catalog. */
+    customModel?: boolean;
+    /** Absolute file holding the API key. The file, never the secret, is recorded here. */
+    apiKeyFile?: string;
+    /** Absolute file holding the raw `Cookie` header value. */
+    cookieFile?: string;
+  }) | null;
   context: {
     pinnedFiles: string[];
     maxPinnedTokens: number;
@@ -104,8 +124,59 @@ export function defaultConfig(home: string): PsporeConfig {
   };
 }
 
+/**
+ * Keys each `config.json` section is expected to carry. A newer build adding a
+ * key here must not break an existing home, so `withConfigDefaults` fills any
+ * missing section or key from `defaultConfig` before the strict parse runs.
+ */
+const CONFIG_SECTION_KEYS: Readonly<Record<string, readonly string[]>> = {
+  runtime: ["workspace", "maxConcurrentAgents", "shutdownGraceMs"],
+  context: ["pinnedFiles", "maxPinnedTokens", "autoCompaction"],
+  permissions: ["mode", "approvalTimeoutMs", "rules"],
+  memory: ["provider", "maxResults", "maxReturnedTokens"],
+  shell: ["defaultTimeoutMs", "maxOutputBytes"],
+  scheduler: ["enabled", "maxConcurrentRuns"],
+  boot: ["enabled"],
+};
+
+/**
+ * Incremental upgrade merge: an existing value always wins, and only genuinely
+ * absent keys inherit the current default. Unknown keys are deliberately left in
+ * place so the strict parse below still rejects typos instead of silently
+ * dropping them.
+ */
+export function withConfigDefaults(value: unknown, home: string): Record<string, unknown> {
+  const root = { ...object(value, "config") };
+  const defaults = defaultConfig(home) as unknown as Record<string, unknown>;
+  if (root["version"] === undefined) root["version"] = defaults["version"];
+  if (root["model"] === undefined) root["model"] = defaults["model"];
+  for (const key of ["plugins", "mcpServers"]) {
+    if (root[key] === undefined) root[key] = defaults[key];
+  }
+  for (const [section, keys] of Object.entries(CONFIG_SECTION_KEYS)) {
+    const fallback = defaults[section] as Record<string, unknown>;
+    const current = root[section];
+    if (typeof current !== "object" || current === null || Array.isArray(current)) {
+      root[section] = structuredClone(fallback);
+      continue;
+    }
+    const merged = { ...(current as Record<string, unknown>) };
+    for (const key of keys) {
+      if (merged[key] === undefined) merged[key] = structuredClone(fallback[key]);
+    }
+    if (section === "context" && isPlainObject(merged["autoCompaction"])) {
+      merged["autoCompaction"] = {
+        ...DEFAULT_AUTO_COMPACTION,
+        ...(merged["autoCompaction"] as Record<string, unknown>),
+      };
+    }
+    root[section] = merged;
+  }
+  return root;
+}
+
 export function parseConfig(value: unknown, home: string): PsporeConfig {
-  const root = object(value, "config");
+  const root = withConfigDefaults(value, home);
   exactKeys(
     root,
     ["version", "runtime", "model", "context", "permissions", "memory", "shell", "scheduler", "boot", "plugins", "mcpServers"],
@@ -130,7 +201,7 @@ export function parseConfig(value: unknown, home: string): PsporeConfig {
   const boot = object(root["boot"], "config.boot");
   exactKeys(boot, ["enabled"], "config.boot");
 
-  const model = parseModel(root["model"]);
+  const model = parseModel(root["model"], home);
   const rules = array(permissions["rules"], "config.permissions.rules").map((rule, index) =>
     parsePermissionRule(rule, index),
   );
@@ -226,10 +297,22 @@ export function resolvePsporeHome(input = process.env["PSPORE_HOME"]): string {
   return resolveConfiguredPath(input, homedir());
 }
 
-function parseModel(value: unknown): PsporeConfig["model"] {
+function parseModel(value: unknown, home: string): PsporeConfig["model"] {
   if (value === null) return null;
   const model = object(value, "config.model");
-  exactKeys(model, ["provider", "model", "thinking"], "config.model");
+  // The endpoint fields were added in 0.1.15; they stay optional so a home written
+  // by an older build keeps loading and simply falls back to the provider default.
+  exactShape(
+    model,
+    ["provider", "model", "thinking"],
+    ["baseUrl", "api", "customModel", "apiKeyFile", "cookieFile"],
+    "config.model",
+  );
+  const baseUrl = model["baseUrl"];
+  const api = model["api"];
+  const customModel = model["customModel"];
+  const apiKeyFile = model["apiKeyFile"];
+  const cookieFile = model["cookieFile"];
   return {
     provider: string(model["provider"], "config.model.provider"),
     model: string(model["model"], "config.model.model"),
@@ -238,7 +321,34 @@ function parseModel(value: unknown): PsporeConfig["model"] {
       ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
       "config.model.thinking",
     ),
+    ...(baseUrl === undefined || baseUrl === ""
+      ? {}
+      : { baseUrl: parseModelBaseUrl(string(baseUrl, "config.model.baseUrl")) }),
+    ...(api === undefined ? {} : { api: enumeration(api, MODEL_APIS, "config.model.api") }),
+    ...(customModel === undefined ? {} : { customModel: boolean(customModel, "config.model.customModel") }),
+    ...(apiKeyFile === undefined || apiKeyFile === ""
+      ? {}
+      : { apiKeyFile: resolveConfiguredPath(string(apiKeyFile, "config.model.apiKeyFile"), home) }),
+    ...(cookieFile === undefined || cookieFile === ""
+      ? {}
+      : { cookieFile: resolveConfiguredPath(string(cookieFile, "config.model.cookieFile"), home) }),
   };
+}
+
+function parseModelBaseUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("config.model.baseUrl must be an absolute URL");
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("config.model.baseUrl must use http or https");
+  }
+  if (url.username || url.password || url.search || url.hash) {
+    throw new Error("config.model.baseUrl cannot contain credentials, query parameters, or fragments");
+  }
+  return value;
 }
 
 function parsePermissionRule(value: unknown, index: number): PermissionRule {
@@ -387,6 +497,10 @@ function resolveConfiguredPath(input: string, home: string): string {
 function resolveConfigPath(input: string, home: string): string {
   const expanded = input === "~" ? home : input.startsWith("~/") ? join(home, input.slice(2)) : input;
   return normalize(isAbsolute(expanded) ? expanded : resolve(home, expanded));
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function object(value: unknown, path: string): Record<string, unknown> {

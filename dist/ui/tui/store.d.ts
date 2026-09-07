@@ -2,8 +2,13 @@ import type { ModelRef } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
 import { type CoworkActivity } from "../shared/activity.js";
+/** Matches the desktop settle window so both shells report outages alike. */
+export declare const TUI_CONNECTION_SETTLE_MS = 2000;
 export interface TuiStoreSnapshot {
+    /** Presented connection state: a reconnect inside the settle window stays true. */
     connected: boolean;
+    /** True while a short reconnect is in flight but still presented as connected. */
+    reconnecting: boolean;
     instanceId?: string;
     selectedSessionId: string;
     kernel: KernelState;
@@ -25,6 +30,12 @@ export interface TuiStoreSnapshot {
 }
 export declare class TuiStore {
     #private;
+    constructor(now?: () => number);
+    /**
+     * Re-checks the settle window from a timer so a real outage still surfaces
+     * once the masking window expires. Returns true when the view changed.
+     */
+    settleConnection(): boolean;
     snapshot(): TuiStoreSnapshot;
     applyHello(hello: ServerHelloFrame): void;
     disconnected(message: string): void;

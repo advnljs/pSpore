@@ -24,6 +24,7 @@ export declare function applyProtocolDelta(current: ProtocolUiState, delta: {
     streamId: string;
     fromSeq: number;
     seq: number;
+    skipped?: number;
     sessionId: string;
     channel: "text" | "thinking";
     text: string;

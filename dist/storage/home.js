@@ -1,6 +1,6 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { defaultConfig, parseConfig } from "../config/config.js";
+import { defaultConfig, parseConfig, withConfigDefaults } from "../config/config.js";
 import { atomicWriteJson } from "./atomic.js";
 const WORKSPACE_TEMPLATES = {
     "AGENTS.md": "# Workspace Rules\n\nAdd workspace-specific operating rules here.\n",
@@ -44,7 +44,7 @@ export async function initializePsporeHome(home) {
     await chmod(home, 0o700);
     let config;
     try {
-        config = await loadConfig(home);
+        config = await upgradeConfigInPlace(home, initialPaths.config);
     }
     catch (error) {
         if (!isMissingFile(error))
@@ -91,6 +91,40 @@ export async function initializePsporeHome(home) {
         }
     }
     return { paths, created };
+}
+/**
+ * Overlay upgrades only replace the application payload, so the existing
+ * `config.json` has to survive a build that added new keys. Missing keys inherit
+ * the current defaults and the merged document is written back once, while every
+ * value the user already set is preserved byte-for-byte.
+ */
+async function upgradeConfigInPlace(home, path) {
+    const stored = JSON.parse(await readFile(path, "utf8"));
+    const config = parseConfig(stored, home);
+    if (!sectionsComplete(stored, home))
+        await atomicWriteJson(path, config, 0o600);
+    return config;
+}
+/** True when the stored document already carries every key this build knows about. */
+function sectionsComplete(stored, home) {
+    const base = isPlainObject(stored) ? stored : {};
+    for (const [key, value] of Object.entries(withConfigDefaults(stored, home))) {
+        const current = base[key];
+        if (current === undefined)
+            return false;
+        if (!isPlainObject(value))
+            continue;
+        if (!isPlainObject(current))
+            return false;
+        for (const nested of Object.keys(value)) {
+            if (current[nested] === undefined)
+                return false;
+        }
+    }
+    return true;
+}
+function isPlainObject(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export async function loadConfig(home) {
     const path = psporePaths(home).config;

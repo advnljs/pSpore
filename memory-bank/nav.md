@@ -16,6 +16,7 @@
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
+| `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
@@ -49,7 +50,8 @@
 | `scripts/package-desktop.sh` | 按当前原生 `x64|arm64` 使用 electron-builder 生成全量/overlay zip，并调用 `build-cli-binary.sh` 生成同架构 CLI |
 | `scripts/build-cli-binary.sh` | esbuild bundle + 当前原生 Node SEA 注入，产出 `release-dist/pspore-<version>-linux-<arch>` 并自检；拒绝跨架构复制 Node |
 | `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内快捷方式安装器：生成稳定 XDG launcher、Desktop Entry 与私有启动日志 |
-| `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，自检后替换应用资源、保留回滚并重启匹配服务 |
+| `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，在安装根目录整体替换 Chromium 之外的全部应用文件、输出 `[ NN%] …` 进度、保留回滚、重指向已有桌面快捷方式并重启匹配服务 |
+| `scripts/linux/overlay-upgrade-gui.sh` | overlay 图形界面升级（打包为「图形界面升级.sh」）：zenity/kdialog 选目录 + 进度条，无对话框工具时回落终端 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收 |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
@@ -113,8 +115,8 @@
 ## 配置与运行数据
 
 - 默认根目录：`~/.pspore/`
-- 配置：`~/.pspore/config.json`
-- LLM 扩展配置：`~/.pspore/state/pi/models.json`；GUI/TUI/CLI 保存的 Provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`）。
+- 配置：`~/.pspore/config.json`（设置面板全部配置项的权威来源，含 `model.baseUrl`/`api`/`customModel`/`apiKeyFile`/`cookieFile`；缺失键在启动时按默认值增量补齐，已有值不变）
+- Pi 派生模型目录：`~/.pspore/state/pi/models.json`（由 `config.json` 生成，不再作为配置事实源）；GUI/TUI/CLI 保存的 Provider Key：`~/.pspore/credentials/<provider>.api-key`（`0600`），Cookie：`~/.pspore/credentials/<provider>.cookie`。GUI 设置面板、CLI `config show` 与 TUI `/config` 都会显示这些绝对路径。
 - workspace：`~/.pspore/workspace/`
 - runtime socket/endpoint：`~/.pspore/run/`
 - 根 session mapping：`~/.pspore/state/session-catalog.json`；Pi JSONL：`~/.pspore/state/sessions/`；runs/approval grants/notifications/audit：`~/.pspore/state/`

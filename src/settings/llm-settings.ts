@@ -1,12 +1,9 @@
 import type { PermissionMode } from "../config/config.js";
 import { MAX_COMPACTION_TOKENS } from "./compaction-settings.js";
+import { MODEL_APIS, type ModelApi } from "./model-api.js";
 
-export type ModelApi =
-  | "provider-default"
-  | "openai-completions"
-  | "openai-responses"
-  | "anthropic-messages"
-  | "google-generative-ai";
+export { MODEL_APIS } from "./model-api.js";
+export type { ModelApi } from "./model-api.js";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ProviderOption = "deepseek" | "openai" | "custom-openai";
@@ -27,6 +24,14 @@ export interface LlmSettings {
   autoCompactionKeepRecentTokens: number;
   hasApiKey: boolean;
   hasCookie: boolean;
+  /** Absolute path of `config.json`, the authoritative store for every field above. */
+  configPath: string;
+  /** Absolute file the API key is read from. Shown in clients; never the secret itself. */
+  apiKeyPath: string;
+  /** Absolute file the `Cookie` header value is read from. */
+  cookiePath: string;
+  /** Absolute path of the derived Pi model catalog written from `config.json`. */
+  modelsPath: string;
 }
 
 export interface LlmSettingsUpdate {
@@ -47,14 +52,6 @@ export interface LlmSettingsUpdate {
   clearApiKey: boolean;
   clearCookie: boolean;
 }
-
-export const MODEL_APIS: readonly ModelApi[] = [
-  "provider-default",
-  "openai-completions",
-  "openai-responses",
-  "anthropic-messages",
-  "google-generative-ai",
-];
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const PROVIDER_OPTIONS: readonly ProviderOption[] = ["deepseek", "openai", "custom-openai"];

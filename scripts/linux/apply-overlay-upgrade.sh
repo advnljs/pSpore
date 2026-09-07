@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Apply the application payload while keeping the installed Electron/Chromium
-# runtime. The target runtime is used as Node for compatibility and integrity
-# checks, so the updater has no dependency on a separately installed Node.js.
+# Replace every application file except the fixed Electron/Chromium runtime. The
+# target runtime is used as Node for compatibility and integrity checks, so the
+# updater has no dependency on a separately installed Node.js.
+#
+# Progress is reported as `[ NN%] message` lines so 图形界面升级.sh can drive a
+# progress bar from the same script the terminal uses.
 set -euo pipefail
 umask 077
 
@@ -22,6 +25,10 @@ declare -a BACKED_UP_NAMES=()
 fail() {
   echo "升级失败：$1" >&2
   exit 1
+}
+
+progress() {
+  printf '[%3d%%] %s\n' "$1" "$2"
 }
 
 if [[ ! -f "$MANIFEST" || ! -f "$PAYLOAD_RESOURCES/app.asar" ]]; then
@@ -52,6 +59,13 @@ RESOURCES="$TARGET/resources"
 if [[ ! -x "$EXEC" || ! -f "$RESOURCES/app.asar" ]]; then
   fail "目标不是完整的 pSpore 安装目录（缺少可执行文件或 resources/app.asar）: $TARGET"
 fi
+# The payload replaces application files only; shipping a runtime file would
+# swap Chromium underneath a process that is expected to keep working.
+if [[ -e "$PAYLOAD_ROOT/pspore-desktop" || -e "$PAYLOAD_ROOT/locales" ]]; then
+  fail "升级包不应包含 Electron/Chromium 运行时文件；请重新下载 overlay 包。"
+fi
+
+progress 5 "正在读取升级包信息…"
 
 electron_node() {
   env ELECTRON_RUN_AS_NODE=1 "$EXEC" "$@"
@@ -100,6 +114,8 @@ if [[ ! "$EXPECTED_PAYLOAD_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
   fail "升级包 payload SHA-256 无效。"
 fi
 
+progress 15 "正在校验运行时兼容性…"
+
 runtime_values="$(electron_node -e '
   process.stdout.write([
     process.versions.electron || "",
@@ -117,6 +133,8 @@ fi
 if [[ "${RUNTIME_FIELDS[1]}" != "$PLATFORM" || "${RUNTIME_FIELDS[2]}" != "$ARCH" ]]; then
   fail "运行平台不兼容：升级包为 $PLATFORM/$ARCH，现有安装为 ${RUNTIME_FIELDS[1]}/${RUNTIME_FIELDS[2]}。"
 fi
+
+progress 30 "正在校验升级包完整性…"
 
 actual_payload_sha256="$(electron_node -e '
   process.noAsar = true;
@@ -157,7 +175,7 @@ if current_output="$(electron_node "$RESOURCES/app.asar/dist/cli/main.js" versio
   installed_version="$current_output"
 fi
 
-LOCK_DIR="$RESOURCES/.pspore-overlay.lock"
+LOCK_DIR="$TARGET/.pspore-overlay.lock"
 if ! mkdir "$LOCK_DIR" 2>/dev/null; then
   fail "另一个升级进程正在运行，或上次异常中断留下了锁: $LOCK_DIR"
 fi
@@ -166,13 +184,13 @@ LOCK_HELD=1
 rollback_swap() {
   local name
   for name in "${INSTALLED_NAMES[@]}"; do
-    if [[ -e "$RESOURCES/$name" || -L "$RESOURCES/$name" ]]; then
-      mv "$RESOURCES/$name" "$BACKUP/failed-$name" 2>/dev/null || true
+    if [[ -e "$TARGET/$name" || -L "$TARGET/$name" ]]; then
+      mv "$TARGET/$name" "$BACKUP/failed-$name" 2>/dev/null || true
     fi
   done
   for name in "${BACKED_UP_NAMES[@]}"; do
     if [[ -e "$BACKUP/$name" || -L "$BACKUP/$name" ]]; then
-      mv "$BACKUP/$name" "$RESOURCES/$name" 2>/dev/null || true
+      mv "$BACKUP/$name" "$TARGET/$name" 2>/dev/null || true
     fi
   done
   echo "已回滚到升级前版本；失败文件保留在: $BACKUP" >&2
@@ -186,7 +204,7 @@ cleanup() {
   fi
   if [[ -n "$STAGE" && -d "$STAGE" ]]; then
     case "$STAGE" in
-      "$RESOURCES"/.pspore-overlay-new.*) rm -rf -- "$STAGE" ;;
+      "$TARGET"/.pspore-overlay-new.*) rm -rf -- "$STAGE" ;;
     esac
   fi
   if (( LOCK_HELD == 1 )) && [[ -d "$LOCK_DIR" ]]; then
@@ -198,26 +216,39 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-STAGE="$(mktemp -d "$RESOURCES/.pspore-overlay-new.XXXXXX")"
-cp -a "$PAYLOAD_RESOURCES"/. "$STAGE"/
-new_output="$(electron_node "$STAGE/app.asar/dist/cli/main.js" version 2>&1)" \
+progress 45 "正在准备新版本文件…"
+
+# Staging next to the install keeps the swap on one filesystem, so every
+# replacement is an atomic rename rather than a partial copy.
+STAGE="$(mktemp -d "$TARGET/.pspore-overlay-new.XXXXXX")"
+cp -a "$PAYLOAD_ROOT"/. "$STAGE"/
+new_output="$(electron_node "$STAGE/resources/app.asar/dist/cli/main.js" version 2>&1)" \
   || fail "新应用 payload 自检失败: $new_output"
 if [[ "$new_output" != "pSpore $APP_VERSION" && "$new_output" != "pSpore $APP_VERSION "* ]]; then
   fail "新应用版本自检不匹配；期望 pSpore $APP_VERSION，实际: $new_output"
 fi
 
-BACKUP="$RESOURCES/.pspore-backup-$(date +%Y%m%dT%H%M%S)-$$"
+progress 65 "正在替换应用文件…"
+
+BACKUP="$TARGET/.pspore-backup-$(date +%Y%m%dT%H%M%S)-$$"
 mkdir "$BACKUP"
 SWAP_STARTED=1
 while IFS= read -r -d '' staged_item; do
   name="$(basename -- "$staged_item")"
-  if [[ -e "$RESOURCES/$name" || -L "$RESOURCES/$name" ]]; then
-    mv "$RESOURCES/$name" "$BACKUP/$name"
+  if [[ -e "$TARGET/$name" || -L "$TARGET/$name" ]]; then
+    mv "$TARGET/$name" "$BACKUP/$name"
     BACKED_UP_NAMES+=("$name")
   fi
-  mv "$staged_item" "$RESOURCES/$name"
+  mv "$staged_item" "$TARGET/$name"
   INSTALLED_NAMES+=("$name")
 done < <(find "$STAGE" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+
+# A zip round-trip can lose the executable bit on the helper scripts.
+for script in "$TARGET"/*.sh; do
+  [[ -f "$script" ]] && chmod 0755 "$script" 2>/dev/null || true
+done
+
+progress 80 "正在校验升级结果…"
 
 verified_output="$(electron_node "$RESOURCES/app.asar/dist/cli/main.js" version 2>&1)" \
   || fail "升级后的应用自检失败: $verified_output"
@@ -226,16 +257,45 @@ if [[ "$verified_output" != "pSpore $APP_VERSION" && "$verified_output" != "pSpo
 fi
 COMPLETED=1
 
+# The desktop entry points at a stable launcher that reads this install record,
+# so an existing shortcut has to be re-pointed at whichever directory was just
+# upgraded. Without it a user who upgrades one copy keeps launching another.
+refresh_desktop_shortcut() {
+  if [[ "${PSPORE_OVERLAY_SKIP_SHORTCUT_REFRESH:-0}" == "1" ]]; then
+    return
+  fi
+  local data_home app_data_dir install_file installer applications_dir
+  data_home="${XDG_DATA_HOME:-$HOME/.local/share}"
+  app_data_dir="$data_home/pspore"
+  install_file="$app_data_dir/install-dir"
+  applications_dir="$data_home/applications"
+  installer="$TARGET/创建桌面快捷方式.sh"
+  # Only refresh what the user already has; never create a shortcut uninvited.
+  if [[ ! -f "$install_file" && ! -f "$applications_dir/pSpore.desktop" ]]; then
+    echo "未发现已安装的桌面快捷方式；如需创建请运行安装目录中的「创建桌面快捷方式.sh」。"
+    return
+  fi
+  if [[ ! -x "$installer" ]]; then
+    echo "警告：升级包未提供「创建桌面快捷方式.sh」，请手动确认桌面快捷方式指向 $TARGET。" >&2
+    return
+  fi
+  if PSPORE_SHORTCUT_SKIP_NOTIFY=1 bash "$installer" < /dev/null > /dev/null 2>&1; then
+    echo "已将桌面快捷方式指向本次升级的安装目录: $TARGET"
+  else
+    echo "警告：无法刷新桌面快捷方式；请手动运行 $installer。" >&2
+  fi
+}
+
 restart_matching_services() {
   if [[ "${PSPORE_OVERLAY_SKIP_SERVICE_RESTART:-0}" == "1" ]] || ! command -v systemctl >/dev/null 2>&1; then
     return
   fi
   local unit_dir unit_path unit_name unit_exec restarted=0
   unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-  [[ -d "$unit_dir" ]] || return
   unit_exec="${EXEC//%/%%}"
   unit_exec="${unit_exec//\\/\\\\}"
   unit_exec="${unit_exec//\"/\\\"}"
+  [[ -d "$unit_dir" ]] || return
   for unit_path in "$unit_dir"/pspore*.service; do
     [[ -f "$unit_path" ]] || continue
     if grep -Fq "$unit_exec" "$unit_path"; then
@@ -253,15 +313,20 @@ restart_matching_services() {
   fi
 }
 
+progress 90 "正在刷新快捷方式与后台服务…"
+refresh_desktop_shortcut
 restart_matching_services
 rmdir "$STAGE" 2>/dev/null || true
 STAGE=""
 rmdir "$LOCK_DIR" 2>/dev/null || true
 LOCK_HELD=0
 
+progress 100 "升级完成"
 echo "升级成功："
 echo "  原版本: $installed_version"
 echo "  当前版本: $verified_output"
 echo "  Electron 运行时: $ELECTRON_VERSION ($PLATFORM/$ARCH，未替换 Chromium)"
+echo "  已替换应用文件: ${INSTALLED_NAMES[*]}"
 echo "  可回滚备份: $BACKUP"
+echo "  个人配置 (~/.pspore) 未改动；新增配置项会在下次启动时按默认值补齐。"
 echo "如桌面窗口仍在运行，请关闭并重新打开以加载全部新代码。"

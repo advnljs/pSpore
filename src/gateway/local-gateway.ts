@@ -45,6 +45,13 @@ interface ConnectionState {
   processing: Promise<void>;
   supportsServerFrameChunks: boolean;
   failed: boolean;
+  /**
+   * Transient events this connection did not receive because its socket was
+   * still draining. The count rides along on the next event so the client can
+   * advance its cursor instead of reading the jump as a lost-event gap and
+   * tearing the connection down mid-task.
+   */
+  skippedEvents: number;
 }
 
 export class LocalGateway {
@@ -118,7 +125,6 @@ export class LocalGateway {
     }
     for (const connection of this.#connections) {
       if (!connection.authenticated) continue;
-      if (!event.durable && connection.socket.writableNeedDrain) continue;
       this.#write(connection, envelope);
     }
     return envelope;
@@ -150,6 +156,7 @@ export class LocalGateway {
       processing: Promise.resolve(),
       supportsServerFrameChunks: false,
       failed: false,
+      skippedEvents: 0,
     };
     this.#connections.add(connection);
     socket.on("data", (chunk: Buffer) => this.#receive(connection, chunk));
@@ -276,17 +283,35 @@ export class LocalGateway {
 
   #write(connection: ConnectionState, frame: ServerHelloFrame | ResponseEnvelope | EventEnvelope): void {
     if (connection.socket.destroyed) return;
+    const transient = frame.kind === "event" && !frame.durable;
+    // Transient frames are droppable by design; a client that cannot keep up sheds
+    // them rather than being torn down, which is what used to make long runs
+    // flap between connected and reconnecting.
+    if (transient && connection.socket.writableNeedDrain) {
+      connection.skippedEvents += 1;
+      return;
+    }
     if (connection.socket.writableLength > this.#maxPendingBytes) {
+      if (transient) {
+        connection.skippedEvents += 1;
+        return;
+      }
       connection.socket.destroy(new Error("Protocol client is too slow"));
       return;
     }
+    // Only an event can carry the pending skip count forward, so hello and
+    // response frames must leave it untouched: clearing it there would strand
+    // the client behind the sequence with nothing to explain the jump.
+    const carriesSkip = frame.kind === "event" && connection.skippedEvents > 0;
+    const outgoing = carriesSkip ? { ...frame, skipped: connection.skippedEvents } : frame;
     if (!connection.supportsServerFrameChunks) {
-      connection.socket.write(encodeFrame(frame));
+      connection.socket.write(encodeFrame(outgoing));
+      if (frame.kind === "event") connection.skippedEvents = 0;
       return;
     }
     let encoded: readonly string[];
     try {
-      encoded = encodeServerFrame(frame, {
+      encoded = encodeServerFrame(outgoing, {
         maxFrameBytes: this.#maxFrameBytes,
         maxMessageBytes: this.#maxServerMessageBytes,
         idFactory: this.#idFactory,
@@ -296,6 +321,7 @@ export class LocalGateway {
       return;
     }
     for (const chunk of encoded) connection.socket.write(chunk);
+    if (frame.kind === "event") connection.skippedEvents = 0;
   }
 
   #protocolFailure(connection: ConnectionState, error: ProtocolError): void {

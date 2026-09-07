@@ -89,3 +89,11 @@ preload 仅暴露：
 ## 常见修改点
 
 新增用户动作时同时修改 `DesktopCommand` decoder、protocol mapping、renderer 控件和测试；不得增加通用 `send(channel, payload)`。模型设置改动同时检查 shared decoder/service、desktop IPC alias、TUI/CLI、owned/external restart 语义与 secret 回读。新增 Kernel 顶层字段或 event type 时优先修改 shared protocol reducer，再同步 main validation。修改视觉布局后运行 `npm run test:electron`，并用 `PSPORE_KEEP_SMOKE=1` 检查深色、浅色、设置、响应式和审批截图。
+
+
+## 2026-09-07：GSAP 动效层与 overlay 整包升级
+
+- `src/desktop/renderer/motion.ts` 扩展为完整动效词汇表：`setReconnectingPulse`（重连呼吸循环）、`tweenMetric`（修订/上下文/缓存/计数数字 tween）、`revealListItems`（会话与活动列表 stagger，超出上限只淡入）、`revealPanel`（检查器 tab 切换）、`toggleBannerMotion`（离线横幅滑入滑出）、`popChips`（拖入文件引用）、`flipStatusChip`（会话状态变化）、`crossfadeText`（状态行）。全部只动 transform/opacity，遵守 `prefers-reduced-motion`，vendored GSAP 缺失时每个 helper 立即降级为直接赋值。
+- 高频渲染保护：会话列表与活动列表用签名比较，只有集合真正变化才重放动画，流式增量不会每帧重启 stagger。
+- 连接呈现改用 `stableConnection`，`document.documentElement.dataset.reconnecting` 与徽标 `data-reconnecting` 供样式和 smoke 断言使用；smoke 新增 `reconnectMasked`，要求短暂掉线先被遮蔽、随后真实掉线仍会显示。
+- overlay payload 从“仅 `resources/`”改为“完整安装目录减去 Electron/Chromium 运行时清单”，updater 在安装根目录整体替换、备份到 `<install>/.pspore-backup-*`、输出 `[ NN%] …` 进度、升级后重跑随包的 `创建桌面快捷方式.sh` 使已有桌面快捷方式指向本次升级目录。`scripts/linux/overlay-upgrade-gui.sh` 提供 zenity/kdialog 的目录选择与进度条，无对话框工具时回落终端模式。

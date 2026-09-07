@@ -249,6 +249,10 @@ select:focus-visible,
 }
 .connection-badge.connecting { color: var(--honey); border-color: color-mix(in srgb, var(--honey) 38%, var(--border)); background: var(--honey-soft); }
 .connection-badge.connecting i { background: var(--honey); }
+/* A masked reconnect stays ONLINE; only the dot warms up so a long run never
+   strobes the badge between states. */
+.connection-badge[data-reconnecting="true"] i { background: var(--honey); }
+.connection-badge[data-reconnecting="true"] i::after { border-color: var(--honey); }
 
 .topbar-metrics { display: flex; align-items: stretch; gap: 18px; margin-right: 10px; }
 .topbar-metrics > span { min-width: 58px; }
@@ -645,6 +649,10 @@ select {
 .settings-section-title h3 { margin: 0 0 4px; color: var(--text); font-size: 15.5px; font-weight: 700; }
 .settings-section-title p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
 .settings-field-note { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.settings-path-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.settings-path-note code { flex: 1 1 220px; min-width: 0; overflow-x: auto; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); color: var(--text); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
+.settings-path-state { flex: 0 0 auto; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); font-size: 11.5px; }
+.settings-path-state[data-state="present"] { border-color: color-mix(in srgb, var(--live) 46%, var(--border)); color: var(--live); }
 .settings-danger-note { margin: 10px 0 0; padding: 11px 13px; border: 1px solid color-mix(in srgb, var(--honey) 46%, var(--border)); border-radius: var(--radius-sm); color: var(--honey); background: var(--honey-soft); font-size: 12.5px; line-height: 1.65; }
 .settings-section > label:not(.checkbox-field),
 .field-grid > label { display: flex; flex-direction: column; gap: 7px; }

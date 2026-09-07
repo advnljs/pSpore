@@ -1,0 +1,1 @@
+{"version":3,"file":"model-api.d.ts","sourceRoot":"","sources":["../../src/settings/model-api.ts"],"names":[],"mappings":"AAAA;;;;GAIG;AACH,MAAM,MAAM,QAAQ,GAChB,kBAAkB,GAClB,oBAAoB,GACpB,kBAAkB,GAClB,oBAAoB,GACpB,sBAAsB,CAAC;AAE3B,eAAO,MAAM,UAAU,EAAE,SAAS,QAAQ,EAMzC,CAAC;AAEF,oFAAoF;AACpF,eAAO,MAAM,iBAAiB,EAAE,SAAS,QAAQ,EAA+C,CAAC"}

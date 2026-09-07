@@ -128,3 +128,13 @@
 - 自动上下文压缩增加可直接配置的 active-context token 触发长度；默认 `100000`，达到阈值时使用 Pi 原生 compaction，并继续保留模型 hard-limit `reserveTokens` 保护。
 - GUI、TUI 与 CLI 必须读写同一 `config.context.autoCompaction.triggerTokens`；旧配置缺字段时自动采用默认值，不要求用户手工迁移。
 - 本次修复发布新的 PATCH 版本 `0.1.14`，按既有流程完成本地 PC 验收、x64 候选、`main` CI、ARM64 preview、不可变双架构 GitHub Release 与远端资产复验。
+
+
+## 2026-09-07 用户明确要求
+
+1. 配置面板的每一个配置项都必须落在 `config.json`（此前 `baseUrl` 等不在配置里）；credential 要给出文件地址。
+2. 长任务期间界面与后台守护进程的连接不应频繁短暂丢失、不断跳动，尽可能不出现这种波动。
+3. 增加 GSAP 动画效果。
+4. overlay 直接打包 Chromium 之外的全部内容并整体替换；配置按增量覆盖，已有配置不动。
+5. overlay 提供一个最基础的 GUI：选择目录并展示覆盖进度条。
+6. overlay 升级后必须确保已有桌面快捷方式指向新版本。

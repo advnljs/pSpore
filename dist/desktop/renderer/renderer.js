@@ -2,10 +2,11 @@
 import { defaultModelFor } from "../../settings/llm-settings.js";
 import { clockTime, conversationIntent, formatBytes, formatTokens, kernelMetrics, presentSessions, selectedAgent as findSelectedAgent, shortId, terminalAgentStatus, } from "../../ui/shared/presentation.js";
 import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
+import { DAEMON_NOT_CONNECTED_MESSAGE, } from "../ipc-contract.js";
 import { composeMessageWithFileReferences, composerFileReference, composerFileReferenceName, mergeComposerFileReferences, } from "./composer-file-references.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
-import { animateMessagesIn, animateTranscriptHero, hideOverlayMotion, introChoreography, nudgeElement, pulseStatus, showOverlayMotion, } from "./motion.js";
-import { DesktopStore } from "./store.js";
+import { animateMessagesIn, animateTranscriptHero, crossfadeText, flipStatusChip, hideOverlayMotion, introChoreography, nudgeElement, popChips, pulseStatus, revealListItems, revealPanel, setReconnectingPulse, showOverlayMotion, toggleBannerMotion, tweenMetric, } from "./motion.js";
+import { CONNECTION_SETTLE_MS, DesktopStore } from "./store.js";
 const store = new DesktopStore();
 const queuedFrames = [];
 let initialized = false;
@@ -20,6 +21,11 @@ let savingSettings = false;
 let responsiveMode;
 let introPlayed = false;
 let lastConnectionPhase = "";
+let settleTimer;
+let lastSessionSignature = "";
+let lastSessionStatus = "";
+let lastActivitySignature = "";
+let lastReferenceCount = 0;
 let renderFrame;
 let transcriptRenderFrame;
 let composerFileReferences = [];
@@ -121,6 +127,14 @@ const elements = {
     settingsCookie: byId("settings-cookie"),
     settingsCookieReveal: byId("settings-cookie-reveal"),
     settingsClearCookie: byId("settings-clear-cookie"),
+    settingsConfigPath: byId("settings-config-path"),
+    settingsModelsPath: byId("settings-models-path"),
+    settingsApiKeyPath: byId("settings-api-key-path"),
+    settingsApiKeyState: byId("settings-api-key-state"),
+    settingsKeyCopyPath: byId("settings-key-copy-path"),
+    settingsCookiePath: byId("settings-cookie-path"),
+    settingsCookieState: byId("settings-cookie-state"),
+    settingsCookieCopyPath: byId("settings-cookie-copy-path"),
     settingsStatus: byId("settings-status"),
     settingsSave: byId("settings-save"),
     approvalOverlay: byId("approval-overlay"),
@@ -221,6 +235,8 @@ function bindStaticActions() {
     elements.settingsPermissionMode.addEventListener("change", () => configurePermissionFields());
     bindSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey);
     bindSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie);
+    bindPathCopy(elements.settingsKeyCopyPath, elements.settingsApiKeyPath);
+    bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
     elements.settingsOverlay.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !savingSettings) {
             event.preventDefault();
@@ -406,8 +422,12 @@ function renderComposerFileReferences() {
         item.append(kind, path, remove);
         return item;
     });
+    const added = nodes.length > lastReferenceCount;
+    lastReferenceCount = nodes.length;
     elements.composerReferences.replaceChildren(...nodes);
     elements.composerReferences.hidden = nodes.length === 0;
+    if (added)
+        popChips(nodes);
 }
 function syncResponsivePanels(force) {
     // Only a full desktop viewport has room for all three columns; narrower windows keep the conversation dominant.
@@ -436,8 +456,13 @@ function selectInspectorTab(selected) {
         tab.setAttribute("aria-selected", String(active));
         tab.tabIndex = active ? 0 : -1;
     }
-    for (const view of elements.inspectorViews)
-        view.hidden = view.dataset["inspectorPanel"] !== selected;
+    for (const view of elements.inspectorViews) {
+        const active = view.dataset["inspectorPanel"] === selected;
+        const becameVisible = active && view.hidden;
+        view.hidden = !active;
+        if (becameVisible)
+            revealPanel(view);
+    }
 }
 function setAgentCompose(open) {
     elements.agentCompose.hidden = !open;
@@ -476,10 +501,42 @@ function populateSettings(settings) {
     elements.settingsCompactionTrigger.value = String(settings.autoCompactionTriggerTokens);
     elements.settingsCompactionReserve.value = String(settings.autoCompactionReserveTokens);
     elements.settingsCompactionKeepRecent.value = String(settings.autoCompactionKeepRecentTokens);
+    populateSettingsPaths(settings);
     configurePermissionFields();
     configureProviderFields(false);
     resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
     resetSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie, settings.hasCookie, "Cookie");
+}
+/**
+ * Secrets stay in files outside `config.json`, so the panel shows exactly where
+ * each one is read from. Only the path is ever rendered — never the value.
+ */
+function populateSettingsPaths(settings) {
+    elements.settingsConfigPath.textContent = settings.configPath;
+    elements.settingsModelsPath.textContent = settings.modelsPath;
+    elements.settingsApiKeyPath.textContent = settings.apiKeyPath;
+    elements.settingsCookiePath.textContent = settings.cookiePath;
+    elements.settingsApiKeyState.textContent = settings.hasApiKey ? "已配置" : "未配置";
+    elements.settingsApiKeyState.dataset["state"] = settings.hasApiKey ? "present" : "absent";
+    elements.settingsCookieState.textContent = settings.hasCookie ? "已配置" : "未配置";
+    elements.settingsCookieState.dataset["state"] = settings.hasCookie ? "present" : "absent";
+}
+function bindPathCopy(button, source) {
+    button.addEventListener("click", () => {
+        const path = source.textContent ?? "";
+        if (!path || path === "—")
+            return;
+        void navigator.clipboard.writeText(path).then(() => flashButtonLabel(button, "已复制"), () => flashButtonLabel(button, "复制失败"));
+    });
+}
+function flashButtonLabel(button, label) {
+    const original = button.dataset["label"] ?? button.textContent ?? "";
+    button.dataset["label"] = original;
+    button.textContent = label;
+    nudgeElement(button);
+    window.setTimeout(() => {
+        button.textContent = button.dataset["label"] ?? original;
+    }, 1_400);
 }
 async function saveSettings() {
     if (savingSettings)
@@ -634,7 +691,7 @@ async function perform(pendingNotice, command, onSuccess) {
     store.setNotice(`正在${pendingNotice}…`);
     render();
     try {
-        const result = await window.pspore.dispatch(command);
+        const result = await dispatchAcrossReconnect(command);
         store.setNotice(`${pendingNotice}：完成`);
         await onSuccess?.(result);
     }
@@ -643,9 +700,44 @@ async function perform(pendingNotice, command, onSuccess) {
     }
     render();
 }
+/**
+ * The shell keeps its controls enabled through a short reconnect, so a command
+ * issued in that window must not simply fail. Only the "not connected" error is
+ * retried: the bridge raises it before writing anything to the socket, so the
+ * retry cannot duplicate a command the daemon already ran.
+ */
+async function dispatchAcrossReconnect(command) {
+    try {
+        return await window.pspore.dispatch(command);
+    }
+    catch (error) {
+        const message = toError(error).message;
+        if (!message.includes(DAEMON_NOT_CONNECTED_MESSAGE) || !store.snapshot().reconnecting)
+            throw error;
+        store.setNotice("守护进程正在重连，命令将在连接恢复后发送…");
+        render();
+        if (!(await waitForConnection()))
+            throw error;
+        return window.pspore.dispatch(command);
+    }
+}
+function waitForConnection() {
+    return new Promise((resolve) => {
+        const deadline = Date.now() + CONNECTION_SETTLE_MS;
+        const poll = () => {
+            if (store.snapshot().connection.phase === "connected")
+                resolve(true);
+            else if (Date.now() >= deadline)
+                resolve(false);
+            else
+                window.setTimeout(poll, 100);
+        };
+        poll();
+    });
+}
 async function refreshSideData() {
     const snapshot = store.snapshot();
-    if (snapshot.connection.phase !== "connected") {
+    if (snapshot.stableConnection.phase !== "connected") {
         store.setNotice("守护进程离线；重连后会自动刷新列表");
         render();
         return;
@@ -686,7 +778,31 @@ function render() {
     document.documentElement.dataset["renderSequence"] = String(renderSequence);
     document.documentElement.dataset["revision"] = String(snapshot.kernel.revision);
     document.documentElement.dataset["approval"] = Object.keys(snapshot.kernel.approvals).length ? "visible" : "hidden";
-    document.documentElement.dataset["connection"] = snapshot.connection.phase;
+    document.documentElement.dataset["connection"] = snapshot.stableConnection.phase;
+    document.documentElement.dataset["reconnecting"] = snapshot.reconnecting ? "true" : "false";
+}
+/**
+ * The settle window is time-based, so a run that stays disconnected without
+ * emitting further frames still has to surface. One timer, re-armed only while
+ * a reconnect is being masked.
+ */
+function scheduleConnectionSettle(snapshot) {
+    if (!snapshot.reconnecting) {
+        if (settleTimer !== undefined) {
+            window.clearTimeout(settleTimer);
+            settleTimer = undefined;
+        }
+        return;
+    }
+    if (settleTimer !== undefined)
+        return;
+    settleTimer = window.setTimeout(() => {
+        settleTimer = undefined;
+        if (store.settleConnection())
+            scheduleRender();
+        else
+            scheduleConnectionSettle(store.snapshot());
+    }, 250);
 }
 function scheduleRender() {
     if (renderFrame !== undefined)
@@ -710,32 +826,43 @@ function handleTranscriptScroll() {
     scheduleTranscriptRender();
 }
 function renderHeader(snapshot) {
-    const connection = snapshot.connection;
+    // The settled state is what the header shows: a reconnect that finishes inside
+    // the settle window stays "ONLINE" so a long run does not strobe the badge.
+    const connection = snapshot.stableConnection;
     elements.connectionBadge.className = `connection-badge ${connection.phase}`;
+    elements.connectionBadge.dataset["reconnecting"] = snapshot.reconnecting ? "true" : "false";
     elements.connectionBadge.replaceChildren(element("i"), text(connection.phase === "connected" ? "ONLINE" : connection.phase.toUpperCase()));
     if (lastConnectionPhase && connection.phase !== lastConnectionPhase)
         pulseStatus(elements.connectionBadge);
     lastConnectionPhase = connection.phase;
+    setReconnectingPulse(elements.connectionBadge, snapshot.reconnecting);
     elements.daemonInstance.textContent = connection.instanceId ? `daemon ${shortId(connection.instanceId)}` : "等待本地守护进程";
-    elements.connectionBanner.classList.toggle("visible", connection.phase !== "connected");
+    toggleBannerMotion(elements.connectionBanner, connection.phase !== "connected");
     elements.connectionMessage.textContent = friendlyConnectionMessage(connection.message, connection.phase);
-    elements.revision.textContent = String(snapshot.kernel.revision);
     const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
-    elements.usage.textContent = formatTokens(session?.usage.total ?? 0);
-    elements.cache.textContent = formatTokens((session?.usage.cacheRead ?? 0) + (session?.usage.cacheWrite ?? 0));
-    elements.notice.textContent = snapshot.notice;
+    tweenMetric(elements.revision, snapshot.kernel.revision, String);
+    tweenMetric(elements.usage, session?.usage.total ?? 0, formatTokens);
+    tweenMetric(elements.cache, (session?.usage.cacheRead ?? 0) + (session?.usage.cacheWrite ?? 0), formatTokens);
+    crossfadeText(elements.notice, snapshot.notice);
     elements.refresh.disabled = connection.phase !== "connected";
+    scheduleConnectionSettle(snapshot);
 }
 function renderSessions(snapshot) {
     const sessions = presentSessions(snapshot.kernel, snapshot.selectedSessionId);
     const nodes = sessions.map((session) => sessionButton(session.id, session.title, session.status, session.depth, session.selected, session.active));
+    const sessionSignature = sessions.map((session) => `${session.id}:${session.status}:${session.selected}`).join("|");
     elements.sessionList.replaceChildren(...nodes);
-    elements.sessionCount.textContent = String(sessions.length);
-    elements.newSession.disabled = snapshot.connection.phase !== "connected";
+    if (sessionSignature !== lastSessionSignature) {
+        if (lastSessionSignature)
+            revealListItems(nodes, { distance: 6 });
+        lastSessionSignature = sessionSignature;
+    }
+    tweenMetric(elements.sessionCount, sessions.length, String);
+    elements.newSession.disabled = snapshot.stableConnection.phase !== "connected";
     const child = selectedAgent(snapshot);
     elements.childControls.hidden = !child;
-    elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
-    elements.cancelAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.connection.phase !== "connected";
+    elements.joinAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.stableConnection.phase !== "connected";
+    elements.cancelAgent.disabled = !child || terminalAgentStatus(child.status) || snapshot.stableConnection.phase !== "connected";
     const metrics = kernelMetrics(snapshot.kernel);
     elements.railRuns.textContent = `${metrics.activeRuns}/${metrics.runs}`;
     elements.railMcp.textContent = `${metrics.readyMcpServers}/${metrics.mcpServers}`;
@@ -780,9 +907,12 @@ function renderConversation(snapshot) {
     const status = session?.status ?? (child?.status ?? "idle");
     elements.sessionStatus.textContent = status.toUpperCase();
     elements.sessionStatus.className = `status-chip ${status}`;
+    if (lastSessionStatus && status !== lastSessionStatus)
+        flipStatusChip(elements.sessionStatus);
+    lastSessionStatus = status;
     elements.modelName.textContent = session?.model ? `${session.model.provider}/${session.model.model}` : "未配置模型";
     elements.composerInput.placeholder = `向 ${child?.id ?? shortId(snapshot.selectedSessionId)} 发送消息…`;
-    const connected = snapshot.connection.phase === "connected";
+    const connected = snapshot.stableConnection.phase === "connected";
     elements.composerInput.disabled = !connected;
     elements.send.disabled = !connected;
     elements.abort.disabled = !connected || (!child && session?.status !== "running");
@@ -962,7 +1092,7 @@ function renderMessageQueue(snapshot, session) {
                 index,
             });
         });
-        sendNow.disabled = snapshot.connection.phase !== "connected";
+        sendNow.disabled = snapshot.stableConnection.phase !== "connected";
         row.append(state, copy, sendNow);
         return row;
     });
@@ -1050,7 +1180,7 @@ function renderStreamingMessage(value, thinking) {
     return article;
 }
 function renderActivities(activities) {
-    elements.activityCount.textContent = String(activities.length);
+    tweenMetric(elements.activityCount, activities.length, String);
     const cards = activities.slice(-12).reverse().map((activity) => {
         const card = element("article", "activity-card");
         card.dataset["status"] = activity.status;
@@ -1079,9 +1209,17 @@ function renderActivities(activities) {
         return card;
     });
     elements.activityList.replaceChildren(...(cards.length ? cards : [emptyList("暂无活动事件")]));
+    // The inspector re-renders on every frame; only animate when the set changed,
+    // otherwise a streaming run would restart the stagger dozens of times a second.
+    const signature = activities.slice(-12).map((activity) => `${activity.id}:${activity.status}`).join("|");
+    if (signature !== lastActivitySignature) {
+        if (lastActivitySignature && cards.length)
+            revealListItems(cards, { distance: 6, maxStagger: 8 });
+        lastActivitySignature = signature;
+    }
 }
 function renderJobs(snapshot) {
-    const connected = snapshot.connection.phase === "connected";
+    const connected = snapshot.stableConnection.phase === "connected";
     const jobNodes = jobs.slice(0, 4).map((job) => {
         const item = denseItem(job.id, job.enabled ? `${job.schedule.cron} · ${job.schedule.timezone}` : "disabled", job.enabled ? "ready" : "disabled");
         const actions = element("div", "item-actions");
@@ -1109,7 +1247,7 @@ function renderJobs(snapshot) {
     elements.runList.replaceChildren(...(runNodes.length ? runNodes : [emptyList("暂无运行记录")]));
 }
 function renderIntegrations(snapshot) {
-    const connected = snapshot.connection.phase === "connected";
+    const connected = snapshot.stableConnection.phase === "connected";
     const nodes = [];
     for (const health of Object.values(snapshot.kernel.mcpServers)) {
         const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
@@ -1229,7 +1367,7 @@ function renderInspection() {
                 await refreshSideData();
             });
     });
-    install.disabled = !result.installable || store.snapshot().connection.phase !== "connected";
+    install.disabled = !result.installable || store.snapshot().stableConnection.phase !== "connected";
     elements.inspectionResult.replaceChildren(title, digest, summary, install);
 }
 function renderVersions() {

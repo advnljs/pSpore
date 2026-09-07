@@ -27,6 +27,10 @@ test("desktop settings persist model endpoint and API key without embedding the 
       autoCompactionKeepRecentTokens: 20_000,
       hasApiKey: false,
       hasCookie: false,
+      configPath: paths.config,
+      apiKeyPath: join(paths.credentials, "deepseek.api-key"),
+      cookiePath: join(paths.credentials, "deepseek.cookie"),
+      modelsPath: join(paths.agentDir, "models.json"),
     });
 
     const secret = "unit-test-key-that-must-not-enter-models-json";
@@ -44,7 +48,16 @@ test("desktop settings persist model endpoint and API key without embedding the 
     });
     assert.equal(saved.hasApiKey, true);
     const config = JSON.parse(await readFile(paths.config, "utf8"));
-    assert.deepEqual(config.model, { provider: "deepseek", model: "deepseek-v4-flash", thinking: "off" });
+    assert.deepEqual(config.model, {
+      provider: "deepseek",
+      model: "deepseek-v4-flash",
+      thinking: "off",
+      api: "provider-default",
+      customModel: false,
+      apiKeyFile: join(paths.credentials, "deepseek.api-key"),
+      cookieFile: join(paths.credentials, "deepseek.cookie"),
+    });
+    assert.doesNotMatch(await readFile(paths.config, "utf8"), new RegExp(secret));
     const modelsSource = await readFile(join(paths.agentDir, "models.json"), "utf8");
     assert.doesNotMatch(modelsSource, new RegExp(secret));
     assert.match(modelsSource, /deepseek\.api-key/);

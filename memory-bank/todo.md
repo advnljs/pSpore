@@ -63,4 +63,7 @@
 - npm web 2FA 认证链接有效期很短；发布前先跑完 `npm run check`，再用 `--ignore-scripts` 发布，让链接立即出现并尽快点击，否则会以 `E404 /-/v1/done` 失败（失败不会产生半发布版本）。
 
 | P3 | MCP 集成测试偶发 UDS 超时 | Pending | 全量并行跑 `npm test` 时 `mcp-manager` 两个用例曾出现 `MCP error -32001: Request timed out`；隔离运行与复跑均通过，疑似负载相关抖动 | 如需稳定化，可给测试内 discover 超时加裕量或降低用例并行度 |
-| P2 | GUI GSAP 动效细节扩展（可选） | Pending | 已完成入场/消息/弹层/微交互基础编排 | 后续可按需增加主题切换过渡、抽屉动画；须继续遵守 reduced-motion 与 transform/opacity-only 约束 |
+| P2 | GUI GSAP 动效细节扩展（可选） | Done | 无 | 已增加重连呼吸、指标数字 tween、列表 stagger、tab 淡入、横幅滑动、状态 chip 翻转、chip 弹入与状态行交叉淡入；仍遵守 reduced-motion 与 transform/opacity-only |
+| P0 | 补跑 Electron 实机 smoke 验收本轮 GUI 改动 | Pending | 本机无 `xvfb-run`，且系统缺 `libnspr4`，Electron 二进制无法启动 | 在具备 Electron 运行库的机器执行 `npm run test:electron`，重点看新增 `reconnectMasked` 断言、GSAP 动效与设置面板凭据路径行在 `1920×1080` 的实际表现 |
+| P1 | 在真实安装目录实跑 overlay 整包升级 | Pending | 当前只有隔离 fixture 验证 | 用新打包的 overlay zip 对已有 `release-dist/pspore-desktop-*-linux-x64` 实跑「图形界面升级.sh」，确认整体替换、进度条、快捷方式重指向与服务重启 |
+| P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

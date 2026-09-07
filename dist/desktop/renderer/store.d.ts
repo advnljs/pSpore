@@ -2,8 +2,23 @@ import type { KernelState } from "../../kernel/state.js";
 import { type CoworkActivity } from "../../ui/shared/activity.js";
 import type { DesktopBootstrap, DesktopConnectionState, DesktopFrame } from "../ipc-contract.js";
 export type DesktopActivity = CoworkActivity;
+/**
+ * A reconnect that resolves inside this window is invisible to the user. Long
+ * runs briefly drop and re-establish the socket; showing every one of those made
+ * the header badge, banner and every connection-gated button flicker.
+ */
+export declare const CONNECTION_SETTLE_MS = 2000;
 export interface DesktopStoreSnapshot {
+    /** Raw bridge state; use `stableConnection` for anything the user sees. */
     connection: DesktopConnectionState;
+    /**
+     * Connection state after the settle window: it keeps reporting `connected`
+     * through a short reconnect and only degrades once the outage outlasts
+     * `CONNECTION_SETTLE_MS`.
+     */
+    stableConnection: DesktopConnectionState;
+    /** True while a reconnect is in flight but still being presented as connected. */
+    reconnecting: boolean;
     kernel: KernelState;
     cursors: Readonly<Record<string, number>>;
     streamingText: Readonly<Record<string, string>>;
@@ -19,6 +34,13 @@ export interface DesktopStoreSnapshot {
 }
 export declare class DesktopStore {
     #private;
+    constructor(now?: () => number);
+    /**
+     * Re-evaluates the settle window. The renderer calls this on a timer so a
+     * genuine outage still surfaces even when no further frames arrive.
+     * Returns true when the presented state changed.
+     */
+    settleConnection(): boolean;
     snapshot(): DesktopStoreSnapshot;
     applyBootstrap(bootstrap: DesktopBootstrap): void;
     applyFrame(frame: DesktopFrame): void;

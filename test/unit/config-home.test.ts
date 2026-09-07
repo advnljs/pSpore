@@ -68,6 +68,61 @@ describe("config and home initialization", () => {
     );
   });
 
+  test("an overlay upgrade adds only the missing keys and never rewrites existing values", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    // A config.json written by a build that had no scheduler/boot/memory sections
+    // and a custom workspace the user must keep.
+    const legacy = {
+      version: 1,
+      runtime: { workspace: "/tmp/example-home/custom-workspace", maxConcurrentAgents: 9, shutdownGraceMs: 3_000 },
+      model: null,
+      context: { pinnedFiles: ["AGENTS.md"], maxPinnedTokens: 1_234 },
+      permissions: { mode: "allow_all", approvalTimeoutMs: 60_000, rules: [] },
+    };
+    const upgraded = parseConfig(legacy, home);
+    assert.equal(upgraded.runtime.workspace, "/tmp/example-home/custom-workspace");
+    assert.equal(upgraded.runtime.maxConcurrentAgents, 9);
+    assert.equal(upgraded.context.maxPinnedTokens, 1_234);
+    assert.deepEqual(upgraded.context.pinnedFiles, ["AGENTS.md"]);
+    assert.equal(upgraded.permissions.mode, "allow_all");
+    assert.deepEqual(upgraded.memory, base.memory);
+    assert.deepEqual(upgraded.scheduler, base.scheduler);
+    assert.deepEqual(upgraded.boot, base.boot);
+    assert.deepEqual(upgraded.shell, base.shell);
+    assert.deepEqual(upgraded.plugins, []);
+    assert.deepEqual(upgraded.mcpServers, []);
+  });
+
+  test("persists the model endpoint and credential file locations in config.json", () => {
+    const home = "/tmp/example-home";
+    const base = defaultConfig(home);
+    const parsed = parseConfig({
+      ...base,
+      model: {
+        provider: "custom-openai",
+        model: "gateway-model",
+        thinking: "off",
+        baseUrl: "https://gateway.example.com/v1",
+        api: "openai-responses",
+        customModel: true,
+        apiKeyFile: "~/credentials/custom-openai.api-key",
+      },
+    }, home);
+    assert.equal(parsed.model?.baseUrl, "https://gateway.example.com/v1");
+    assert.equal(parsed.model?.api, "openai-responses");
+    assert.equal(parsed.model?.customModel, true);
+    assert.equal(parsed.model?.apiKeyFile, "/tmp/example-home/credentials/custom-openai.api-key");
+    assert.throws(
+      () => parseConfig({ ...base, model: { ...base.model, provider: "p", model: "m", thinking: "off", baseUrl: "ftp://x/" } }, home),
+      /baseUrl must use http or https/,
+    );
+    assert.throws(
+      () => parseConfig({ ...base, model: { provider: "p", model: "m", thinking: "off", api: "not-an-api" } }, home),
+      /config\.model\.api must be one of/,
+    );
+  });
+
   test("upgrades auto-compaction settings that predate the direct token trigger", () => {
     const home = "/tmp/example-home";
     const base = defaultConfig(home);

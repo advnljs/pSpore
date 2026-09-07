@@ -59,6 +59,125 @@ describe("local UDS gateway", () => {
     assert.equal(calls, 1);
   });
 
+  test("sheds transient events under backpressure without opening a sequence gap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-backpressure-"));
+    const socketPath = join(root, "daemon.sock");
+    const state = { ...initialKernelState(), revision: 1, daemon: { phase: "ready" as const } };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-backpressure",
+      snapshot: () => state,
+      handleCommand: async () => ({}),
+      idFactory: sequence("server-backpressure"),
+    });
+    await gateway.start();
+    const client = new ProtocolClient({
+      socketPath,
+      clientId: "slow-client",
+      idFactory: sequence("client-backpressure"),
+    });
+    cleanups.push(async () => {
+      await client.close();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    await client.connect();
+    const received: Array<{ seq: number; skipped: number | undefined }> = [];
+    client.subscribe((event) => received.push({ seq: event.seq, skipped: event.skipped }));
+
+    // A long run streams far more transient deltas than a paused reader drains,
+    // so the daemon must shed them and say how many, instead of silently
+    // renumbering the stream and forcing the client to reconnect.
+    const chunk = "x".repeat(64_000);
+    for (let index = 0; index < 40; index += 1) {
+      gateway.publish({
+        id: `delta-${index}`,
+        ts: "2026-09-07T00:00:00.000Z",
+        durable: false,
+        type: "message.delta",
+        payload: { sessionId: "main", delta: chunk },
+      });
+    }
+    gateway.publish({
+      id: "settled",
+      ts: "2026-09-07T00:00:01.000Z",
+      durable: true,
+      type: "run.settled",
+      payload: { sessionId: "main" },
+    });
+    await waitFor(() => received.some((event) => event.seq === 41), 5_000);
+
+    let cursor = 0;
+    for (const event of received) {
+      assert.equal(event.seq, cursor + 1 + (event.skipped ?? 0), "every delivered event must reconcile against the cursor");
+      cursor = event.seq;
+    }
+    assert.equal(cursor, 41, "the durable tail event is always delivered");
+    assert.ok(
+      received.some((event) => (event.skipped ?? 0) > 0),
+      "the fixture must actually exercise shedding, not just a fast reader",
+    );
+  });
+
+  test("a command response does not swallow the pending skip count", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-skip-response-"));
+    const socketPath = join(root, "daemon.sock");
+    const state = { ...initialKernelState(), revision: 1, daemon: { phase: "ready" as const } };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-skip-response",
+      snapshot: () => state,
+      handleCommand: async () => ({ ok: true }),
+      idFactory: sequence("server-skip-response"),
+    });
+    await gateway.start();
+    const client = new ProtocolClient({
+      socketPath,
+      clientId: "skip-response-client",
+      idFactory: sequence("client-skip-response"),
+    });
+    cleanups.push(async () => {
+      await client.close();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+
+    await client.connect();
+    const received: Array<{ seq: number; skipped: number | undefined }> = [];
+    client.subscribe((event) => received.push({ seq: event.seq, skipped: event.skipped }));
+
+    const chunk = "y".repeat(64_000);
+    for (let index = 0; index < 40; index += 1) {
+      gateway.publish({
+        id: `delta-${index}`,
+        ts: "2026-09-07T00:00:00.000Z",
+        durable: false,
+        type: "message.delta",
+        payload: { sessionId: "main", delta: chunk },
+      });
+    }
+    // A response written between the shed deltas and the next event must not
+    // clear the pending count, or the client would see an unexplained jump.
+    await client.command("status.get", {});
+    gateway.publish({
+      id: "settled",
+      ts: "2026-09-07T00:00:01.000Z",
+      durable: true,
+      type: "run.settled",
+      payload: { sessionId: "main" },
+    });
+    await waitFor(() => received.some((event) => event.seq === 41), 5_000);
+
+    let cursor = 0;
+    for (const event of received) {
+      assert.equal(event.seq, cursor + 1 + (event.skipped ?? 0), "the skip count must survive an interleaved response");
+      cursor = event.seq;
+    }
+    assert.equal(cursor, 41);
+    assert.ok(received.some((event) => (event.skipped ?? 0) > 0));
+  });
+
   test("negotiates bounded chunks for snapshots and events larger than one frame", async () => {
     const root = await mkdtemp(join(tmpdir(), "pspore-gateway-large-"));
     const socketPath = join(root, "daemon.sock");

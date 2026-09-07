@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { ProtocolClient } from "../protocol/client.js";
 import type { EventEnvelope, ServerHelloFrame } from "../protocol/schema.js";
 import {
+  DAEMON_NOT_CONNECTED_MESSAGE,
   decodeDesktopCommand,
   toProtocolInvocation,
   type DesktopBootstrap,
@@ -38,6 +39,8 @@ interface PendingDelta {
   streamId: string;
   fromSeq: number;
   seq: number;
+  /** Transient events the daemon shed immediately before `fromSeq`. */
+  skipped: number;
   sessionId: string;
   channel: "text" | "thinking";
   text: string;
@@ -110,7 +113,7 @@ export class DaemonBridge {
   async dispatch(value: unknown): Promise<unknown> {
     const command = decodeDesktopCommand(value);
     const client = this.#client;
-    if (!client || this.#connection.phase !== "connected") throw new Error("pSpore daemon is not connected");
+    if (!client || this.#connection.phase !== "connected") throw new Error(DAEMON_NOT_CONNECTED_MESSAGE);
     const invocation = toProtocolInvocation(command, {
       stagingPath: (name) => join(this.#stagingRoot, name),
     });
@@ -186,7 +189,10 @@ export class DaemonBridge {
     }
     const previous = this.#cursors[event.streamId] ?? 0;
     if (event.seq <= previous) return;
-    if (event.seq !== previous + 1) {
+    // `skipped` counts transient events the daemon deliberately shed under
+    // backpressure. Only a jump beyond that is a real loss worth reconnecting for.
+    const expected = previous + 1 + (event.skipped ?? 0);
+    if (event.seq !== expected) {
       void client.close();
       return;
     }
@@ -196,7 +202,7 @@ export class DaemonBridge {
       : event.type === "message.thinking.delta" ? "thinking"
         : undefined;
     if (channel && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-      this.#queueDelta(event.streamId, event.seq, payload["sessionId"], channel, payload["delta"]);
+      this.#queueDelta(event.streamId, event.seq, event.skipped ?? 0, payload["sessionId"], channel, payload["delta"]);
       return;
     }
     this.#flushDelta();
@@ -206,6 +212,7 @@ export class DaemonBridge {
   #queueDelta(
     streamId: string,
     seq: number,
+    skipped: number,
     sessionId: string,
     channel: "text" | "thinking",
     text: string,
@@ -216,13 +223,13 @@ export class DaemonBridge {
       && pending.streamId === streamId
       && pending.sessionId === sessionId
       && pending.channel === channel
-      && seq === pending.seq + 1
+      && seq === pending.seq + 1 + skipped
     ) {
       pending.seq = seq;
       pending.text += text;
     } else {
       this.#flushDelta();
-      this.#pendingDelta = { streamId, fromSeq: seq, seq, sessionId, channel, text };
+      this.#pendingDelta = { streamId, fromSeq: seq, seq, skipped, sessionId, channel, text };
     }
     if (!this.#deltaTimer) this.#deltaTimer = setTimeout(() => this.#flushDelta(), 30);
   }
@@ -233,7 +240,8 @@ export class DaemonBridge {
     const delta = this.#pendingDelta;
     this.#pendingDelta = undefined;
     if (!delta) return;
-    this.#emit({ version: 1, kind: "delta", ...delta });
+    const { skipped, ...frame } = delta;
+    this.#emit({ version: 1, kind: "delta", ...frame, ...(skipped > 0 ? { skipped } : {}) });
   }
 
   #setConnection(connection: DesktopConnectionState): void {

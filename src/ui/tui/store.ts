@@ -10,8 +10,14 @@ import {
   type ProtocolUiState,
 } from "../shared/protocol-state.js";
 
+/** Matches the desktop settle window so both shells report outages alike. */
+export const TUI_CONNECTION_SETTLE_MS = 2_000;
+
 export interface TuiStoreSnapshot {
+  /** Presented connection state: a reconnect inside the settle window stays true. */
   connected: boolean;
+  /** True while a short reconnect is in flight but still presented as connected. */
+  reconnecting: boolean;
   instanceId?: string;
   selectedSessionId: string;
   kernel: KernelState;
@@ -26,12 +32,31 @@ export interface TuiStoreSnapshot {
 }
 
 export class TuiStore {
+  readonly #now: () => number;
+  #unsettledSince: number | undefined;
+  #everConnected = false;
   #state: TuiStoreSnapshot = {
     connected: false,
+    reconnecting: false,
     ...initialProtocolUiState(),
     activities: [],
     notice: "Connecting to daemon…",
   };
+
+  constructor(now: () => number = () => Date.now()) {
+    this.#now = now;
+  }
+
+  /**
+   * Re-checks the settle window from a timer so a real outage still surfaces
+   * once the masking window expires. Returns true when the view changed.
+   */
+  settleConnection(): boolean {
+    if (!this.#state.reconnecting) return false;
+    if (this.#unsettledSince !== undefined && this.#now() - this.#unsettledSince < TUI_CONNECTION_SETTLE_MS) return false;
+    this.#state = { ...this.#state, connected: false, reconnecting: false };
+    return true;
+  }
 
   snapshot(): TuiStoreSnapshot {
     // Protocol reducers replace state immutably and clone IPC payloads at the
@@ -47,14 +72,26 @@ export class TuiStore {
       ...replaceProtocolSnapshot(protocolState(this.#state), hello.snapshot, cursors),
       activities,
       connected: true,
+      reconnecting: false,
       instanceId: hello.instanceId,
       notice: "Connected",
     };
     delete this.#state.gap;
+    this.#everConnected = true;
+    this.#unsettledSince = undefined;
   }
 
   disconnected(message: string): void {
-    this.#state = { ...this.#state, connected: false, notice: message };
+    if (this.#unsettledSince === undefined) this.#unsettledSince = this.#now();
+    // Long runs briefly drop and re-establish the socket. Masking that for the
+    // settle window keeps the status line steady instead of flapping.
+    const masked = this.#everConnected && this.#now() - this.#unsettledSince < TUI_CONNECTION_SETTLE_MS;
+    this.#state = {
+      ...this.#state,
+      connected: masked,
+      reconnecting: masked,
+      ...(masked ? {} : { notice: message }),
+    };
   }
 
   setNotice(notice: string): void {

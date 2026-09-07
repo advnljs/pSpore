@@ -39,6 +39,10 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
       autoCompactionKeepRecentTokens: 20_000,
       hasApiKey: false,
       hasCookie: false,
+      configPath: join(home, "config.json"),
+      apiKeyPath: join(home, "credentials", "openai.api-key"),
+      cookiePath: join(home, "credentials", "openai.cookie"),
+      modelsPath: join(home, "state", "pi", "models.json"),
     });
 
     await captureStdout(() => runCli(["--home", home, "config", "compact", "off", "24576", "12288", "80000"]));
@@ -66,6 +70,13 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
     assert.equal(custom.customModel, true);
     const modelsSource = await readFile(join(home, "state", "pi", "models.json"), "utf8");
     assert.match(modelsSource, /gateway-model/);
+    // config.json is authoritative: the endpoint override must round-trip there,
+    // not only through the derived Pi catalog.
+    const storedConfig = JSON.parse(await readFile(join(home, "config.json"), "utf8"));
+    assert.equal(storedConfig.model.baseUrl, "https://gateway.example.com/v1");
+    assert.equal(storedConfig.model.api, "openai-responses");
+    assert.equal(storedConfig.model.customModel, true);
+    assert.equal(storedConfig.model.apiKeyFile, join(home, "credentials", "custom-openai.api-key"));
 
     await assert.rejects(
       () => captureStdout(() => runCli(["--home", home, "config", "set", "anthropic"])),

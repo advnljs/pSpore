@@ -224,10 +224,11 @@
               <label><span>Model</span><input id="settings-model" name="model" maxlength="128" spellcheck="false" required /></label>
             </div>
             <p id="settings-provider-help" class="settings-field-note">使用 DeepSeek 内置模型目录与默认接口。</p>
+            <p class="settings-path-note">配置文件<code id="settings-config-path">—</code></p>
           </section>
 
           <section class="settings-section">
-            <div class="settings-section-title"><h3>接口</h3><p>Base URL 留空时使用 provider 默认地址。</p></div>
+            <div class="settings-section-title"><h3>接口</h3><p>Base URL 与 API 类型都保存在 config.json，Pi 模型目录由它派生。</p></div>
             <label><span>Base URL</span><input id="settings-base-url" name="baseUrl" type="url" maxlength="2048" placeholder="输入完整 API 服务地址" spellcheck="false" /></label>
             <div class="field-grid two-columns">
               <label><span>API 兼容类型</span>
@@ -279,16 +280,22 @@
               <label><span>压缩后保留 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1024" required /></label>
             </div>
             <p class="settings-field-note">达到触发长度，或距离模型上限只剩预留量时（以更早者为准）自动 compact。保存后由系统服务重启应用到所有 session。</p>
+            <p class="settings-path-note">派生模型目录<code id="settings-models-path">—</code></p>
           </section>
 
           <section class="settings-section">
-            <div class="settings-section-title"><h3>凭据</h3><p>Key 只保存到当前用户私有目录，不进入聊天、日志或仓库。</p></div>
+            <div class="settings-section-title"><h3>凭据</h3><p>Key 只保存到当前用户私有目录（0600），config.json 只记录文件地址。</p></div>
             <label><span>API Key</span>
               <div class="secret-input">
                 <input id="settings-api-key" name="apiKey" type="password" maxlength="16384" placeholder="未配置" autocomplete="new-password" spellcheck="false" />
                 <button id="settings-key-reveal" class="quiet-text-button" type="button">显示</button>
               </div>
             </label>
+            <p class="settings-path-note">
+              <span id="settings-api-key-state" class="settings-path-state">未配置</span>
+              <code id="settings-api-key-path">—</code>
+              <button id="settings-key-copy-path" class="quiet-text-button" type="button">复制路径</button>
+            </p>
             <label class="checkbox-field destructive">
               <input id="settings-clear-key" name="clearApiKey" type="checkbox" />
               <span><b>清除桌面设置保存的 Key</b><small>不会删除其他 provider 的凭据。</small></span>
@@ -299,6 +306,11 @@
                 <button id="settings-cookie-reveal" class="quiet-text-button" type="button">显示</button>
               </div>
             </label>
+            <p class="settings-path-note">
+              <span id="settings-cookie-state" class="settings-path-state">未配置</span>
+              <code id="settings-cookie-path">—</code>
+              <button id="settings-cookie-copy-path" class="quiet-text-button" type="button">复制路径</button>
+            </p>
             <p class="settings-field-note">调用 LLM 代理接口时作为 HTTP Cookie 头发送。适用于需要浏览器会话的反向代理；留空则保留已保存的值。</p>
             <label class="checkbox-field destructive">
               <input id="settings-clear-cookie" name="clearCookie" type="checkbox" />

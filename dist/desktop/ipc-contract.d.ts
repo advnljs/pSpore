@@ -6,6 +6,11 @@ export declare const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export declare const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
 export declare const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
 export declare const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+/**
+ * Thrown before a command is written to the socket, so a caller may safely retry
+ * it once the bridge reconnects. Never used for a command that was already sent.
+ */
+export declare const DAEMON_NOT_CONNECTED_MESSAGE = "pSpore daemon is not connected";
 export type DesktopConnectionPhase = "connecting" | "connected" | "disconnected";
 export interface DesktopConnectionState {
     phase: DesktopConnectionPhase;
@@ -45,6 +50,8 @@ export type DesktopFrame = {
     streamId: string;
     fromSeq: number;
     seq: number;
+    /** Transient events the daemon shed for this client just before `fromSeq`. */
+    skipped?: number;
     sessionId: string;
     channel: "text" | "thinking";
     text: string;

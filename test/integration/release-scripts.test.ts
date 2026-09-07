@@ -21,6 +21,7 @@ const execFileAsync = promisify(execFile);
 const repositoryRoot = resolve(import.meta.dirname, "../..");
 const shortcutScript = join(repositoryRoot, "scripts", "linux", "create-desktop-shortcut.sh");
 const overlayScript = join(repositoryRoot, "scripts", "linux", "apply-overlay-upgrade.sh");
+const overlayGuiScript = join(repositoryRoot, "scripts", "linux", "overlay-upgrade-gui.sh");
 
 test("desktop shortcut uses a stable launcher and records launch diagnostics", async () => {
   const root = await mkdtemp(join(tmpdir(), "pspore-shortcut-"));
@@ -95,14 +96,76 @@ test("overlay upgrade validates compatibility, replaces the full app payload, an
       "new native payload\n",
     );
     await assert.rejects(readFile(join(fixture.target, "resources", "app.asar.unpacked", "old-only.txt")));
+    // Everything outside the Chromium runtime is replaced, not just resources/.
+    assert.equal(await readFile(join(fixture.target, "安装说明.txt"), "utf8"), "pSpore Desktop 0.1.6\n");
+    assert.equal(await readFile(join(fixture.target, "pspore-desktop"), "utf8"), fixture.runtimeSource);
+    assert.match(result.stdout, /\[\s*100%\] 升级完成/);
+    assert.match(result.stdout, /个人配置 \(~\/\.pspore\) 未改动/);
 
-    const resources = await readdir(join(fixture.target, "resources"), { withFileTypes: true });
-    const backupName = resources.find((entry) => entry.isDirectory() && entry.name.startsWith(".pspore-backup-"))?.name;
+    const entries = await readdir(fixture.target, { withFileTypes: true });
+    const backupName = entries.find((entry) => entry.isDirectory() && entry.name.startsWith(".pspore-backup-"))?.name;
     assert.ok(backupName);
-    const backup = join(fixture.target, "resources", backupName);
-    assert.equal(await readFile(join(backup, "app.asar"), "utf8"), "version=0.1.5\n");
-    assert.equal(await readFile(join(backup, "app.asar.unpacked", "old-only.txt"), "utf8"), "old payload\n");
+    const backup = join(fixture.target, backupName);
+    assert.equal(await readFile(join(backup, "resources", "app.asar"), "utf8"), "version=0.1.5\n");
+    assert.equal(await readFile(join(backup, "resources", "app.asar.unpacked", "old-only.txt"), "utf8"), "old payload\n");
     assert.match(await readFile(fixture.systemctlLog, "utf8"), /--user restart pspore\.service/);
+    // An existing shortcut must end up pointing at the directory just upgraded.
+    assert.match(result.stdout, /已将桌面快捷方式指向本次升级的安装目录/);
+    assert.equal((await readFile(fixture.installRecord, "utf8")).trim(), fixture.target);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("the overlay GUI selects a directory, reports progress, and refuses a wrong one", async () => {
+  const fixture = await createOverlayFixture();
+  try {
+    const zenityLog = join(fixture.root, "zenity.log");
+    // A stub zenity records how it is invoked and answers the directory prompt,
+    // so the wrapper's dialog wiring is exercised without a display server.
+    await writeFile(join(fixture.root, "bin", "zenity"), [
+      "#!/usr/bin/env bash",
+      "set -uo pipefail",
+      'printf \'%s\\n\' "$*" >> "$PSPORE_ZENITY_LOG"',
+      'for argument in "$@"; do',
+      '  if [[ "$argument" == "--file-selection" ]]; then',
+      '    printf \'%s\\n\' "$PSPORE_ZENITY_DIRECTORY"',
+      "    exit 0",
+      "  fi",
+      '  if [[ "$argument" == "--progress" ]]; then',
+      '    cat >> "$PSPORE_ZENITY_LOG"',
+      "    exit 0",
+      "  fi",
+      "done",
+      "exit 0",
+      "",
+    ].join("\n"));
+    await chmod(join(fixture.root, "bin", "zenity"), 0o755);
+
+    const environment = {
+      ...fixture.environment,
+      PSPORE_ZENITY_LOG: zenityLog,
+      PSPORE_ZENITY_DIRECTORY: fixture.target,
+    };
+    await writeFile(zenityLog, "");
+    const result = await execFileAsync("bash", [fixture.gui], { env: environment, maxBuffer: 2_000_000 });
+    assert.equal(result.stdout, "");
+    const dialogs = await readFile(zenityLog, "utf8");
+    assert.match(dialogs, /--file-selection --directory/);
+    // zenity's progress protocol: bare percentages plus "# message" lines.
+    assert.match(dialogs, /^100$/m);
+    assert.match(dialogs, /^# 升级完成$/m);
+    assert.equal(await readFile(join(fixture.target, "resources", "app.asar"), "utf8"), "version=0.1.6\n");
+
+    // A directory that is not an install must be rejected before anything runs.
+    const wrong = join(fixture.root, "not-an-install");
+    await mkdir(wrong, { recursive: true });
+    await writeFile(zenityLog, "");
+    await assert.rejects(
+      execFileAsync("bash", [fixture.gui], { env: { ...environment, PSPORE_ZENITY_DIRECTORY: wrong } }),
+      () => true,
+    );
+    assert.match(await readFile(zenityLog, "utf8"), /--error/);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -122,7 +185,7 @@ test("overlay upgrade rejects a tampered payload before changing the install", a
     );
     assert.equal(await readFile(join(fixture.target, "resources", "app.asar"), "utf8"), "version=0.1.5\n");
     assert.deepEqual(
-      (await readdir(join(fixture.target, "resources"))).filter((name) => name.startsWith(".pspore-backup-")),
+      (await readdir(fixture.target)).filter((name) => name.startsWith(".pspore-backup-")),
       [],
     );
   } finally {
@@ -149,8 +212,11 @@ interface OverlayFixture {
   root: string;
   overlay: string;
   updater: string;
+  gui: string;
   target: string;
   systemctlLog: string;
+  installRecord: string;
+  runtimeSource: string;
   environment: NodeJS.ProcessEnv;
 }
 
@@ -162,24 +228,40 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
   const target = join(root, "existing install");
   const targetResources = join(target, "resources");
   const configHome = join(root, "config");
+  const dataHome = join(root, "xdg-data");
   const fakeBin = join(root, "bin");
   const updater = join(overlay, "覆盖升级.sh");
+  const gui = join(overlay, "图形界面升级.sh");
   const systemctlLog = join(root, "systemctl.log");
+  const installRecord = join(dataHome, "pspore", "install-dir");
   await mkdir(join(payloadResources, "app.asar.unpacked"), { recursive: true });
   await mkdir(join(targetResources, "app.asar.unpacked"), { recursive: true });
   await mkdir(join(configHome, "systemd", "user"), { recursive: true });
+  await mkdir(join(dataHome, "pspore"), { recursive: true });
+  await mkdir(join(dataHome, "applications"), { recursive: true });
+  await mkdir(join(root, "home", "Desktop"), { recursive: true });
   await mkdir(fakeBin, { recursive: true });
 
   await copyFile(overlayScript, updater);
   await chmod(updater, 0o755);
+  await copyFile(overlayGuiScript, gui);
+  await chmod(gui, 0o755);
+  // The payload replaces every application file, so it also carries the
+  // non-resources files a real overlay ships.
+  await writeFile(join(payload, "安装说明.txt"), "pSpore Desktop 0.1.6\n");
+  await copyFile(shortcutScript, join(payload, "创建桌面快捷方式.sh"));
+  await chmod(join(payload, "创建桌面快捷方式.sh"), 0o755);
+  // A shortcut installed against an older copy must be re-pointed on upgrade.
+  await writeFile(installRecord, `${join(root, "stale install")}\n`);
   await writeFile(join(payloadResources, "app.asar"), "version=0.1.6\n");
   await writeFile(join(payloadResources, "app.asar.unpacked", "native.txt"), "new native payload\n");
   await writeFile(join(payloadResources, "app-update.yml"), "version: 0.1.6\n");
   await writeFile(join(targetResources, "app.asar"), "version=0.1.5\n");
   await writeFile(join(targetResources, "app.asar.unpacked", "old-only.txt"), "old payload\n");
   await writeFile(join(targetResources, "app-update.yml"), "version: 0.1.5\n");
+  await writeFile(join(target, "安装说明.txt"), "pSpore Desktop 0.1.5\n");
 
-  await writeFile(join(target, "pspore-desktop"), [
+  const runtimeSource = [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
     'if [[ "${1:-}" == "-e" && "${2:-}" == *"process.versions.electron"* ]]; then',
@@ -197,7 +279,8 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
     "fi",
     "exit 2",
     "",
-  ].join("\n"));
+  ].join("\n");
+  await writeFile(join(target, "pspore-desktop"), runtimeSource);
   await chmod(join(target, "pspore-desktop"), 0o755);
 
   await writeFile(join(fakeBin, "systemctl"), [
@@ -226,14 +309,22 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
     root,
     overlay,
     updater,
+    gui,
     target,
     systemctlLog,
+    installRecord,
+    runtimeSource,
     environment: {
       ...process.env,
       HOME: join(root, "home"),
       XDG_CONFIG_HOME: configHome,
+      XDG_DATA_HOME: dataHome,
+      XDG_STATE_HOME: join(root, "xdg-state"),
       PATH: `${fakeBin}:${process.env["PATH"] ?? ""}`,
       PSPORE_SYSTEMCTL_LOG: systemctlLog,
+      PSPORE_SHORTCUT_SKIP_NOTIFY: "1",
+      DISPLAY: "",
+      WAYLAND_DISPLAY: "",
     },
   };
 }

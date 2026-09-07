@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
-import { defaultConfig, parseConfig, type PsporeConfig } from "../config/config.js";
+import { defaultConfig, parseConfig, withConfigDefaults, type PsporeConfig } from "../config/config.js";
 import { atomicWriteJson } from "./atomic.js";
 
 export interface PsporePaths {
@@ -72,7 +72,7 @@ export async function initializePsporeHome(home: string): Promise<{ paths: Pspor
 
   let config: PsporeConfig;
   try {
-    config = await loadConfig(home);
+    config = await upgradeConfigInPlace(home, initialPaths.config);
   } catch (error) {
     if (!isMissingFile(error)) throw error;
     config = defaultConfig(home);
@@ -117,6 +117,38 @@ export async function initializePsporeHome(home: string): Promise<{ paths: Pspor
     }
   }
   return { paths, created };
+}
+
+/**
+ * Overlay upgrades only replace the application payload, so the existing
+ * `config.json` has to survive a build that added new keys. Missing keys inherit
+ * the current defaults and the merged document is written back once, while every
+ * value the user already set is preserved byte-for-byte.
+ */
+async function upgradeConfigInPlace(home: string, path: string): Promise<PsporeConfig> {
+  const stored: unknown = JSON.parse(await readFile(path, "utf8"));
+  const config = parseConfig(stored, home);
+  if (!sectionsComplete(stored, home)) await atomicWriteJson(path, config, 0o600);
+  return config;
+}
+
+/** True when the stored document already carries every key this build knows about. */
+function sectionsComplete(stored: unknown, home: string): boolean {
+  const base = isPlainObject(stored) ? stored : {};
+  for (const [key, value] of Object.entries(withConfigDefaults(stored, home))) {
+    const current = base[key];
+    if (current === undefined) return false;
+    if (!isPlainObject(value)) continue;
+    if (!isPlainObject(current)) return false;
+    for (const nested of Object.keys(value)) {
+      if (current[nested] === undefined) return false;
+    }
+  }
+  return true;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export async function loadConfig(home: string): Promise<PsporeConfig> {

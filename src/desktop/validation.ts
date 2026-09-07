@@ -101,9 +101,9 @@ export function validateEventEnvelope(value: unknown): EventEnvelope {
   const event = record(value, "event");
   exactKeys(
     event,
-    ["v", "kind", "id", "streamId", "seq", "ts", "correlationId", "causationId", "durable", "type", "payload"],
+    ["v", "kind", "id", "streamId", "seq", "ts", "correlationId", "causationId", "durable", "skipped", "type", "payload"],
     "event",
-    ["correlationId", "causationId"],
+    ["correlationId", "causationId", "skipped"],
   );
   if (event["v"] !== 1 || event["kind"] !== "event") throw new Error("Event has an unsupported version or kind");
   identifier(event["id"], "event.id");
@@ -113,6 +113,7 @@ export function validateEventEnvelope(value: unknown): EventEnvelope {
   optionalIdentifier(event["correlationId"], "event.correlationId");
   optionalIdentifier(event["causationId"], "event.causationId");
   if (typeof event["durable"] !== "boolean") throw new Error("event.durable must be boolean");
+  if (event["skipped"] !== undefined) nonNegativeInteger(event["skipped"], "event.skipped");
   const type = boundedString(event["type"], "event.type", 128);
   if (!EVENT_TYPES.has(type)) throw new Error(`Event type is not allowlisted: ${type}`);
   const payload = record(event["payload"], "event.payload");

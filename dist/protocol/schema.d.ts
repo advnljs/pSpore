@@ -56,6 +56,12 @@ export interface EventEnvelope<T = unknown> {
     correlationId?: string;
     causationId?: string;
     durable: boolean;
+    /**
+     * Transient events the server intentionally shed for this connection between
+     * the previous event and this one. Clients advance their cursor by this many
+     * sequence numbers, so backpressure never reads as a lost-event gap.
+     */
+    skipped?: number;
     type: string;
     payload: T;
 }

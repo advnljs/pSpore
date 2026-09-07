@@ -105,14 +105,67 @@ pSpore Desktop ${VERSION}
 
 升级
 请使用较小的 overlay 压缩包 pspore-desktop-${VERSION}-linux-${ARCH}-overlay.zip。
-解压后运行其中的「覆盖升级.sh」并选择本安装目录。升级脚本会校验
+解压后双击其中的「图形界面升级.sh」选择本安装目录并查看进度条，
+或在终端运行「覆盖升级.sh /path/to/安装目录」。升级脚本会校验
 Electron/架构与 payload，保留可回滚备份，并重启匹配的后台服务。
-overlay 只含应用 payload，不含 Chromium/Electron 运行时。
+overlay 含 Chromium/Electron 运行时之外的全部应用文件，升级时整体替换。
 EOF
+
+# The overlay carries everything except the fixed Electron/Chromium runtime, and
+# the updater replaces all of it wholesale. Listing only the runtime keeps new
+# top-level application files shipping automatically instead of being forgotten.
+ELECTRON_RUNTIME_ENTRIES=(
+  pspore-desktop
+  chrome-sandbox
+  chrome_crashpad_handler
+  chrome_100_percent.pak
+  chrome_200_percent.pak
+  resources.pak
+  icudtl.dat
+  snapshot_blob.bin
+  v8_context_snapshot.bin
+  vk_swiftshader_icd.json
+  libEGL.so
+  libGLESv2.so
+  libffmpeg.so
+  libvk_swiftshader.so
+  libvulkan.so.1
+  locales
+  LICENSE.electron.txt
+  LICENSES.chromium.html
+)
 
 STAGE_OVERLAY="$DIST_DIR/staging-overlay"
 mkdir -p "$STAGE_OVERLAY/payload"
-cp -a "$UNPACKED_DIR/resources" "$STAGE_OVERLAY/payload/resources"
+while IFS= read -r -d '' entry; do
+  name="$(basename -- "$entry")"
+  skip=0
+  for runtime in "${ELECTRON_RUNTIME_ENTRIES[@]}"; do
+    if [[ "$name" == "$runtime" ]]; then
+      skip=1
+      break
+    fi
+  done
+  if (( skip == 0 )); then
+    cp -a "$entry" "$STAGE_OVERLAY/payload/$name"
+  fi
+done < <(find "$STAGE_FULL" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+
+if [[ ! -f "$STAGE_OVERLAY/payload/resources/app.asar" ]]; then
+  echo "Error: overlay payload is missing resources/app.asar"
+  exit 1
+fi
+if [[ ! -f "$STAGE_OVERLAY/payload/创建桌面快捷方式.sh" ]]; then
+  echo "Error: overlay payload must ship the shortcut installer so upgrades can re-point existing shortcuts"
+  exit 1
+fi
+for runtime in "${ELECTRON_RUNTIME_ENTRIES[@]}"; do
+  if [[ -e "$STAGE_OVERLAY/payload/$runtime" ]]; then
+    echo "Error: overlay payload must not contain the Electron runtime entry ${runtime}"
+    exit 1
+  fi
+done
+echo "--- overlay payload entries: $(find "$STAGE_OVERLAY/payload" -mindepth 1 -maxdepth 1 -printf '%f ')"
 node - "$STAGE_OVERLAY/payload" "$VERSION" "$BUILT_ELECTRON_VERSION" "$BUILT_ARCH" <<'NODE' > "$STAGE_OVERLAY/overlay-manifest.json"
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
@@ -152,20 +205,29 @@ process.stdout.write(`${JSON.stringify({
 }, null, 2)}\n`);
 NODE
 install -m 0755 "$REPO_ROOT/scripts/linux/apply-overlay-upgrade.sh" "$STAGE_OVERLAY/覆盖升级.sh"
+install -m 0755 "$REPO_ROOT/scripts/linux/overlay-upgrade-gui.sh" "$STAGE_OVERLAY/图形界面升级.sh"
 cat > "$STAGE_OVERLAY/覆盖升级说明.txt" <<EOF
 pSpore Desktop ${VERSION} overlay
 
-本压缩包只包含应用 payload（app.asar、必要的 unpacked 文件与更新元数据），
-不包含 Electron/Chromium 固定运行时。
+本压缩包包含 Chromium/Electron 固定运行时之外的全部应用文件
+（resources/ 下的 app.asar 与 unpacked 内容、创建桌面快捷方式.sh、安装说明等），
+升级时整体替换；Chromium 保持原样不动。
 
-覆盖升级
+覆盖升级（图形界面）
 1. 先已有一次完整安装（全量 zip）
 2. 关闭当前桌面窗口并解压本升级包
-3. 运行：./覆盖升级.sh /path/to/已有安装目录
+3. 双击「图形界面升级.sh」，选择已安装目录，等待进度条完成
+
+覆盖升级（终端）
+  ./覆盖升级.sh /path/to/已有安装目录
 
 脚本只接受 Linux ${ARCH} 且 Electron ${BUILT_ELECTRON_VERSION} 完全相同的安装，自动校验
-payload、自检新版本、保留 resources/.pspore-backup-* 回滚备份，并重启匹配的
-systemd 用户服务。运行时不匹配时请下载全量 zip。
+payload、自检新版本、保留 .pspore-backup-* 回滚备份，把已有桌面快捷方式重新
+指向本次升级的安装目录，并重启匹配的 systemd 用户服务。
+运行时不匹配时请下载全量 zip。
+
+个人数据与配置（~/.pspore）不会被覆盖：已有配置保持原值，新版本新增的配置项
+会在下次启动时按默认值增量补齐。
 
 能否从某个旧版本覆盖升级由目标安装的 Electron、平台和架构决定；脚本会在
 写入前完成判定，不兼容时不会改动现有安装。

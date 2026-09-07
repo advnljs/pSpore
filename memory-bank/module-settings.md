@@ -47,3 +47,11 @@
 ## 常见修改点
 
 新增 Provider、API 类型或字段时，必须先修改共享 schema/service，再同步 GUI 选项、TUI wizard/commands、CLI help、secret tests 与 Electron smoke；不得在某个客户端单独扩展配置格式。
+
+
+## 2026-09-07：`config.json` 成为设置面板唯一事实源
+
+- `config.model` 除 `provider`/`model`/`thinking` 外，新增可选 `baseUrl`、`api`、`customModel`、`apiKeyFile`、`cookieFile`；`ModelApi` 的唯一定义移到 `src/settings/model-api.ts`，供 `config/config.ts` 校验与本模块共用，避免循环依赖。
+- `LlmSettingsService.get()` 以 `config.json` 为准；只有当 `config.model` 没有端点字段（0.1.15 之前写入的 home）时，才回退读取 `state/pi/models.json`。`save()` 仍然写两份：`config.json` 是事实源，`models.json` 是 Pi 运行时派生目录。
+- `LlmSettings` 增加 `configPath`、`apiKeyPath`、`cookiePath`、`modelsPath`。GUI 设置面板在「模型/自动压缩/凭据」三处显示这些绝对路径并提供复制按钮，CLI `config show` 与 TUI `/config`、wizard 的 key/cookie 步骤同样显示。secret 值本身仍然不会出现在任何输出中。
+- 凭据文件路径记录在 `config.json` 而不是密钥内容；密钥仍只存在于 `credentials/<provider>.{api-key,cookie}`（`0600`），`models.json` 仍只引用 `!cat -- <path>` 命令。
