@@ -105,6 +105,7 @@
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
 - 会话：GUI 左栏 `＋`；TUI `/new [TITLE]`、`/select ID`、`/send-now N`；CLI `sessions`、`session new [TITLE]`、`prompt --session ID TEXT`。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。
+- 本机索引：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`，写入 `config.indexing`，需 `service restart` 生效；默认关闭且目录为空。
 - 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP] [TRIGGER]`；CLI `config compact on|off [RESERVE] [KEEP] [TRIGGER]`。`TRIGGER` 是直接 active-context token 长度，默认 100000；保存于 `config.context.autoCompaction`，服务重启后应用。
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。

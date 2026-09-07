@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 import { execFile, spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { access, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename } from "node:path";
+import { basename, isAbsolute, normalize, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { PsporeDaemon } from "../daemon/daemon.js";
+import { parseConfig } from "../config/config.js";
 import { ProtocolClient } from "../protocol/client.js";
 import { readResourceTrustSummary } from "../plugins/extension-manager.js";
 import { resolvePsporeHome } from "../config/config.js";
@@ -18,6 +19,7 @@ import { SystemServiceManager } from "../service/system-service.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import {} from "../config/config.js";
 import { defaultModelFor, MODEL_APIS, PERMISSION_MODES, permissionModeSummary, PROVIDER_OPTIONS, THINKING_LEVELS, } from "../settings/llm-settings.js";
+import { atomicWriteJson } from "../storage/atomic.js";
 import { initializePsporeHome, loadConfig, psporePaths } from "../storage/home.js";
 import { acceptsModelSetupOffer, PsporeTuiApp } from "../ui/tui/tui-app.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
@@ -451,6 +453,10 @@ async function runConfigCommand(home, args) {
         printModelSettings(await service.get());
         return 0;
     }
+    // Indexing is its own config section rather than an LLM setting, so it is
+    // written directly instead of going through the settings service.
+    if (action === "indexing")
+        return runIndexingConfig(home, paths, args.slice(1));
     const current = await service.get();
     let update;
     if (action === "set") {
@@ -576,6 +582,85 @@ async function runConfigCommand(home, args) {
     printModelSettings(saved);
     process.stdout.write("Saved. Restart an existing daemon to apply the new model settings.\n");
     return 0;
+}
+/**
+ * Reads and edits `config.indexing`. Directories are resolved to absolute paths
+ * and checked to exist, because a typo here silently indexes nothing.
+ */
+async function runIndexingConfig(home, paths, args) {
+    const config = await loadConfig(home);
+    const indexing = config.indexing;
+    const action = args[0] ?? "show";
+    if (action === "show") {
+        requireNoArgs(args.slice(1), "config indexing show");
+        printIndexingSettings(indexing, paths.config);
+        return 0;
+    }
+    let next = { ...indexing, directories: [...indexing.directories], extensions: [...indexing.extensions] };
+    if (action === "on" || action === "off") {
+        requireNoArgs(args.slice(1), `config indexing ${action}`);
+        next.enabled = action === "on";
+    }
+    else if (action === "add" || action === "remove") {
+        if (args.length < 2)
+            throw new CliError(`config indexing ${action} usage: config indexing ${action} DIR [DIR...]`);
+        const targets = await Promise.all(args.slice(1).map(async (value) => resolveIndexDirectory(value, action === "add")));
+        next.directories = action === "add"
+            ? [...new Set([...next.directories, ...targets])].sort()
+            : next.directories.filter((existing) => !targets.includes(existing));
+    }
+    else if (action === "interval") {
+        if (args.length !== 2)
+            throw new CliError("config indexing interval usage: config indexing interval MINUTES");
+        const minutes = Number(args[1]);
+        if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 10_080) {
+            throw new CliError("Indexing interval must be a whole number of minutes between 1 and 10080");
+        }
+        next.intervalMinutes = minutes;
+    }
+    else if (action === "ext") {
+        if (args.length !== 2)
+            throw new CliError("config indexing ext usage: config indexing ext txt,md,pdf");
+        const extensions = (args[1] ?? "").split(",").map((value) => value.trim()).filter(Boolean);
+        if (extensions.length === 0)
+            throw new CliError("At least one extension is required");
+        next.extensions = extensions;
+    }
+    else {
+        throw new CliError("config indexing usage: show | on | off | add DIR | remove DIR | interval MINUTES | ext a,b,c");
+    }
+    // Re-parsing validates the edit exactly as the daemon will read it.
+    const updated = parseConfig({ ...config, indexing: next }, home);
+    await atomicWriteJson(paths.config, updated, 0o600);
+    printIndexingSettings(updated.indexing, paths.config);
+    process.stdout.write("\nSaved. Restart the service to apply: `pspore service restart`.\n");
+    return 0;
+}
+async function resolveIndexDirectory(value, mustExist) {
+    const resolved = isAbsolute(value) ? normalize(value) : resolve(process.cwd(), value);
+    if (!mustExist)
+        return resolved;
+    try {
+        if (!(await stat(resolved)).isDirectory())
+            throw new CliError(`Not a directory: ${resolved}`);
+    }
+    catch (error) {
+        if (error instanceof CliError)
+            throw error;
+        throw new CliError(`Directory does not exist: ${resolved}`);
+    }
+    return resolved;
+}
+function printIndexingSettings(indexing, configPath) {
+    process.stdout.write([
+        `Indexing: ${indexing.enabled ? "on" : "off"}`,
+        `Interval: every ${indexing.intervalMinutes} minutes`,
+        `Extensions: ${indexing.extensions.join(", ")}`,
+        indexing.directories.length > 0
+            ? `Directories:\n  ${indexing.directories.join("\n  ")}`
+            : "Directories: none configured (nothing will be indexed)",
+        `Config file: ${configPath}`,
+    ].join("\n") + "\n");
 }
 function printModelSettings(settings) {
     process.stdout.write([
@@ -1048,7 +1133,7 @@ function requireNoArgs(args, command) {
         throw new CliError(`${command} does not accept positional arguments`);
 }
 function helpText() {
-    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config compact on|off [RESERVE] [KEEP] [TRIGGER]\n                   Configure automatic context compaction thresholds\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  sessions         List persistent root sessions\n  session new [TITLE]\n                   Create a persistent root session\n  prompt [--session ID] TEXT\n                   Send normally; if busy, continue queuing and wait\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config compact on|off [RESERVE] [KEEP] [TRIGGER]\n                   Configure automatic context compaction thresholds\n  config indexing ...\n                   show | on | off | add DIR | remove DIR | interval MINUTES | ext a,b,c\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  sessions         List persistent root sessions\n  session new [TITLE]\n                   Create a persistent root session\n  prompt [--session ID] TEXT\n                   Send normally; if busy, continue queuing and wait\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List trusted skills and activation state\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 class CliError extends Error {
     constructor(message) {

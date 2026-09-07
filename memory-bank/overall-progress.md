@@ -867,3 +867,12 @@
 - **自伤 2：ARM 构建容器没有 `unzip`**。fetch 脚本硬性要求它。改用 python3 的 `zipfile`（脚本本就依赖 python3 读 manifest），并显式从 `external_attr` 还原权限位。已在把 `unzip` 屏蔽成 exit 127 的 PATH 下实测跑通：校验 → 裁剪 59MB→51MB → 安装 → 二进制可执行。
 - 同时验证：skill 二进制位于 `payload/resources/app.asar.unpacked/dist/bundled-skills/...`，确实在 overlay payload 内 —— 即 overlay 升级会一并替换索引器（此前只是推断，现已由 fixture 证实）。
 - 验证：`npm run check` 176/176。
+
+
+## 2026-09-07 CST — v0.1.16 发布、真实安装目录 overlay 升级验收、索引配置 CLI
+
+- **v0.1.16 已发布**：`https://github.com/advnljs/pSpore/releases/tag/v0.1.16`，非 draft，12 项资产，overlay checksum 校验通过。下载实际 overlay 确认其中含 `bundled-skills/{README.md,binaries.json,aegis-search/SKILL.md}`；**不含二进制**，因为仓库尚未配置 `BUNDLED_BINARIES_TOKEN`——这是预期的降级路径，打包不失败。
+- **真实安装目录 overlay 升级验收（此前记为受阻的 P1）**：用先前解包在 `/tmp/pspore-electron-libs-*` 的运行库（只对测试进程生效，未改系统）让目标安装的 Electron 可作 Node 运行，于是能在 `release-dist` 真实 0.1.14 安装的副本上实跑发布出来的 0.1.16 overlay。结果：进度条 5%→100%；逐项复核——`pspore-desktop`、`libGLESv2.so`、`icudtl.dat`、`resources.pak` 四个 Chromium 文件 SHA-256 与升级前**完全一致**（确未替换运行时）；应用版本由 0.1.14 变为 0.1.16；bundled skill 随 `resources/app.asar.unpacked/dist/` 一同进入；指向**其它目录**的既有快捷方式被重新指向本次升级目录（`install-dir` 已更新，desktop entry 仍用稳定 launcher）；回滚备份中保存的是 0.1.14。
+- **升级后的安装可正常启动**：以短路径 `PSPORE_HOME` 启动守护进程（长路径会触发 UDS 108 字节限制，属测试环境问题而非缺陷），`status` 显示 `Daemon: ready`；`workspace/skills/aegis-search` 已被链接为指向 `resources/app.asar.unpacked/dist/bundled-skills/aegis-search` 的 symlink，且可透过它读到 `SKILL.md`；`config.json` 中已含新的 `indexing` 段。
+- **新增索引配置 CLI**：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`。目录解析为绝对路径并校验存在且为目录（打错字会静默索引不到任何东西），写回前用 `parseConfig` 按守护进程的读取方式复验。新增 1 项集成用例覆盖：默认关闭且无目录、增删改查、重复添加不产生重复项、写回后仍能被 `parseConfig` 读出、以及不存在目录/非法间隔/未知子命令三条错误路径。
+- 验证：`npm run check` 177/177。

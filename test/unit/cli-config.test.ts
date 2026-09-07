@@ -11,6 +11,7 @@ const execFileAsync = promisify(execFile);
 
 import { isEntrypoint, resolveInvokedName, runCli } from "../../src/cli/main.js";
 import { LlmSettingsService } from "../../src/settings/llm-settings-service.js";
+import { parseConfig } from "../../src/config/config.js";
 import { psporePaths } from "../../src/storage/home.js";
 import { PSPORE_VERSION } from "../../src/version.js";
 
@@ -209,4 +210,65 @@ async function captureStdout(run: () => Promise<number>): Promise<string> {
   } finally {
     process.stdout.write = original;
   }
+}
+
+test("CLI configures continuous indexing and keeps config.json daemon-readable", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-cli-indexing-"));
+  const documents = await mkdtemp(join(tmpdir(), "pspore-cli-docs-"));
+  try {
+    await captureStdout(() => runCli(["--home", home, "init"]));
+
+    // Indexing is off with no directories until the user opts in: scanning a
+    // home directory uninvited would be slow and presumptuous.
+    const initial = await captureStdout(() => runCli(["--home", home, "config", "indexing", "show"]));
+    assert.match(initial, /Indexing: off/);
+    assert.match(initial, /Directories: none configured/);
+
+    await captureStdout(() => runCli(["--home", home, "config", "indexing", "add", documents]));
+    await captureStdout(() => runCli(["--home", home, "config", "indexing", "interval", "15"]));
+    await captureStdout(() => runCli(["--home", home, "config", "indexing", "ext", "txt,md"]));
+    const enabled = await captureStdout(() => runCli(["--home", home, "config", "indexing", "on"]));
+    assert.match(enabled, /Indexing: on/);
+    assert.match(enabled, /every 15 minutes/);
+    assert.match(enabled, /txt, md/);
+    assert.match(enabled, new RegExp(escapeRegex(documents)));
+
+    // The daemon reads the file through parseConfig, so the edit must survive it.
+    const stored = JSON.parse(await readFile(join(home, "config.json"), "utf8"));
+    assert.deepEqual(parseConfig(stored, home).indexing, {
+      enabled: true,
+      directories: [documents],
+      intervalMinutes: 15,
+      extensions: ["txt", "md"],
+    });
+
+    // Adding the same directory twice must not duplicate it.
+    await captureStdout(() => runCli(["--home", home, "config", "indexing", "add", documents]));
+    const twice = JSON.parse(await readFile(join(home, "config.json"), "utf8"));
+    assert.deepEqual(parseConfig(twice, home).indexing.directories, [documents]);
+
+    const removed = await captureStdout(() => runCli(["--home", home, "config", "indexing", "remove", documents]));
+    assert.match(removed, /Directories: none configured/);
+
+    // A typo here would silently index nothing, so it is rejected up front.
+    await assert.rejects(
+      () => captureStdout(() => runCli(["--home", home, "config", "indexing", "add", join(documents, "missing")])),
+      /Directory does not exist/,
+    );
+    await assert.rejects(
+      () => captureStdout(() => runCli(["--home", home, "config", "indexing", "interval", "0"])),
+      /between 1 and 10080/,
+    );
+    await assert.rejects(
+      () => captureStdout(() => runCli(["--home", home, "config", "indexing", "bogus"])),
+      /config indexing usage/,
+    );
+  } finally {
+    await rm(home, { recursive: true, force: true });
+    await rm(documents, { recursive: true, force: true });
+  }
+});
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
