@@ -197,10 +197,14 @@ test("desktop validates snapshots, hello frames, event types, and JSON bounds", 
     seq: 1,
     ts: "2026-08-10T00:00:00.000Z",
     durable: false,
-    type: "message.delta",
-    payload: { sessionId: "main", upstreamSessionId: "upstream-main", delta: "" },
+    type: "transcript.delta",
+    payload: { sessionId: "main", upstreamSessionId: "upstream-main", itemId: "item-1", kind: "text", delta: "" },
   };
   assert.deepEqual(validateEventEnvelope(event), event);
+  assert.throws(
+    () => validateEventEnvelope({ ...event, payload: { ...event.payload, kind: "speech" } }),
+    /kind must be text or thinking/,
+  );
   assert.throws(() => validateEventEnvelope({ ...event, type: "renderer.eval" }), /not allowlisted/);
   assert.throws(() => validateKernelState({ ...snapshot, arbitrary: true }), /unknown fields/);
   const nested: unknown[] = [];

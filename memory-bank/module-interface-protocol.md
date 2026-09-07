@@ -87,3 +87,10 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 - `SessionMetadata` / `SessionView` / `AgentSnapshot` 三层分开：广播只用 `SessionView`（元数据 + 最近 200 条 + `messageOffset`/`messageCount`），`AgentSnapshot`（完整 messages）只在守护进程内部与 `session.snapshot` 命令响应中出现。
 - `session.transcript {from?, limit?}`（sessionId 必填，单页 ≤ 500）按范围取历史；`from` 省略时返回尾页。索引是当前 transcript 的下标，compaction 重写上下文后会位移，客户端据 `messageCount` 变化重取即可。
 - 会话标题来源改为 `SessionView.firstUserText`，因为尾窗里通常已经没有开场白。
+
+## 2026-09-07：阶段 2 —— item 级事件
+
+- `transcript.item.started` / `transcript.delta{itemId,kind}` / `transcript.item.finished` 取代原来的四个 `message.*` 事件。item id 由 adapter 分配（`${upstreamSessionId}:${n}`），因为 Pi 的 `Message` 对象没有 id，只有持久化 branch entry 才有。
+- 携带 transcript 尾窗的事件只剩 `run.settled`/`session.replaced`/`runtime.error`/`compaction.completed`；其余非瞬时事件只带会话元数据，客户端合并时保留自己已有的消息。
+- `transcript.item.finished` 由客户端**追加**（事件里就有完整文本），`run.settled` 的权威尾窗负责校正漂移——对应 Pi 的 snapshot-resets-overlay 与 OpenClaw 的 cursor-stale-reset。
+- 客户端维护 `streamingItems`（每会话当前流式 item id），delta 属于被取代的 item 时另起缓冲；desktop delta 合并键为 `sessionId+itemId+channel`。

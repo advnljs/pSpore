@@ -173,29 +173,39 @@ export class DaemonBridge {
         }
         this.#cursors = { ...this.#cursors, [event.streamId]: event.seq };
         const payload = event.payload;
-        const channel = event.type === "message.delta" ? "text"
-            : event.type === "message.thinking.delta" ? "thinking"
-                : undefined;
-        if (channel && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-            this.#queueDelta(event.streamId, event.seq, event.skipped ?? 0, payload["sessionId"], channel, payload["delta"]);
+        if (event.type === "transcript.delta"
+            && typeof payload["sessionId"] === "string"
+            && typeof payload["itemId"] === "string"
+            && typeof payload["delta"] === "string") {
+            const channel = payload["kind"] === "thinking" ? "thinking" : "text";
+            this.#queueDelta({
+                streamId: event.streamId,
+                seq: event.seq,
+                skipped: event.skipped ?? 0,
+                sessionId: payload["sessionId"],
+                itemId: payload["itemId"],
+                channel,
+                text: payload["delta"],
+            });
             return;
         }
         this.#flushDelta();
         this.#emit({ version: 1, kind: "event", event });
     }
-    #queueDelta(streamId, seq, skipped, sessionId, channel, text) {
+    #queueDelta(delta) {
         const pending = this.#pendingDelta;
         if (pending
-            && pending.streamId === streamId
-            && pending.sessionId === sessionId
-            && pending.channel === channel
-            && seq === pending.seq + 1 + skipped) {
-            pending.seq = seq;
-            pending.text += text;
+            && pending.streamId === delta.streamId
+            && pending.sessionId === delta.sessionId
+            && pending.itemId === delta.itemId
+            && pending.channel === delta.channel
+            && delta.seq === pending.seq + 1 + delta.skipped) {
+            pending.seq = delta.seq;
+            pending.text += delta.text;
         }
         else {
             this.#flushDelta();
-            this.#pendingDelta = { streamId, fromSeq: seq, seq, skipped, sessionId, channel, text };
+            this.#pendingDelta = { ...delta, fromSeq: delta.seq };
         }
         if (!this.#deltaTimer)
             this.#deltaTimer = setTimeout(() => this.#flushDelta(), 30);

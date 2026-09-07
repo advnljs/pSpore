@@ -83,19 +83,18 @@ export interface ResourceControl {
   list(): ResourceCatalogEntry[];
 }
 
-/** Runtime events whose broadcast always carries the authoritative session. */
-const SETTLING_RUNTIME_EVENTS = new Set<RuntimeEvent["type"]>([
-  "run.started",
+/**
+ * Runtime events whose broadcast carries the transcript tail. A finished item
+ * already carries its own text, so clients append it themselves; the tail rides
+ * along only where the transcript needs re-establishing wholesale — the end of a
+ * run, a replaced session, a compaction that rewrote the history.
+ */
+const TRANSCRIPT_BEARING_EVENTS = new Set<RuntimeEvent["type"]>([
   "run.settled",
   "session.replaced",
   "runtime.error",
-  "message.completed",
   "compaction.completed",
-  "queue.updated",
 ]);
-
-/** Minimum spacing between snapshot-carrying broadcasts for one session. */
-const SNAPSHOT_PUBLISH_INTERVAL_MS = 250;
 
 /**
  * How much of a transcript rides along with a broadcast session view. Enough to
@@ -130,7 +129,6 @@ export class AgentApplication implements AgentSessionHost {
   readonly #rootSessions = new Map<SessionId, RootSessionMetadata>();
   readonly #unsubscribers = new Map<SessionId, () => void>();
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
-  readonly #snapshotPublishedAt = new Map<SessionId, number>();
   #automation: AutomationControl | undefined;
   #agents: AgentControl | undefined;
   #mcp: McpControl | undefined;
@@ -643,7 +641,7 @@ export class AgentApplication implements AgentSessionHost {
       ts: event.ts,
       type: "runtime.received",
       event,
-      ...(snapshot === undefined ? {} : { snapshot, publishSnapshot: this.#shouldPublishSnapshot(event) }),
+      ...(snapshot === undefined ? {} : { snapshot, publishTranscript: TRANSCRIPT_BEARING_EVENTS.has(event.type) }),
     });
     if (snapshot && this.#rootSessions.has(event.sessionId) && (event.type === "run.settled" || event.type === "session.replaced")) {
       void this.#sessionCatalog.touch(event.sessionId, {
@@ -652,23 +650,6 @@ export class AgentApplication implements AgentSessionHost {
         if (record) this.#rootSessions.set(event.sessionId, rootMetadata(record));
       }).catch((error: unknown) => this.#onError(toError(error)));
     }
-  }
-
-  /**
-   * Settling events always ship the session so clients land on the authoritative
-   * transcript; the rest ship it at most once per interval. Without this, a run
-   * with many tool calls re-sends the entire transcript several times per call.
-   */
-  #shouldPublishSnapshot(event: RuntimeEvent): boolean {
-    if (SETTLING_RUNTIME_EVENTS.has(event.type)) {
-      this.#snapshotPublishedAt.set(event.sessionId, this.#clock().getTime());
-      return true;
-    }
-    const now = this.#clock().getTime();
-    const last = this.#snapshotPublishedAt.get(event.sessionId);
-    if (last !== undefined && now - last < SNAPSHOT_PUBLISH_INTERVAL_MS) return false;
-    this.#snapshotPublishedAt.set(event.sessionId, now);
-    return true;
   }
 
   /**
@@ -709,7 +690,6 @@ export class AgentApplication implements AgentSessionHost {
     this.#unsubscribers.delete(sessionId);
     this.#sessions.delete(sessionId);
     this.#rootSessions.delete(sessionId);
-    this.#snapshotPublishedAt.delete(sessionId);
     let failure: unknown;
     try {
       await this.#runtime.dispose(sessionId);

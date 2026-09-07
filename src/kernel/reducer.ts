@@ -1,3 +1,4 @@
+import type { SessionMetadata, SessionView } from "../domain/runtime.js";
 import type { KernelEvent, KernelState, PublicKernelEvent, Reduction } from "./state.js";
 
 export function reduceKernel(state: KernelState, event: KernelEvent): Reduction {
@@ -36,7 +37,9 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       const next = snapshot
         ? changed(state, { ...state, sessions: { ...state.sessions, [snapshot.sessionId]: snapshot } })
         : state;
-      const publishSnapshot = snapshot !== undefined && !event.event.transient && event.publishSnapshot !== false;
+      const session = snapshot === undefined
+        ? undefined
+        : event.publishTranscript === false ? withoutTranscript(snapshot) : snapshot;
       return broadcast(
         next,
         event,
@@ -46,7 +49,7 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
           upstreamSessionId: event.event.upstreamSessionId,
           ...event.event.payload,
           ...(snapshot ? { revision: next.revision } : {}),
-          ...(publishSnapshot ? { session: snapshot } : {}),
+          ...(session ? { session } : {}),
         },
         !event.event.transient,
       );
@@ -115,6 +118,15 @@ export function reduceKernel(state: KernelState, event: KernelEvent): Reduction 
       );
     }
   }
+}
+
+/**
+ * Session metadata without the transcript tail. Clients merge it into what they
+ * already hold, so status, usage and queue stay current at constant cost.
+ */
+function withoutTranscript(view: SessionView): SessionMetadata {
+  const { messages, messageOffset, ...metadata } = view;
+  return metadata;
 }
 
 function changed(previous: KernelState, next: KernelState): KernelState {

@@ -498,8 +498,8 @@ describe("daemon vertical slice", () => {
     const events: EventEnvelope[] = [];
     client.subscribe((event) => events.push(event));
     await client.connect();
-    runtime.emit("main", "message.completed", false, { role: "assistant", text: "done" });
-    await waitFor(() => events.some((event) => event.type === "message.completed"), 5_000);
+    runtime.emit("main", "transcript.item.finished", false, { item: finishedItem("main", "done") });
+    await waitFor(() => events.some((event) => event.type === "transcript.item.finished"), 5_000);
     await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
     assert.equal(bridge.bootstrap().connection.phase, "connected");
     assert.equal(bridge.bootstrap().connection.attempt, 0);
@@ -526,10 +526,10 @@ describe("daemon vertical slice", () => {
 
     const events: EventEnvelope[] = [];
     client.subscribe((event) => events.push(event));
-    runtime.emit("main", "message.completed", false, { role: "assistant", text: "done" });
-    await waitFor(() => events.some((event) => event.type === "message.completed"));
+    runtime.emit("main", "run.settled", false, {});
+    await waitFor(() => events.some((event) => event.type === "run.settled"));
 
-    const view = (events.find((event) => event.type === "message.completed")?.payload as {
+    const view = (events.find((event) => event.type === "run.settled")?.payload as {
       session: { messages: unknown[]; messageOffset: number; messageCount: number };
     }).session;
     // The broadcast stays the same size whether the session holds 60 messages
@@ -586,27 +586,30 @@ describe("daemon vertical slice", () => {
 
     // A transcript rebuilt and shipped for every streamed token is what made a
     // long run stall the daemon and drop its clients.
-    runtime.emit("main", "message.delta", true, { delta: "chunk" });
+    runtime.emit("main", "transcript.delta", true, { itemId: "item-1", kind: "text", delta: "chunk" });
     runtime.emit("main", "tool.started", false, { toolName: "shell" });
     runtime.emit("main", "tool.completed", false, { toolName: "shell" });
     await waitFor(() => events.filter((event) => event.type === "tool.completed").length === 1);
-    // Once the window has passed, the next tool event refreshes clients again.
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    runtime.emit("main", "tool.started", false, { toolName: "shell" });
-    await waitFor(() => events.filter((event) => event.type === "tool.started").length === 2);
 
     const payload = (type: string): Record<string, unknown> =>
       events.find((event) => event.type === type)?.payload as Record<string, unknown>;
-    assert.equal(payload("message.delta")["session"], undefined);
-    assert.equal(payload("message.delta")["revision"], undefined);
-    assert.ok(payload("message.completed")["session"], "a settled message must carry the authoritative session");
-    assert.ok(payload("run.settled")["session"], "a settled run must carry the authoritative session");
-    // The settled run published the transcript microseconds earlier, so the
-    // tool events that follow it add nothing a client needs a full copy for.
-    assert.equal(payload("tool.started")["session"], undefined, "the coalescing window suppresses a redundant copy");
-    assert.equal(payload("tool.completed")["session"], undefined, "the coalescing window suppresses a redundant copy");
-    const refreshed = events.filter((event) => event.type === "tool.started").at(-1)?.payload as Record<string, unknown>;
-    assert.ok(refreshed["session"], "a tool event past the window carries the session again");
+    const sessionOf = (type: string) => payload(type)["session"] as Record<string, unknown> | undefined;
+    // A streamed token carries nothing but the delta and the item it belongs to.
+    assert.equal(payload("transcript.delta")["session"], undefined);
+    assert.equal(payload("transcript.delta")["revision"], undefined);
+    assert.equal(payload("transcript.delta")["itemId"], "item-1");
+    // A finished item carries its own text, so clients append it; only the end
+    // of a run re-establishes the authoritative transcript wholesale.
+    assert.ok(Array.isArray(sessionOf("run.settled")?.["messages"]));
+    assert.equal((payload("transcript.item.finished")["item"] as Record<string, unknown>)["text"], "fake reply");
+    // Everything else keeps clients current at constant cost: status, usage and
+    // queue travel, the transcript does not.
+    for (const type of ["tool.started", "tool.completed", "run.started", "transcript.item.finished"]) {
+      const session = sessionOf(type);
+      assert.ok(session, `${type} must still carry session metadata`);
+      assert.equal(session["messages"], undefined, `${type} must not carry a transcript`);
+      assert.equal(typeof session["messageCount"], "number");
+    }
     // State stays authoritative even where the broadcast omits the snapshot.
     assert.equal(daemon.kernel.snapshot().sessions["main"]?.messages.at(-1)?.text, "fake reply");
   });
@@ -669,7 +672,7 @@ class FakeRuntime implements AgentRuntimePort {
       this.#resolveIdle.set(sessionId, resolve);
     }));
     this.#snapshots.set(sessionId, { ...current, status: "running", messages: [...current.messages, { role: "user", text: input }] });
-    this.#emit(sessionId, "run.started", true);
+    this.#emit(sessionId, "run.started", false);
     const settle = () => {
       const running = this.required(sessionId);
       this.#snapshots.set(sessionId, {
@@ -677,7 +680,7 @@ class FakeRuntime implements AgentRuntimePort {
         status: "idle",
         messages: [...running.messages, { role: "assistant", text: "fake reply" }],
       });
-      this.#emit(sessionId, "message.completed", false);
+      this.emit(sessionId, "transcript.item.finished", false, { item: finishedItem(sessionId, "fake reply") });
       this.#emit(sessionId, "run.settled", false);
       this.#resolveIdle.get(sessionId)?.();
       this.#resolveIdle.delete(sessionId);
@@ -827,6 +830,10 @@ function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };
+}
+
+function finishedItem(sessionId: string, text: string): Record<string, unknown> {
+  return { id: `${sessionId}:item`, role: "assistant", text, status: "complete", ts: "2026-09-07T00:00:00.000Z" };
 }
 
 function sequence(prefix: string): () => string {

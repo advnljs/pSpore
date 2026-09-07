@@ -112,14 +112,31 @@ export interface AgentSnapshot extends SessionMetadata {
   messages: readonly RuntimeMessage[];
 }
 
+/**
+ * One addressable entry of a conversation. Streaming updates name the item they
+ * belong to, so a delta never has to be described by re-sending the transcript
+ * around it. Pi's own client/server protocol, Codex and OpenClaw all address
+ * conversation state this way.
+ */
+export interface TranscriptItem {
+  id: string;
+  role: string;
+  text: string;
+  /** Hidden reasoning, shown only while the item is still streaming. */
+  thinking?: string;
+  status: "streaming" | "complete" | "error" | "aborted";
+  ts: string;
+}
+
+export type TranscriptDeltaKind = "text" | "thinking";
+
 export type RuntimeEventType =
   | "session.replaced"
   | "run.started"
   | "run.settled"
-  | "message.started"
-  | "message.delta"
-  | "message.thinking.delta"
-  | "message.completed"
+  | "transcript.item.started"
+  | "transcript.delta"
+  | "transcript.item.finished"
   | "tool.started"
   | "tool.updated"
   | "tool.completed"

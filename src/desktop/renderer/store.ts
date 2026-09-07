@@ -38,6 +38,8 @@ export interface DesktopStoreSnapshot {
   cursors: Readonly<Record<string, number>>;
   streamingText: Readonly<Record<string, string>>;
   streamingThinking: Readonly<Record<string, string>>;
+  /** Transcript item each session is streaming, keyed by session id. */
+  streamingItems: Readonly<Record<string, string>>;
   selectedSessionId: string;
   activities: readonly DesktopActivity[];
   notice: string;
@@ -182,6 +184,7 @@ function protocolState(state: DesktopStoreSnapshot): ProtocolUiState {
     cursors: state.cursors,
     streamingText: state.streamingText,
     streamingThinking: state.streamingThinking,
+    streamingItems: state.streamingItems,
     selectedSessionId: state.selectedSessionId,
     ...(state.gap ? { gap: state.gap } : {}),
   };

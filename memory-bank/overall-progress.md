@@ -974,3 +974,23 @@
   - 压测（1 MiB transcript + 20000 token + 200 次工具调用）：**1042 ms**、GUI 断开 0 次、堆 **113 MiB**。对照：修复前 147561 ms / 66 次 / 752 MiB，上一轮 2341 ms / 0 次 / 167 MiB。
 - 当前状态：广播与 hello 的体积已与会话长度解耦；`limits.ts` 的整体预算退化为纯安全网。
 - 下一步（阶段 2）：把事件改为 item 级——adapter 保留 Pi 的 item 身份，广播 `transcript.item.{started,updated,finished}` 与 `transcript.delta{itemId,contentIndex,kind}`，客户端按 Pi 的 overlay 模型合并；随后即可撤掉 250 ms 快照节流与 `publishSnapshot`。
+
+
+## 2026-09-07 CST — 阶段 2／3：item 级 transcript 事件
+
+- 阶段目标：让事件只描述"变了什么"，而不是每次都重新描述整段对话。
+- 关键事实（读 Pi 源码得到）：Pi 的 `Message` 对象**没有 id**，只有 `SessionManager` 持久化的 branch entry 有。所以 item 身份必须由 adapter 分配——Pi 自己的服务端也是这么做的。
+- 完成内容：
+  - 新增 `TranscriptItem`（id/role/text/thinking/status/ts）与 `TranscriptDeltaKind`；`message.started`/`message.delta`/`message.thinking.delta`/`message.completed` 四个事件被 `transcript.item.started`/`transcript.delta`/`transcript.item.finished` 三个取代。
+  - adapter 为每个流式 item 分配 `${upstreamSessionId}:${n}` 的 id 并维持整个生命周期；每条 delta 携带 `itemId` + `kind`；`message_start` 缺失时也会自动开一个 item，delta 永远有落点。
+  - **广播只在必要时携带 transcript**：`run.settled`/`session.replaced`/`runtime.error`/`compaction.completed` 携带尾窗，其余非瞬时事件只携带会话元数据（无 `messages`）。客户端合并元数据时保留自己已有的消息。
+  - **`transcript.item.finished` 不再搬运尾窗**：事件本身就带着这条消息的完整文本，客户端直接追加并把 `messageCount` 加一；`run.settled` 的权威尾窗负责校正任何漂移（Pi 的 snapshot-resets-overlay、OpenClaw 的 cursor-stale-reset 都是这个思路）。
+  - 撤掉阶段 1 引入的 250 ms 快照节流与 `#snapshotPublishedAt`——不再有"整份快照"需要节流，状态更新恢复为即时。
+  - 客户端新增 `streamingItems`（每会话当前流式 item），delta 属于被取代的 item 时另起缓冲，不会再把两次回答粘在一起。desktop delta 合并键从 `sessionId+channel` 改为 `sessionId+itemId+channel`。
+- 修改文件：`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/kernel/{state,reducer}.ts`、`src/application/agent-application.ts`、`src/ui/shared/protocol-state.ts`、`src/ui/tui/store.ts`、`src/desktop/{validation,ipc-contract,daemon-bridge,main}.ts`、`src/desktop/renderer/store.ts`、`src/cli/main.ts`、相应测试、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：**198/198**（严格 typecheck + 全量测试 + production build）。新增两项用例：finished item 直接追加进 transcript 且 `messageCount` 同步；被取代 item 的 delta 不会污染屏幕上的消息。daemon 用例改为断言"只有 `run.settled` 带 `messages`，工具事件只带元数据"。
+  - 压测（1 MiB transcript + 20000 token + 200 次工具调用，统计单个客户端收到的字节）：**10.2 MiB → 5.9 MiB**（阶段 1 → 阶段 2），耗时 1064 ms、0 次断开、堆 108 MiB。
+  - 说明：把 `transcript.item.finished` 从"携带尾窗"改为"客户端追加"之前，字节数是 11.0 MiB（比阶段 1 还略高，因为 delta 多了 itemId/kind 字段）。真正的收益来自不再重复搬运尾窗。
+- 当前状态：非结算事件的 payload 与会话长度完全无关；transcript 只在产生时传一次。
+- 下一步（阶段 3）：GUI 虚拟列表滚到顶时用 `session.transcript` 向前翻页；历史改从持久化分支读，使 compaction 后仍能看到完整对话；单条超长消息改为"截断 + 按需取全文"。

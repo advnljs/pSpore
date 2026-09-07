@@ -19,10 +19,10 @@ test("desktop daemon bridge validates commands and coalesces text and thinking i
   bridge.start();
   await waitFor(() => bridge.bootstrap().connection.phase === "connected");
 
-  client.emit(event(1, "message.thinking.delta", { sessionId: "main", delta: "check " }));
-  client.emit(event(2, "message.thinking.delta", { sessionId: "main", delta: "facts" }));
-  client.emit(event(3, "message.delta", { sessionId: "main", delta: "hel" }));
-  client.emit(event(4, "message.delta", { sessionId: "main", delta: "lo" }));
+  client.emit(event(1, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "thinking", delta: "check " }));
+  client.emit(event(2, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "thinking", delta: "facts" }));
+  client.emit(event(3, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "text", delta: "hel" }));
+  client.emit(event(4, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "text", delta: "lo" }));
   await new Promise((resolve) => setTimeout(resolve, 45));
   const deltas = frames.filter((frame) => isRecord(frame) && frame["kind"] === "delta");
   assert.deepEqual(deltas, [
@@ -33,6 +33,7 @@ test("desktop daemon bridge validates commands and coalesces text and thinking i
       fromSeq: 1,
       seq: 2,
       sessionId: "main",
+      itemId: "item-1",
       channel: "thinking",
       text: "check facts",
     },
@@ -43,6 +44,7 @@ test("desktop daemon bridge validates commands and coalesces text and thinking i
       fromSeq: 3,
       seq: 4,
       sessionId: "main",
+      itemId: "item-1",
       channel: "text",
       text: "hello",
     },
@@ -72,11 +74,11 @@ test("reports why a rejected daemon frame closed the connection", async () => {
 
   // Silently reconnecting forever is what made this failure impossible to
   // diagnose from the client: the banner has to name the rejected frame.
-  client.emit(event(1, "message.delta", { sessionId: "main", delta: 42 as unknown as string }));
+  client.emit(event(1, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "text", delta: 42 as unknown as string }));
   await waitFor(() => bridge.bootstrap().connection.phase === "disconnected");
   const connection = bridge.bootstrap().connection;
   assert.equal(connection.phase, "disconnected");
-  assert.match(connection.message ?? "", /Rejected a message\.delta event from the daemon/);
+  assert.match(connection.message ?? "", /Rejected a transcript\.delta event from the daemon/);
   await bridge.stop();
 });
 
@@ -92,7 +94,7 @@ test("reports an unexplained sequence jump instead of closing silently", async (
   bridge.start();
   await waitFor(() => bridge.bootstrap().connection.phase === "connected");
 
-  client.emit(event(7, "message.delta", { sessionId: "main", delta: "late" }));
+  client.emit(event(7, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "text", delta: "late" }));
   await waitFor(() => bridge.bootstrap().connection.phase === "disconnected");
   assert.match(bridge.bootstrap().connection.message ?? "", /Event gap on stream-1: expected 1, received 7/);
   await bridge.stop();

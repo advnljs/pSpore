@@ -23,6 +23,7 @@ test("desktop store applies authoritative snapshot and coalesced deltas in seque
     fromSeq: 5,
     seq: 6,
     sessionId: "main",
+    itemId: "item-1",
     channel: "thinking",
     text: "private reasoning",
   });
@@ -33,6 +34,7 @@ test("desktop store applies authoritative snapshot and coalesced deltas in seque
     fromSeq: 7,
     seq: 7,
     sessionId: "main",
+    itemId: "item-1",
     channel: "text",
     text: "hello",
   });
@@ -180,6 +182,7 @@ test("streaming survives transient events the daemon shed under backpressure", (
     seq: 15,
     skipped: 3,
     sessionId: "main",
+    itemId: "item-1",
     channel: "text",
     text: "resumed",
   });
@@ -195,6 +198,7 @@ test("streaming survives transient events the daemon shed under backpressure", (
     fromSeq: 30,
     seq: 30,
     sessionId: "main",
+    itemId: "item-1",
     channel: "text",
     text: "lost",
   });

@@ -57,6 +57,8 @@ export type DesktopFrame = {
     /** Transient events the daemon shed for this client just before `fromSeq`. */
     skipped?: number;
     sessionId: string;
+    /** Transcript item this coalesced run of deltas belongs to. */
+    itemId: string;
     channel: "text" | "thinking";
     text: string;
 };

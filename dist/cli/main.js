@@ -842,7 +842,7 @@ async function runPrompt(home, text, sessionId) {
         const payload = event.payload;
         if (payload["sessionId"] !== sessionId)
             return;
-        if (event.type === "message.delta" && typeof payload["delta"] === "string") {
+        if (event.type === "transcript.delta" && payload["kind"] !== "thinking" && typeof payload["delta"] === "string") {
             printedDelta = true;
             process.stdout.write(payload["delta"]);
         }

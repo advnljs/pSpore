@@ -28,13 +28,15 @@ export function reduceKernel(state, event) {
             const next = snapshot
                 ? changed(state, { ...state, sessions: { ...state.sessions, [snapshot.sessionId]: snapshot } })
                 : state;
-            const publishSnapshot = snapshot !== undefined && !event.event.transient && event.publishSnapshot !== false;
+            const session = snapshot === undefined
+                ? undefined
+                : event.publishTranscript === false ? withoutTranscript(snapshot) : snapshot;
             return broadcast(next, event, event.event.type, {
                 sessionId: event.event.sessionId,
                 upstreamSessionId: event.event.upstreamSessionId,
                 ...event.event.payload,
                 ...(snapshot ? { revision: next.revision } : {}),
-                ...(publishSnapshot ? { session: snapshot } : {}),
+                ...(session ? { session } : {}),
             }, !event.event.transient);
         }
         case "approval.requested": {
@@ -89,6 +91,14 @@ export function reduceKernel(state, event) {
             }, true);
         }
     }
+}
+/**
+ * Session metadata without the transcript tail. Clients merge it into what they
+ * already hold, so status, usage and queue stay current at constant cost.
+ */
+function withoutTranscript(view) {
+    const { messages, messageOffset, ...metadata } = view;
+    return metadata;
 }
 function changed(previous, next) {
     return { ...next, revision: previous.revision + 1 };

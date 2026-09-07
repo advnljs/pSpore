@@ -28,10 +28,9 @@ const EVENT_TYPES = new Set([
   "session.replaced",
   "run.started",
   "run.settled",
-  "message.started",
-  "message.delta",
-  "message.thinking.delta",
-  "message.completed",
+  "transcript.item.started",
+  "transcript.delta",
+  "transcript.item.finished",
   "tool.started",
   "tool.updated",
   "tool.completed",
@@ -55,10 +54,9 @@ const RUNTIME_EVENT_TYPES = new Set([
   "session.replaced",
   "run.started",
   "run.settled",
-  "message.started",
-  "message.delta",
-  "message.thinking.delta",
-  "message.completed",
+  "transcript.item.started",
+  "transcript.delta",
+  "transcript.item.finished",
   "tool.started",
   "tool.updated",
   "tool.completed",
@@ -133,9 +131,17 @@ export function validateEventEnvelope(value: unknown): EventEnvelope {
   const type = boundedString(event["type"], "event.type", 128);
   if (!EVENT_TYPES.has(type)) throw new Error(`Event type is not allowlisted: ${type}`);
   const payload = record(event["payload"], "event.payload");
-  if (type === "message.delta" || type === "message.thinking.delta") {
+  if (type === "transcript.delta") {
     identifier(payload["sessionId"], "event.payload.sessionId");
+    identifier(payload["itemId"], "event.payload.itemId");
+    if (payload["kind"] !== "text" && payload["kind"] !== "thinking") {
+      throw new Error("event.payload.kind must be text or thinking");
+    }
     boundedString(payload["delta"], "event.payload.delta", MAX_STRING_LENGTH, true);
+  }
+  if (type === "transcript.item.started" || type === "transcript.item.finished") {
+    identifier(payload["sessionId"], "event.payload.sessionId");
+    validateTranscriptItem(payload["item"], "event.payload.item");
   }
   validateEventPayload(type, payload);
   return structuredClone(event) as unknown as EventEnvelope;
@@ -222,18 +228,22 @@ function validateArrayCollection(value: unknown, path: string, identityField: st
   }
 }
 
-function validateSessionView(value: unknown, path: string): string {
+/** A broadcast session is either the full view or metadata without a tail. */
+function validateSessionPayload(value: unknown, path: string): string {
+  const candidate = record(value, path);
+  return candidate["messages"] === undefined
+    ? validateSessionMetadata(candidate, path)
+    : validateSessionView(candidate, path);
+}
+
+function validateSessionMetadata(value: unknown, path: string): string {
   const snapshot = record(value, path);
   const sessionId = identifier(snapshot["sessionId"], `${path}.sessionId`);
   identifier(snapshot["upstreamSessionId"], `${path}.upstreamSessionId`);
   boundedString(snapshot["cwd"], `${path}.cwd`, 4_096);
   const status = snapshot["status"];
   if (status !== "idle" && status !== "running" && status !== "failed") throw new Error(`${path}.status is invalid`);
-  // A view carries a bounded tail of the transcript plus where that tail sits,
-  // so a client can tell "these are the newest 200 of 5000" from "this is all".
-  validateMessageArray(snapshot["messages"], `${path}.messages`);
   nonNegativeInteger(snapshot["messageCount"], `${path}.messageCount`);
-  nonNegativeInteger(snapshot["messageOffset"], `${path}.messageOffset`);
   optionalBoundedString(snapshot["firstUserText"], `${path}.firstUserText`, MAX_STRING_LENGTH);
   const queue = record(snapshot["queue"], `${path}.queue`);
   validateStringArray(queue["steering"], `${path}.queue.steering`);
@@ -244,6 +254,29 @@ function validateSessionView(value: unknown, path: string): string {
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount < 0) throw new Error(`${path}.usage.${field} is invalid`);
   }
   return sessionId;
+}
+
+function validateSessionView(value: unknown, path: string): string {
+  const snapshot = record(value, path);
+  const sessionId = validateSessionMetadata(snapshot, path);
+  // A view carries a bounded tail of the transcript plus where that tail sits,
+  // so a client can tell "these are the newest 200 of 5000" from "this is all".
+  validateMessageArray(snapshot["messages"], `${path}.messages`);
+  nonNegativeInteger(snapshot["messageOffset"], `${path}.messageOffset`);
+  return sessionId;
+}
+
+function validateTranscriptItem(value: unknown, path: string): void {
+  const item = record(value, path);
+  identifier(item["id"], `${path}.id`);
+  boundedString(item["role"], `${path}.role`, 128);
+  boundedString(item["text"], `${path}.text`, MAX_STRING_LENGTH, true);
+  if (item["thinking"] !== undefined) boundedString(item["thinking"], `${path}.thinking`, MAX_STRING_LENGTH, true);
+  const status = item["status"];
+  if (status !== "streaming" && status !== "complete" && status !== "error" && status !== "aborted") {
+    throw new Error(`${path}.status is invalid`);
+  }
+  boundedString(item["ts"], `${path}.ts`, 64);
 }
 
 function validateMessageArray(value: unknown, path: string): void {
@@ -264,7 +297,7 @@ function validateEventPayload(type: string, payload: Record<string, unknown>): v
   if (RUNTIME_EVENT_TYPES.has(type)) {
     identifier(payload["sessionId"], "event.payload.sessionId");
     identifier(payload["upstreamSessionId"], "event.payload.upstreamSessionId");
-    if (payload["session"] !== undefined) validateSessionView(payload["session"], "event.payload.session");
+    if (payload["session"] !== undefined) validateSessionPayload(payload["session"], "event.payload.session");
     optionalRevision(payload["revision"], "event.payload.revision");
     return;
   }

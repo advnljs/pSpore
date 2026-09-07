@@ -442,6 +442,7 @@ async function runSmoke(
       fromSeq: 13,
       seq: 14,
       sessionId: "main",
+      itemId: "smoke-item-1",
       channel: "thinking",
       text: "正在核对测试结果、运行时版本与升级边界。",
     });
@@ -452,6 +453,7 @@ async function runSmoke(
       fromSeq: 15,
       seq: 17,
       sessionId: "main",
+      itemId: "smoke-item-1",
       channel: "text",
       text: "正在归并最终证据；这段文字来自连续 streaming delta。",
     });
@@ -515,6 +517,7 @@ async function runSmoke(
       fromSeq: 18,
       seq: 19,
       sessionId: "main",
+      itemId: "smoke-item-1",
       channel: "text",
       text: " 浏览历史期间的新输出不应抢走滚动位置。",
     });
@@ -529,7 +532,10 @@ async function runSmoke(
       transcript.dispatchEvent(new Event('scroll'));
     })()`);
     await settlePaint();
-    sendFrame(target, smokeEvent(20, "message.completed", { sessionId: "main", role: "assistant", text: "最终证据已归并。" }));
+    sendFrame(target, smokeEvent(20, "transcript.item.finished", {
+      sessionId: "main",
+      item: { id: "smoke-item-1", role: "assistant", text: "最终证据已归并。", status: "complete", ts: "2026-08-10T08:10:00.000Z" },
+    }));
     await waitForRenderer(target, "!document.querySelector('.thinking-stream')", 5_000);
     await settlePaint();
     mainVisual.tailDistanceAfterReturn = await target.webContents.executeJavaScript(`(() => {

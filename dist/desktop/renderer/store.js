@@ -137,6 +137,7 @@ function protocolState(state) {
         cursors: state.cursors,
         streamingText: state.streamingText,
         streamingThinking: state.streamingThinking,
+        streamingItems: state.streamingItems,
         selectedSessionId: state.selectedSessionId,
         ...(state.gap ? { gap: state.gap } : {}),
     };

@@ -20,6 +20,8 @@ export interface TuiStoreSnapshot {
     };
     streamingText: Readonly<Record<string, string>>;
     streamingThinking: Readonly<Record<string, string>>;
+    /** Transcript item each session is streaming, keyed by session id. */
+    streamingItems: Readonly<Record<string, string>>;
     activities: readonly CoworkActivity[];
     configuredModel?: ModelRef;
     notice: string;

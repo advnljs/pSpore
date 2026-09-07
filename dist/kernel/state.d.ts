@@ -50,12 +50,12 @@ export type KernelEvent = (EventMetadata & {
     event: RuntimeEvent;
     snapshot?: SessionView;
     /**
-     * Whether the broadcast carries the session snapshot. State always
-     * absorbs it; clients only need it often enough to stay current, and
-     * attaching a whole transcript to every tool event is what saturated the
-     * socket during long runs.
+     * Whether the broadcast carries the transcript tail alongside the session
+     * metadata. Item-scoped events keep clients current on their own, so the
+     * tail only needs to ride along where it re-establishes the truth: when a
+     * message settles, a run ends, or the session is replaced.
      */
-    publishSnapshot?: boolean;
+    publishTranscript?: boolean;
 }) | (EventMetadata & {
     type: "approval.requested";
     request: ApprovalRequest;

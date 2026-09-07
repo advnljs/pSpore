@@ -30,8 +30,8 @@ describe("TUI protocol store", () => {
       seq: 1,
       ts: "2026-08-09T00:00:01.000Z",
       durable: false,
-      type: "message.thinking.delta",
-      payload: { sessionId: "main", delta: "reasoning" },
+      type: "transcript.delta",
+      payload: { sessionId: "main", itemId: "item-1", kind: "thinking", delta: "reasoning" },
     });
     assert.equal(store.snapshot().streamingThinking["main"], "reasoning");
     assert.equal(store.snapshot().kernel, kernelBeforeDelta, "streaming must not clone the complete TUI history");
@@ -43,8 +43,8 @@ describe("TUI protocol store", () => {
       seq: 2,
       ts: "2026-08-09T00:00:02.000Z",
       durable: false,
-      type: "message.delta",
-      payload: { sessionId: "main", delta: "stream" },
+      type: "transcript.delta",
+      payload: { sessionId: "main", itemId: "item-1", kind: "text", delta: "stream" },
     });
     assert.equal(store.snapshot().streamingText["main"], "stream");
     store.applyEvent({
@@ -73,6 +73,55 @@ describe("TUI protocol store", () => {
       payload: {},
     });
     assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 4, received: 5 });
+  });
+
+  test("appends a finished item instead of waiting for the transcript to be re-sent", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    const before = store.snapshot().kernel.sessions["main"];
+    assert.ok(before);
+    store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: "finished-1",
+      streamId: "kernel",
+      seq: 1,
+      ts: "2026-08-09T00:00:04.000Z",
+      durable: true,
+      type: "transcript.item.finished",
+      payload: {
+        sessionId: "main",
+        upstreamSessionId: "pi-main",
+        item: { id: "item-9", role: "assistant", text: "appended answer", status: "complete", ts: "2026-08-09T00:00:04.000Z" },
+      },
+    });
+    const after = store.snapshot().kernel.sessions["main"];
+    assert.equal(after?.messages.length, before.messages.length + 1);
+    assert.equal(after?.messages.at(-1)?.text, "appended answer");
+    assert.equal(after?.messageCount, before.messageCount + 1);
+  });
+
+  test("keeps a delta from a superseded item out of the message on screen", () => {
+    const store = new TuiStore();
+    store.applyHello(hello());
+    const delta = (seq: number, itemId: string, text: string) => store.applyEvent({
+      v: 1,
+      kind: "event",
+      id: `d-${seq}`,
+      streamId: "kernel",
+      seq,
+      ts: "2026-08-09T00:00:01.000Z",
+      durable: false,
+      type: "transcript.delta",
+      payload: { sessionId: "main", itemId, kind: "text", delta: text },
+    });
+    delta(1, "item-1", "first ");
+    delta(2, "item-1", "answer");
+    assert.equal(store.snapshot().streamingText["main"], "first answer");
+    // Without item identity a retried or replaced message appended to whatever
+    // was already on screen, which is how streams used to run together.
+    delta(3, "item-2", "second answer");
+    assert.equal(store.snapshot().streamingText["main"], "second answer");
   });
 
   test("routes selected child input to agent.send semantics instead of main", () => {
@@ -191,8 +240,8 @@ describe("TUI 160x45 snapshot", () => {
       seq: 1,
       ts: "2026-08-09T00:00:01.000Z",
       durable: false,
-      type: "message.thinking.delta",
-      payload: { sessionId: "main", delta: "inspect private evidence" },
+      type: "transcript.delta",
+      payload: { sessionId: "main", itemId: "item-1", kind: "thinking", delta: "inspect private evidence" },
     });
     store.applyEvent({
       v: 1,
@@ -202,8 +251,8 @@ describe("TUI 160x45 snapshot", () => {
       seq: 2,
       ts: "2026-08-09T00:00:02.000Z",
       durable: false,
-      type: "message.delta",
-      payload: { sessionId: "main", delta: "public answer" },
+      type: "transcript.delta",
+      payload: { sessionId: "main", itemId: "item-1", kind: "text", delta: "public answer" },
     });
     const streaming = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 96, 30, "", { color: false }).join("\n"));
     assert.match(streaming, /thought\s+inspect private evidence/);
@@ -218,8 +267,11 @@ describe("TUI 160x45 snapshot", () => {
       seq: 3,
       ts: "2026-08-09T00:00:03.000Z",
       durable: true,
-      type: "message.completed",
-      payload: { sessionId: "main" },
+      type: "transcript.item.finished",
+      payload: {
+        sessionId: "main",
+        item: { id: "item-1", role: "assistant", text: "public answer", status: "complete", ts: "2026-08-09T00:00:03.000Z" },
+      },
     });
     const completed = stripTerminalSequences(renderTuiSnapshot(store.snapshot(), 96, 30, "", { color: false }).join("\n"));
     assert.doesNotMatch(completed, /inspect private evidence/);

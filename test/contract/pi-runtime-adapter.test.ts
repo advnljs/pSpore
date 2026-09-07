@@ -114,8 +114,8 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.waitForIdle("main");
 
     assert.ok(events.some((event) => event.type === "run.started"));
-    assert.ok(events.some((event) => event.type === "message.delta"));
-    assert.ok(events.some((event) => event.type === "message.completed"));
+    assert.ok(events.some((event) => event.type === "transcript.delta"));
+    assert.ok(events.some((event) => event.type === "transcript.item.finished"));
     assert.equal(events.filter((event) => event.type === "run.settled").length, 2);
     assert.ok(events.every((event) => !("agent" in event.payload)));
 
@@ -141,14 +141,12 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.prompt("main", "reason separately");
     await adapter.waitForIdle("main");
 
-    const thinking = events
-      .filter((event) => event.type === "message.thinking.delta")
+    const deltas = (kind: string) => events
+      .filter((event) => event.type === "transcript.delta" && event.payload["kind"] === kind)
       .map((event) => String(event.payload["delta"] ?? ""))
       .join("");
-    const text = events
-      .filter((event) => event.type === "message.delta")
-      .map((event) => String(event.payload["delta"] ?? ""))
-      .join("");
+    const thinking = deltas("thinking");
+    const text = deltas("text");
     assert.equal(thinking, "private chain of thought");
     assert.equal(text, "public final answer");
     assert.equal(adapter.snapshot("main").messages.at(-1)?.text, "public final answer");
@@ -188,7 +186,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.waitForIdle("main");
 
     assert.equal(events.filter((event) => event.type === "session.replaced").length, 2);
-    assert.ok(events.some((event) => event.upstreamSessionId === forkedUpstreamId && event.type === "message.delta"));
+    assert.ok(events.some((event) => event.upstreamSessionId === forkedUpstreamId && event.type === "transcript.delta"));
   });
 
   test("persists JSONL and resumes it in a fresh adapter", async () => {
@@ -261,7 +259,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.create(spec(root));
     const started = new Promise<void>((resolve) => {
       adapter.subscribe("main", (event) => {
-        if (event.type === "message.delta") resolve();
+        if (event.type === "transcript.delta") resolve();
       });
     });
 
@@ -283,7 +281,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.create(spec(root));
     const firstDelta = new Promise<void>((resolve) => {
       adapter.subscribe("main", (event) => {
-        if (event.type === "message.delta") resolve();
+        if (event.type === "transcript.delta") resolve();
       });
     });
 
@@ -310,7 +308,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.create(spec(root));
     const firstDelta = new Promise<void>((resolve) => {
       adapter.subscribe("main", (event) => {
-        if (event.type === "message.delta") resolve();
+        if (event.type === "transcript.delta") resolve();
       });
     });
 

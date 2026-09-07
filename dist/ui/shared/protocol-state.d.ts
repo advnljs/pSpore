@@ -5,6 +5,9 @@ export interface ProtocolUiState {
     cursors: Readonly<Record<string, number>>;
     streamingText: Readonly<Record<string, string>>;
     streamingThinking: Readonly<Record<string, string>>;
+    /** Transcript item each session is currently streaming, so a delta for a
+     * superseded item cannot append to the one on screen. */
+    streamingItems: Readonly<Record<string, string>>;
     selectedSessionId: string;
     gap?: {
         streamId: string;
@@ -26,6 +29,7 @@ export declare function applyProtocolDelta(current: ProtocolUiState, delta: {
     seq: number;
     skipped?: number;
     sessionId: string;
+    itemId: string;
     channel: "text" | "thinking";
     text: string;
 }): ProtocolApplyResult;

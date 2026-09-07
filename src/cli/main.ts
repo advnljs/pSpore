@@ -852,7 +852,7 @@ async function runPrompt(home: string, text: string, sessionId: string): Promise
   const unsubscribe = client.subscribe((event) => {
     const payload = event.payload as Record<string, unknown>;
     if (payload["sessionId"] !== sessionId) return;
-    if (event.type === "message.delta" && typeof payload["delta"] === "string") {
+    if (event.type === "transcript.delta" && payload["kind"] !== "thinking" && typeof payload["delta"] === "string") {
       printedDelta = true;
       process.stdout.write(payload["delta"] as string);
     }

@@ -30,6 +30,8 @@ import type {
   RuntimeEventType,
   RuntimeMessage,
   SessionId,
+  TranscriptDeltaKind,
+  TranscriptItem,
   ToolGate,
 } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
@@ -64,6 +66,13 @@ interface SessionRecord {
   };
   thresholdCompaction: boolean;
   lastError: string | undefined;
+  /**
+   * Pi's message objects carry no identity — only persisted branch entries do —
+   * so the adapter mints one per streamed item and keeps it for that item's
+   * whole lifecycle. Every delta then names the item it belongs to.
+   */
+  streaming: { id: string; role: string; text: string; thinking: string; startedAt: string } | undefined;
+  itemSequence: number;
 }
 
 export class PiRuntimeAdapter implements AgentRuntimePort {
@@ -343,6 +352,8 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       queue: { steering: [], followUp: [] },
       thresholdCompaction: false,
       lastError: undefined,
+      streaming: undefined,
+      itemSequence: 0,
     };
     this.#sessions.set(spec.sessionId, record);
     this.#bind(record, runtime.session, false);
@@ -474,6 +485,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     record.upstreamSessionId = session.sessionId;
     record.lastError = undefined;
     record.queue = { steering: [], followUp: [] };
+    record.streaming = undefined;
     record.unsubscribe = session.subscribe((event) => this.#onPiEvent(record, event));
     if (replacement) {
       this.#emit(
@@ -493,21 +505,28 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       case "agent_settled":
         this.#emit(record, "run.settled", {}, false);
         break;
-      case "message_start":
-        this.#emit(record, "message.started", messagePayload(event.message), false);
-        break;
-      case "message_update": {
-        const update = event.assistantMessageEvent;
-        if (update.type === "text_delta") {
-          this.#emit(record, "message.delta", { delta: update.delta }, true);
-        } else if (update.type === "thinking_delta") {
-          this.#emit(record, "message.thinking.delta", { delta: update.delta }, true);
-        }
+      case "message_start": {
+        const item = this.#beginItem(record, event.message);
+        this.#emit(record, "transcript.item.started", { item }, false);
         break;
       }
-      case "message_end":
-        this.#emit(record, "message.completed", messagePayload(event.message), false);
+      case "message_update": {
+        const update = event.assistantMessageEvent;
+        if (update.type !== "text_delta" && update.type !== "thinking_delta") break;
+        const kind: TranscriptDeltaKind = update.type === "text_delta" ? "text" : "thinking";
+        // A delta with no started item would have nowhere to land; opening one
+        // keeps the stream addressable even if Pi skips the start event.
+        const streaming = record.streaming ?? this.#beginItem(record, event.message);
+        if (kind === "text") streaming.text += update.delta;
+        else streaming.thinking += update.delta;
+        this.#emit(record, "transcript.delta", { itemId: streaming.id, kind, delta: update.delta }, true);
         break;
+      }
+      case "message_end": {
+        const item = this.#finishItem(record, event.message);
+        this.#emit(record, "transcript.item.finished", { item }, false);
+        break;
+      }
       case "tool_execution_start":
         this.#emit(
           record,
@@ -575,6 +594,31 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       default:
         break;
     }
+  }
+
+  #beginItem(record: SessionRecord, message: unknown): NonNullable<SessionRecord["streaming"]> {
+    const candidate = asRecord(message);
+    const streaming = {
+      id: `${record.upstreamSessionId}:${++record.itemSequence}`,
+      role: typeof candidate["role"] === "string" ? candidate["role"] : "assistant",
+      text: messageText(message),
+      thinking: "",
+      startedAt: this.#clock().toISOString(),
+    };
+    record.streaming = streaming;
+    return streaming;
+  }
+
+  #finishItem(record: SessionRecord, message: unknown): TranscriptItem {
+    const streaming = record.streaming ?? this.#beginItem(record, message);
+    record.streaming = undefined;
+    return {
+      id: streaming.id,
+      role: typeof asRecord(message)["role"] === "string" ? (asRecord(message)["role"] as string) : streaming.role,
+      text: messageText(message),
+      status: "complete",
+      ts: streaming.startedAt,
+    };
   }
 
   #emit(record: SessionRecord, type: RuntimeEventType, payload: Record<string, unknown>, transient: boolean): void {
@@ -655,14 +699,6 @@ function toRuntimeMessage(message: unknown): RuntimeMessage {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
-}
-
-function messagePayload(message: unknown): Record<string, unknown> {
-  const candidate = asRecord(message);
-  return {
-    role: typeof candidate["role"] === "string" ? candidate["role"] : "unknown",
-    text: messageText(message),
-  };
 }
 
 function messageText(message: unknown): string {

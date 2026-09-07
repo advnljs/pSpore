@@ -1,4 +1,4 @@
-import type { SessionView } from "../../domain/runtime.js";
+import type { SessionMetadata, SessionView } from "../../domain/runtime.js";
 import { initialKernelState, type KernelState } from "../../kernel/state.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 
@@ -7,6 +7,9 @@ export interface ProtocolUiState {
   cursors: Readonly<Record<string, number>>;
   streamingText: Readonly<Record<string, string>>;
   streamingThinking: Readonly<Record<string, string>>;
+  /** Transcript item each session is currently streaming, so a delta for a
+   * superseded item cannot append to the one on screen. */
+  streamingItems: Readonly<Record<string, string>>;
   selectedSessionId: string;
   gap?: { streamId: string; expected: number; received: number };
 }
@@ -23,6 +26,7 @@ export function initialProtocolUiState(): ProtocolUiState {
     cursors: {},
     streamingText: {},
     streamingThinking: {},
+    streamingItems: {},
     selectedSessionId: "main",
   };
 }
@@ -37,6 +41,7 @@ export function replaceProtocolSnapshot(
     cursors: { ...cursors },
     streamingText: {},
     streamingThinking: {},
+    streamingItems: {},
     selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
   };
 }
@@ -55,6 +60,7 @@ export function applyProtocolDelta(
     seq: number;
     skipped?: number;
     sessionId: string;
+    itemId: string;
     channel: "text" | "thinking";
     text: string;
   },
@@ -65,16 +71,20 @@ export function applyProtocolDelta(
   if (delta.fromSeq !== expected || delta.seq < delta.fromSeq) {
     return { state: withGap(current, delta.streamId, expected, delta.fromSeq), applied: false };
   }
+  // Deltas name their item, so a run belonging to a superseded item starts a
+  // fresh buffer rather than appending to the message already on screen.
+  const active = current.streamingItems[delta.sessionId];
+  const replaced = active !== undefined && active !== delta.itemId;
   const field = delta.channel === "thinking" ? "streamingThinking" : "streamingText";
-  const values = current[field];
+  const other = delta.channel === "thinking" ? "streamingText" : "streamingThinking";
+  const existing = replaced ? "" : current[field][delta.sessionId] ?? "";
   return {
     state: {
       ...current,
       cursors: { ...current.cursors, [delta.streamId]: delta.seq },
-      [field]: {
-        ...values,
-        [delta.sessionId]: `${values[delta.sessionId] ?? ""}${delta.text}`,
-      },
+      streamingItems: { ...current.streamingItems, [delta.sessionId]: delta.itemId },
+      [field]: { ...current[field], [delta.sessionId]: `${existing}${delta.text}` },
+      ...(replaced ? { [other]: { ...current[other], [delta.sessionId]: "" } } : {}),
     },
     applied: true,
   };
@@ -94,6 +104,7 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
   let kernel = current.kernel;
   let streamingText = current.streamingText;
   let streamingThinking = current.streamingThinking;
+  let streamingItems = current.streamingItems;
   if (event.type === "daemon.state") {
     const daemon = payload["daemon"];
     if (isRecord(daemon) && typeof daemon["phase"] === "string" && typeof payload["revision"] === "number") {
@@ -108,11 +119,22 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
     };
   }
   const session = payload["session"];
-  if (isSessionView(session)) {
+  if (isSessionMetadata(session)) {
+    // A payload without a transcript updates status, usage and queue only; the
+    // messages a client already holds stay in place. One that carries the tail
+    // re-establishes the transcript, which is what makes it authoritative.
+    const existing = kernel.sessions[session.sessionId];
+    const next: SessionView = isSessionView(session)
+      ? structuredClone(session)
+      : {
+        ...structuredClone(session),
+        messages: existing?.messages ?? [],
+        messageOffset: existing?.messageOffset ?? 0,
+      };
     kernel = {
       ...kernel,
       revision: numericRevision(payload, kernel.revision),
-      sessions: { ...kernel.sessions, [session.sessionId]: structuredClone(session) },
+      sessions: { ...kernel.sessions, [session.sessionId]: next },
     };
   }
   if (event.type === "session.closed" && typeof payload["sessionId"] === "string") {
@@ -120,29 +142,64 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
     delete sessions[payload["sessionId"]];
     streamingText = withoutSession(streamingText, payload["sessionId"]);
     streamingThinking = withoutSession(streamingThinking, payload["sessionId"]);
+    streamingItems = withoutSession(streamingItems, payload["sessionId"]);
     kernel = { ...kernel, revision: numericRevision(payload, kernel.revision), sessions };
   }
-  if (event.type === "message.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-    streamingText = {
-      ...streamingText,
-      [payload["sessionId"]]: `${streamingText[payload["sessionId"]] ?? ""}${payload["delta"]}`,
-    };
-  }
-  if (event.type === "message.thinking.delta" && typeof payload["sessionId"] === "string" && typeof payload["delta"] === "string") {
-    streamingThinking = {
-      ...streamingThinking,
-      [payload["sessionId"]]: `${streamingThinking[payload["sessionId"]] ?? ""}${payload["delta"]}`,
-    };
-  }
   const streamSessionId = typeof payload["sessionId"] === "string" ? payload["sessionId"] : undefined;
-  const startsAssistantMessage = event.type === "message.started" && payload["role"] === "assistant";
-  const finishesStreaming = event.type === "message.completed"
+  if (event.type === "transcript.item.started" && streamSessionId) {
+    const item = asRecord(payload["item"]);
+    if (typeof item["id"] === "string") {
+      streamingItems = { ...streamingItems, [streamSessionId]: item["id"] };
+      streamingText = withoutSession(streamingText, streamSessionId);
+      streamingThinking = withoutSession(streamingThinking, streamSessionId);
+    }
+  }
+  if (event.type === "transcript.delta" && streamSessionId && typeof payload["delta"] === "string") {
+    const itemId = typeof payload["itemId"] === "string" ? payload["itemId"] : undefined;
+    // A delta names its item, so one belonging to a superseded item starts a
+    // fresh buffer instead of appending to whatever is on screen.
+    const current = streamingItems[streamSessionId];
+    const replaced = itemId !== undefined && current !== undefined && current !== itemId;
+    if (itemId !== undefined && current !== itemId) streamingItems = { ...streamingItems, [streamSessionId]: itemId };
+    const field = payload["kind"] === "thinking" ? "thinking" : "text";
+    const text = replaced ? "" : streamingText[streamSessionId] ?? "";
+    const think = replaced ? "" : streamingThinking[streamSessionId] ?? "";
+    if (field === "thinking") {
+      streamingThinking = { ...streamingThinking, [streamSessionId]: `${think}${payload["delta"]}` };
+      if (replaced) streamingText = { ...streamingText, [streamSessionId]: "" };
+    } else {
+      streamingText = { ...streamingText, [streamSessionId]: `${text}${payload["delta"]}` };
+      if (replaced) streamingThinking = { ...streamingThinking, [streamSessionId]: "" };
+    }
+  }
+  if (event.type === "transcript.item.finished" && streamSessionId && !isSessionView(session)) {
+    // The event carries the finished item in full, so the transcript grows by
+    // appending it rather than by re-sending the messages around it. `run.settled`
+    // still ships the authoritative tail, which reconciles any drift.
+    const item = asRecord(payload["item"]);
+    const existing = kernel.sessions[streamSessionId];
+    if (existing && typeof item["role"] === "string" && typeof item["text"] === "string") {
+      kernel = {
+        ...kernel,
+        sessions: {
+          ...kernel.sessions,
+          [streamSessionId]: {
+            ...existing,
+            messages: [...existing.messages, { role: item["role"], text: item["text"] }],
+            messageCount: existing.messageCount + 1,
+          },
+        },
+      };
+    }
+  }
+  const finishesStreaming = event.type === "transcript.item.finished"
     || event.type === "run.settled"
     || event.type === "runtime.error"
     || event.type === "session.replaced";
-  if (streamSessionId && (startsAssistantMessage || finishesStreaming)) {
+  if (streamSessionId && finishesStreaming) {
     streamingText = withoutSession(streamingText, streamSessionId);
     streamingThinking = withoutSession(streamingThinking, streamSessionId);
+    streamingItems = withoutSession(streamingItems, streamSessionId);
   }
   if (event.type === "approval.requested" && isRecord(payload["request"]) && typeof payload["request"]["id"] === "string") {
     const request = payload["request"] as unknown as KernelState["approvals"][string];
@@ -199,6 +256,7 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
       cursors: { ...current.cursors, [event.streamId]: event.seq },
       streamingText,
       streamingThinking,
+      streamingItems,
       selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
     },
     applied: true,
@@ -234,15 +292,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isSessionView(value: unknown): value is SessionView {
+function isSessionMetadata(value: unknown): value is SessionMetadata {
   return (
     isRecord(value)
     && typeof value["sessionId"] === "string"
     && typeof value["upstreamSessionId"] === "string"
     && typeof value["cwd"] === "string"
     && (value["status"] === "idle" || value["status"] === "running" || value["status"] === "failed")
-    && Array.isArray(value["messages"])
-    && typeof value["messageOffset"] === "number"
     && typeof value["messageCount"] === "number"
   );
+}
+
+function isSessionView(value: unknown): value is SessionView {
+  return isSessionMetadata(value) && Array.isArray((value as SessionView).messages)
+    && typeof (value as SessionView).messageOffset === "number";
 }
