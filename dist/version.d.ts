@@ -1,4 +1,4 @@
-export declare const PSPORE_VERSION = "0.1.16";
+export declare const PSPORE_VERSION = "0.1.17";
 export declare const PROTOCOL_VERSION: 1;
 export declare const PI_VERSION = "0.84.1";
 export declare const PI_TAG_COMMIT = "53fa77ccd8a279eb87e92294ef3687b03ff80112";
