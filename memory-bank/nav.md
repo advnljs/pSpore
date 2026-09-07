@@ -18,6 +18,7 @@
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `bundled-skills/` | 随发行版携带的 skills；启动时由守护进程链接进 `workspace/skills/<name>`，见 `src/plugins/bundled-skills.ts` |
 | `src/plugins/bundled-skills.ts` | 发行版 skills 的读取、asar-unpacked 路径解析、workspace 链接与版本比对升级 |
+| `src/domain/indexing.ts` | 索引状态的纯类型与初始值；`KernelState` 经渲染器导入，因此这里必须不含任何 Node 内置模块 |
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
@@ -41,6 +42,7 @@
 | `src/settings/` | GUI/TUI/CLI 共用 LLM schema、三类 Provider、私有 Key 与持久化 service |
 | `src/sessions/session-file.ts` | Pi session JSONL canonical path、缺失叶兼容与 root/symlink 边界校验 |
 | `src/ui/shared/` | GUI/TUI 共用 protocol reducer、presentation/input routing 与 `CoworkActivity` 事件归一/脱敏 |
+| `test/unit/renderer-module-graph.test.ts` | 静态遍历渲染器 import 图，禁止其触达 Node 内置模块（沙箱渲染器加载不了，类型检查与 x64 CI 都发现不了）|
 | `src/ui/shared/markdown.ts` | 共享纯 Markdown 解析器（CommonMark/GFM 子集），无 DOM 依赖、可单测 |
 | `src/ui/shared/virtual-list.ts` | GUI 变高虚拟历史的 Fenwick 索引，以及“接近底部”尾随状态判定 |
 | `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制与惰性链接 |
