@@ -609,8 +609,22 @@ function assertSmokeReport(report, fixture) {
         if (report.probe.globals[global] !== "undefined")
             failures.push(`renderer exposes ${global}`);
     }
-    if (report.probe.apiKeys.join(",") !== "bootstrap,dispatch,getPathForFile,getSettings,saveSettings,subscribe")
-        failures.push("preload API surface changed");
+    // Pinned deliberately: the preload is the renderer's only capability surface,
+    // so a new method must be a conscious change rather than an accident.
+    const expectedApi = [
+        "bootstrap",
+        "dispatch",
+        "getIndexing",
+        "getPathForFile",
+        "getSettings",
+        "pickIndexDirectory",
+        "saveIndexing",
+        "saveSettings",
+        "subscribe",
+    ].join(",");
+    if (report.probe.apiKeys.join(",") !== expectedApi) {
+        failures.push(`preload API surface changed: ${report.probe.apiKeys.join(",")} (expected ${expectedApi})`);
+    }
     if (!report.ipcProbe.jobsArray)
         failures.push("allowlisted IPC round trip failed");
     if (!report.ipcProbe.rejected || !report.ipcProbe.rejectionMessage.includes("not allowlisted"))

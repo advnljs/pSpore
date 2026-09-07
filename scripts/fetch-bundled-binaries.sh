@@ -38,18 +38,14 @@ fi
 for tool in python3; do
   command -v "$tool" >/dev/null || { echo "Error: ${tool} is required" >&2; exit 1; }
 done
-# A private upstream repository serves release assets only to authenticated
-# requests, so gh is preferred and curl is the fallback for public releases.
-DOWNLOADER=""
-if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
-  DOWNLOADER="gh"
-elif command -v curl >/dev/null; then
-  DOWNLOADER="curl"
-else
-  echo "Error: need either an authenticated gh, or curl for a public release" >&2
-  exit 1
+# Downloading is done with python3 rather than gh or curl: the ARM build
+# container ships neither, and a private upstream repository serves release
+# assets only to authenticated requests. python3 and ca-certificates are already
+# present everywhere this runs.
+TOKEN="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
+if [[ -z "$TOKEN" ]]; then
+  echo "==> no GH_TOKEN; only a public release can be downloaded"
 fi
-echo "==> downloading with ${DOWNLOADER}"
 
 # One entry per skill; each names the upstream release asset and its digest.
 mapfile -t ENTRIES < <(python3 - "$MANIFEST" "$ARCH" <<'PY'
@@ -72,7 +68,6 @@ trap 'rm -rf -- "$WORK"' EXIT
 for entry in "${ENTRIES[@]}"; do
   IFS=$'\t' read -r NAME REPOSITORY VERSION ASSET SHA256 BINARY_PATH <<< "$entry"
   DESTINATION="$REPO_ROOT/bundled-skills/${NAME}/bin"
-  URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}/${ASSET}"
 
   echo "==> ${NAME} ${VERSION} (${ARCH})"
   if [[ "$SHA256" =~ ^0+$ ]]; then
@@ -80,16 +75,46 @@ for entry in "${ENTRIES[@]}"; do
     echo "       Publish the upstream release, then record its real SHA-256 there." >&2
     exit 1
   fi
-  if [[ "$DOWNLOADER" == "gh" ]]; then
-    echo "--- gh release download v${VERSION} ${ASSET} from ${REPOSITORY}"
-    gh release download "v${VERSION}" --repo "$REPOSITORY" --pattern "$ASSET" --dir "$WORK" --clobber
-  else
-    echo "--- ${URL}"
-    if ! curl -fsSL --retry 3 --retry-delay 2 "$URL" -o "$WORK/${ASSET}"; then
-      echo "Error: could not download ${ASSET}." >&2
-      echo "       If ${REPOSITORY} is private, authenticate gh (gh auth login) or set GH_TOKEN." >&2
-      exit 1
-    fi
+  echo "--- ${REPOSITORY} v${VERSION} ${ASSET}"
+  if ! TOKEN="$TOKEN" python3 - "$REPOSITORY" "v${VERSION}" "$ASSET" "$WORK/${ASSET}" <<'DOWNLOAD'
+import os, sys, json, urllib.request, urllib.error
+
+repository, tag, asset_name, destination = sys.argv[1:5]
+token = os.environ.get("TOKEN") or ""
+
+def request(url, accept):
+    headers = {"Accept": accept, "User-Agent": "pspore-bundled-binaries"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return urllib.request.Request(url, headers=headers)
+
+try:
+    # The asset id is needed because the browser download URL is not served to
+    # API tokens for a private repository.
+    with urllib.request.urlopen(
+        request(f"https://api.github.com/repos/{repository}/releases/tags/{tag}",
+                "application/vnd.github+json"), timeout=60) as response:
+        release = json.load(response)
+except urllib.error.HTTPError as error:
+    print(f"Cannot read release {tag} of {repository}: HTTP {error.code}", file=sys.stderr)
+    if error.code in (401, 403, 404) and not token:
+        print("The repository may be private; set GH_TOKEN with read access.", file=sys.stderr)
+    raise SystemExit(1)
+
+asset = next((a for a in release.get("assets", []) if a["name"] == asset_name), None)
+if asset is None:
+    print(f"Release {tag} has no asset named {asset_name}", file=sys.stderr)
+    raise SystemExit(1)
+
+with urllib.request.urlopen(
+    request(asset["url"], "application/octet-stream"), timeout=600) as response, \
+        open(destination, "wb") as handle:
+    while chunk := response.read(1 << 20):
+        handle.write(chunk)
+DOWNLOAD
+  then
+    echo "Error: could not download ${ASSET}" >&2
+    exit 1
   fi
 
   ACTUAL="$(sha256sum "$WORK/${ASSET}" | awk '{print $1}')"

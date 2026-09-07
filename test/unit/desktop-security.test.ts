@@ -84,3 +84,28 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
+
+test("the preload surface and the smoke's pinned list stay in step", async () => {
+  // The preload is the renderer's only capability surface, so the Electron smoke
+  // pins it. Comparing the two here means adding a method is caught in seconds
+  // rather than by the single CI job that runs a real Electron.
+  const { readFile } = await import("node:fs/promises");
+  const { resolve } = await import("node:path");
+  const root = resolve(import.meta.dirname, "../..");
+
+  const preload = await readFile(resolve(root, "src/desktop/preload.cjs"), "utf8");
+  const frozen = preload.slice(preload.indexOf("const api = Object.freeze({"));
+  const exposed = [...frozen.matchAll(/^ {2}(\w+)\(/gm)].map((match) => match[1]).sort();
+
+  const main = await readFile(resolve(root, "src/desktop/main.ts"), "utf8");
+  const pinned = main.match(/const expectedApi = \[([\s\S]*?)\]\.join/);
+  assert.ok(pinned, "main.ts must pin the expected preload API surface");
+  const expected = [...(pinned[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+
+  assert.ok(exposed.length > 3, `expected a real API surface, parsed ${exposed.join(",")}`);
+  assert.deepEqual(
+    exposed,
+    expected,
+    "preload.cjs and the smoke's pinned list disagree; update both deliberately",
+  );
+});

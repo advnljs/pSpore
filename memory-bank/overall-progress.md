@@ -887,3 +887,11 @@
   - 语料中 near/far 交错是我构造时长度与词频不一致所致，非 boost 失效：在等长等词频的受控实验中，整串/拆字为 **130 倍**、近距离/远距离为 **11.3 倍**，三个 boost 均确认生效。
 - **新增回归守护**：`test/integration/aegis-search-ranking.test.ts` 用真实二进制锁定四条不变量（整串优先、近距优先、单词查询要求完整短语、按时间排序且 JSON 中 score 为有限数）。二进制未随包时自动 `skip`，因此 CI 不会因缺少它而失败；本机有二进制时 4/4 通过。
 - 验证：`npm run check` **183/183**（有二进制），无二进制时 4 项跳过、其余全通过。
+
+
+## 2026-09-07 CST — 二进制随包发布前的两处修复
+
+- **ARM 构建容器既没有 `gh` 也没有 `curl`**（`ubuntu:20.04` 容器只装了 `python3`、`ca-certificates` 等）。原下载逻辑优先 `gh`、回退 `curl`，在 ARM 上两者皆无 → 静默走 best-effort 警告，结果会是 **x64 带二进制、ARM 不带**的不对称发布。这是读 workflow 的依赖清单时发现的，不是等它失败才发现。改为统一用 `python3` 走 GitHub API 下载（先按 tag 取 release 找到 asset id，再以 `Accept: application/octet-stream` 拉取；私有仓库的 browser URL 不对 API token 提供服务，所以必须走 asset id）。已在把 `gh`/`curl`/`wget` 全部屏蔽为 exit 127 的 PATH 下实测：校验 → 裁剪 → 安装 → 二进制可运行；无 token 时给出 `HTTP 404 / 该仓库可能是私有的，请设置 GH_TOKEN` 的明确提示。
+- **preload API 面被固定，新增方法会让 smoke 失败**：`main.ts` 用一个精确字符串固定 preload 暴露的方法名，这是有意的安全断言——preload 是渲染器唯一的能力面。本轮新增 `getIndexing`/`saveIndexing`/`pickIndexDirectory` 后未同步该列表，ARM smoke 报 `preload API surface changed`。已更新固定列表并让失败信息打印实际值与期望值。
+- **新增漂移守护**：`test/unit/desktop-security.test.ts` 增加一项用例，解析 `preload.cjs` 实际暴露的方法名与 `main.ts` 固定列表比对。已用"临时给 preload 加一个方法"验证该用例确实失败。此前这类漂移只有那个跑真实 Electron 的 ARM job 能发现。
+- 验证：`npm run check` **184/184**。
