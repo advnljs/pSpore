@@ -101,12 +101,18 @@ jobs:
           # The release workflow rebuilds ARM64 itself, but a tag is immutable:
           # letting a commit through that cannot build on ARM64 would burn the
           # version. Reuse the preview build that already runs on main.
+          # This job only starts after `check` finishes, by which point any run
+          # triggered by the same push has long since been created. A commit that
+          # misses the ARM64 path filter therefore needs only a short grace.
           DEADLINE=$(( SECONDS + 1800 ))
-          FIRST_SEEN_DEADLINE=$(( SECONDS + 300 ))
+          FIRST_SEEN_DEADLINE=$(( SECONDS + 120 ))
           while :; do
+            # `.[0]` on an empty array is null, and jq interpolates that as the
+            # string "null" — `// empty` is what makes "no run for this commit"
+            # actually produce empty output.
             RUN="$(gh run list --workflow "Package Linux ARM64" --commit "$GITHUB_SHA" \
               --json status,conclusion --limit 1 \
-              --jq '.[0] | "\(.status) \(.conclusion // "")"' || true)"
+              --jq '.[0] // empty | "\(.status) \(.conclusion // "")"' || true)"
             if [[ -z "$RUN" ]]; then
               if (( SECONDS > FIRST_SEEN_DEADLINE )); then
                 echo "No ARM64 preview run for ${GITHUB_SHA}; the release workflow will build ARM64 itself."
