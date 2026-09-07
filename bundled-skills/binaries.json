@@ -1,20 +1,21 @@
 {
-  "comment": "Native helpers for bundled skills, fetched at packaging time by scripts/fetch-bundled-binaries.sh. Pin an exact version and digest: the download is executed on the user's machine, so it is verified before it is installed.",
+  "comment": "Native helpers for bundled skills, fetched at packaging time by scripts/fetch-bundled-binaries.sh. Pin an exact version and digest: the download is executed on the user's machine, so it is verified before it is installed. The asset name embeds the version, so it is derived from assetTemplate rather than stored, which keeps a version bump from leaving a stale file name behind. binaryPath includes the architecture directory because the upstream package also ships a launcher of the same name at its root.",
   "skills": [
     {
       "name": "aegis-search",
       "repository": "advnljs/aegis-searcher",
-      "version": "0.2.0",
+      "version": "0.2.1",
+      "assetTemplate": "aegis-searcher-{version}-linux-{releaseArch}-glibc227.zip",
       "architectures": {
         "x64": {
-          "asset": "aegis-searcher-0.2.0-linux-x64-glibc227.zip",
-          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-          "binaryPath": "aegis-search"
+          "releaseArch": "x64",
+          "sha256": "42c74825d7d1bc5f15c2b7321563ff25a9e2dc203bbf6e697cabc601aa2214c9",
+          "binaryPath": "x86_64/aegis-search"
         },
         "arm64": {
-          "asset": "aegis-searcher-0.2.0-linux-arm64-glibc227.zip",
-          "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
-          "binaryPath": "aegis-search"
+          "releaseArch": "arm64",
+          "sha256": "689283cf60c64c9bd81785cf964e0758907d26e1a43e563f4e5e61cf42521b85",
+          "binaryPath": "aarch64/aegis-search"
         }
       }
     }

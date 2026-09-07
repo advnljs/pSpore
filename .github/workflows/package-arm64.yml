@@ -177,6 +177,10 @@ jobs:
         id: package
         env:
           EXPECTED_VERSION: ${{ inputs.expected_version }}
+          # Bundled skill binaries come from a separate private repository that
+          # the default GITHUB_TOKEN cannot read. Absent it, packaging still
+          # succeeds and the skill ships without its binary.
+          BUNDLED_BINARIES_TOKEN: ${{ secrets.BUNDLED_BINARIES_TOKEN }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           if [[ -n "$EXPECTED_VERSION" && "$VERSION" != "$EXPECTED_VERSION" ]]; then
@@ -189,6 +193,7 @@ jobs:
             npm_config_cache=/home/pspore-builder/.npm \
             ELECTRON_CACHE=/home/pspore-builder/.cache/electron \
             ELECTRON_BUILDER_CACHE=/home/pspore-builder/.cache/electron-builder \
+            GH_TOKEN="${BUNDLED_BINARIES_TOKEN:-}" \
             bash scripts/package-desktop.sh "$VERSION" arm64
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 

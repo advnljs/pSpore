@@ -91,6 +91,10 @@ jobs:
       - name: Package x64 desktop and standalone CLI
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
+          # Bundled skill binaries live in a separate private repository, which
+          # the default GITHUB_TOKEN cannot read. Without this the packaging step
+          # still succeeds and the skill simply ships without its binary.
+          GH_TOKEN: ${{ secrets.BUNDLED_BINARIES_TOKEN || github.token }}
         run: bash scripts/package-desktop.sh "$VERSION" x64
 
       - name: Verify x64 artifacts and checksums
@@ -139,6 +143,9 @@ jobs:
     name: Build Kylin-compatible ARM64 release assets
     needs: validate-release
     uses: ./.github/workflows/package-arm64.yml
+    # A reusable workflow receives no secrets unless they are passed; the ARM
+    # packaging needs the same read access to the bundled-binaries repository.
+    secrets: inherit
     with:
       expected_version: ${{ needs.validate-release.outputs.version }}
       artifact_name: release-assets-arm64

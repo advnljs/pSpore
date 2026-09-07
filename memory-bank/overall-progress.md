@@ -831,3 +831,18 @@
 - 验证方式与结果：`npm run check` 全绿——严格 typecheck、**174/174** 测试、production build。新增 15 项用例覆盖：bundled skill 的读取与版本校验、首次链接与幂等、旧安装路径重指向、真实目录按版本升级、**用户自有目录永不被覆盖**、单个 skill 失败不影响其余、SemVer（含 prerelease）比较、dist/源码/asar 三种布局的根解析且 unpacked 优先；索引服务的 JSON 进度解析、参数传递、失败上报后仍保留下次调度、未启用/无目录/二进制缺失三种降级。渲染层 104 个 `byId` 目标全部存在，构建产物解析通过。测试暴露并修复了 `runNow()` 的真实缺陷——它在定时器回调赋值 `#pass` 之前就 await，导致根本没等待本次索引。
 - 当前状态：pSpore 侧机制完整可用；bundled skill 目前只含 `SKILL.md`，二进制待 aegis-searcher 发 release 后接入，此前 `IndexService` 会如实报告 `unavailable`。**版本保持 0.1.15 未提升**，因此 CI 的 release job 会跳过，不会在功能未完整时发版。
 - 遗留问题：见 `todo.md` 的四项（二进制接入、C++ 编译验证、boost 调优、索引目录配置入口）。本机无 C++ 工具链与 lucene++/Qt5 开发包，aegis-searcher 的 C++ 改动只能由其自身 CI 编译验证。
+
+
+## 2026-09-07 CST — aegis-search 二进制接入完成并实机验证
+
+- 阶段目标：把 aegis-searcher 的 CLI 二进制真正接入 pSpore 的 bundled skill，并用真实二进制验证两处检索修复。
+- **aegis-searcher 侧**：PR #1 squash 合并到 master；把 loongarch cross job 标记 `continue-on-error` 并从 release 的 `needs` 移除（用户明确只做 x86_64 与 ARM64），`v0.2.0` 首次成功发布 2 项资产。随后实机验证发现 `--sort` 下 `--json` 输出 `"score":nan` 不是合法 JSON（Lucene 字段排序时不计算得分，`ScoreDoc::score` 保持 NaN），修复为非有限值输出 `0`，发布 `v0.2.1`。
+- **实机验证（真实 x64 二进制 + 真实索引）**：
+  - **排序修复确认生效**：构造等长、等词频、仅相邻性不同的两篇文档，查询「授信 业务」时相邻文档 `0.05652` vs 分离文档 `0.00043`，相差 **130 倍**。排除了长度归一化与词频影响，确认整串短语 boost 是排序差异的来源。relevance 排序的得分未被 nan 修复误清零。
+  - **时间排序**：`--sort newest` 得到 2026/2022/2019，`oldest` 相反。
+  - **过滤器修复**：`--ext md`→0、`--ext txt`→3、`--scope /nope`→0、`--scope 真实目录`→3（此前 `extFilter`/`scopePath` 被 `parse()` 完全忽略）。
+  - **端到端**：pSpore 的 `IndexService` 驱动该真实二进制完成一次索引，状态经 scanning → indexing → idle，处理 3 个文件并安排下次运行；未传 `--index` 时写入 `~/.local/share/aegis/aegis-searcher/index`，即与桌面版共用的索引目录。
+- **打包链路**：`bundled-skills/binaries.json` 改为用 `assetTemplate` 派生资产名（资产名内嵌版本号，此前版本与文件名两处重复导致 `--version` 升级后指向旧资产）。`fetch-bundled-binaries.sh` 只取 CLI 二进制与其真正加载的库：排除 ~200MB 的 Qt GUI 二进制与 Qt 插件，再按 `ldd` 闭包裁剪未使用库（74 个 → 33 个，59MB → 51MB），裁剪后复检不得出现 `not found`。私有上游仓库的 release 无法匿名下载，因此优先使用已认证的 `gh`，`curl` 作为公开 release 的回退。
+- **CI 取二进制**：`release.yml` 的 x64 打包步骤与 `package-arm64.yml`（经 `secrets: inherit` 并在 `runuser` 环境中显式转发）都接受 `secrets.BUNDLED_BINARIES_TOKEN`，缺失时回退到默认 token —— 此时打包仍成功，skill 不带二进制，运行时如实报 `unavailable`。
+- 验证方式与结果：`npm run check` 全绿（174/174），版本提升为 `0.1.16`。
+- 遗留问题：需要在 pSpore 仓库创建 `BUNDLED_BINARIES_TOKEN` secret（对 advnljs/aegis-searcher 只读的 fine-grained PAT），否则 CI 发出的包不含索引二进制。排序 boost 的 12/4/6 仍未在大规模真实语料上调优。

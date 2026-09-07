@@ -22,3 +22,7 @@ ds_key.txt
 # upstream release (scripts/fetch-bundled-binaries.sh), never committed here.
 bundled-skills/*/bin/*
 !bundled-skills/*/bin/.gitkeep
+# The build copies bundled-skills into dist/, which is tracked; the fetched
+# binaries must not follow them into the repository.
+dist/bundled-skills/*/bin/*
+!dist/bundled-skills/*/bin/.gitkeep

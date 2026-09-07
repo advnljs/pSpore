@@ -35,9 +35,21 @@ if [[ ! -f "$MANIFEST" ]]; then
   echo "Error: missing ${MANIFEST}" >&2
   exit 1
 fi
-for tool in curl unzip python3; do
+for tool in unzip python3; do
   command -v "$tool" >/dev/null || { echo "Error: ${tool} is required" >&2; exit 1; }
 done
+# A private upstream repository serves release assets only to authenticated
+# requests, so gh is preferred and curl is the fallback for public releases.
+DOWNLOADER=""
+if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
+  DOWNLOADER="gh"
+elif command -v curl >/dev/null; then
+  DOWNLOADER="curl"
+else
+  echo "Error: need either an authenticated gh, or curl for a public release" >&2
+  exit 1
+fi
+echo "==> downloading with ${DOWNLOADER}"
 
 # One entry per skill; each names the upstream release asset and its digest.
 mapfile -t ENTRIES < <(python3 - "$MANIFEST" "$ARCH" <<'PY'
@@ -49,7 +61,8 @@ for skill in manifest["skills"]:
     if not target:
         print(f"Error: {skill['name']} has no {arch} asset", file=sys.stderr)
         raise SystemExit(1)
-    print("\t".join([skill["name"], skill["repository"], skill["version"], target["asset"], target["sha256"], target["binaryPath"]]))
+    asset = skill["assetTemplate"].format(version=skill["version"], releaseArch=target["releaseArch"])
+    print("\t".join([skill["name"], skill["repository"], skill["version"], asset, target["sha256"], target["binaryPath"]]))
 PY
 )
 
@@ -67,8 +80,17 @@ for entry in "${ENTRIES[@]}"; do
     echo "       Publish the upstream release, then record its real SHA-256 there." >&2
     exit 1
   fi
-  echo "--- ${URL}"
-  curl -fsSL --retry 3 --retry-delay 2 "$URL" -o "$WORK/${ASSET}"
+  if [[ "$DOWNLOADER" == "gh" ]]; then
+    echo "--- gh release download v${VERSION} ${ASSET} from ${REPOSITORY}"
+    gh release download "v${VERSION}" --repo "$REPOSITORY" --pattern "$ASSET" --dir "$WORK" --clobber
+  else
+    echo "--- ${URL}"
+    if ! curl -fsSL --retry 3 --retry-delay 2 "$URL" -o "$WORK/${ASSET}"; then
+      echo "Error: could not download ${ASSET}." >&2
+      echo "       If ${REPOSITORY} is private, authenticate gh (gh auth login) or set GH_TOKEN." >&2
+      exit 1
+    fi
+  fi
 
   ACTUAL="$(sha256sum "$WORK/${ASSET}" | awk '{print $1}')"
   if [[ "$ACTUAL" != "$SHA256" ]]; then
@@ -83,24 +105,60 @@ for entry in "${ENTRIES[@]}"; do
   mkdir -p "$WORK/extract"
   unzip -q "$WORK/${ASSET}" -d "$WORK/extract"
 
-  SOURCE_DIR="$(dirname "$(find "$WORK/extract" -type f -path "*/${BINARY_PATH}" -print -quit)")"
-  if [[ -z "$SOURCE_DIR" || ! -d "$SOURCE_DIR" ]]; then
+  BINARY="$(find "$WORK/extract" -type f -path "*/${BINARY_PATH}" -print -quit)"
+  if [[ -z "$BINARY" ]]; then
     echo "Error: ${ASSET} does not contain ${BINARY_PATH}" >&2
     exit 1
   fi
+  SOURCE_DIR="$(dirname "$BINARY")"
+  ARCH_DIR="$(basename "$SOURCE_DIR")"
 
-  # The upstream package keeps the executable and its private shared libraries
-  # under an architecture directory next to a launcher that sets the library
-  # path. Copying that whole layout keeps the skill self-contained, so it works
-  # on a machine that has none of lucene++, poppler or libzip installed.
+  # Copy only what the CLI needs. The upstream package is built for the desktop
+  # application, so its architecture directory also holds the ~200 MB Qt GUI
+  # binary and Qt platform plugins; the CLI links no Qt and must not drag them
+  # into every pSpore release.
   rm -rf "$DESTINATION"
-  mkdir -p "$DESTINATION"
-  cp -a "$SOURCE_DIR" "$DESTINATION/"
-  LAUNCHER="$(find "$WORK/extract" -maxdepth 2 -type f -name "aegis-search" -not -path "*/$(basename "$SOURCE_DIR")/*" -print -quit)"
-  if [[ -n "$LAUNCHER" ]]; then
-    install -m 0755 "$LAUNCHER" "$DESTINATION/aegis-search"
+  mkdir -p "$DESTINATION/$ARCH_DIR/lib"
+  # The placeholder is what keeps bin/ tracked while its contents are ignored.
+  : > "$DESTINATION/.gitkeep"
+  install -m 0755 "$BINARY" "$DESTINATION/$ARCH_DIR/aegis-search"
+  if [[ -d "$SOURCE_DIR/lib" ]]; then
+    cp -a "$SOURCE_DIR/lib/." "$DESTINATION/$ARCH_DIR/lib/"
+    # Qt is only there for the GUI; keeping it would roughly double the payload.
+    rm -f "$DESTINATION/$ARCH_DIR/lib/"libQt5*
+
+    # Drop everything the CLI does not actually load. The upstream lib directory
+    # was collected for the desktop application, so it carries GL and X11 stacks
+    # this binary never touches. Only possible when packaging natively, because
+    # ldd cannot resolve a foreign architecture.
+    if [[ "$(uname -m)" == "$ARCH_DIR" ]] && command -v ldd >/dev/null; then
+      NEEDED="$WORK/needed.txt"
+      if LD_LIBRARY_PATH="$DESTINATION/$ARCH_DIR/lib" ldd "$DESTINATION/$ARCH_DIR/aegis-search" 2>/dev/null \
+        | awk '/=>/ {print $3}' | grep -F "$DESTINATION/$ARCH_DIR/lib/" \
+        | xargs -r -n1 basename | sort -u > "$NEEDED" && [[ -s "$NEEDED" ]]; then
+        BEFORE_MB="$(du -sm "$DESTINATION/$ARCH_DIR/lib" | cut -f1)"
+        while IFS= read -r candidate; do
+          grep -qxF "$candidate" "$NEEDED" || rm -f "$DESTINATION/$ARCH_DIR/lib/$candidate"
+        done < <(ls -1 "$DESTINATION/$ARCH_DIR/lib")
+        # Re-check: pruning must never leave the binary unable to start.
+        if LD_LIBRARY_PATH="$DESTINATION/$ARCH_DIR/lib" ldd "$DESTINATION/$ARCH_DIR/aegis-search" 2>/dev/null | grep -q "not found"; then
+          echo "Error: pruning removed a library the binary needs" >&2
+          exit 1
+        fi
+        echo "--- pruned unused libraries: ${BEFORE_MB}MB -> $(du -sm "$DESTINATION/$ARCH_DIR/lib" | cut -f1)MB"
+      fi
+    fi
   fi
-  chmod 0755 "$DESTINATION/$(basename "$SOURCE_DIR")/$(basename "$BINARY_PATH")"
+
+  # The launcher at the package root points at the architecture directory and
+  # sets LD_LIBRARY_PATH, which is what makes the skill work on a machine with
+  # no lucene++, poppler or libzip installed.
+  LAUNCHER="$(find "$WORK/extract" -maxdepth 2 -type f -name "aegis-search" -not -path "*/${ARCH_DIR}/*" -print -quit)"
+  if [[ -z "$LAUNCHER" ]]; then
+    echo "Error: ${ASSET} does not contain a top-level aegis-search launcher" >&2
+    exit 1
+  fi
+  install -m 0755 "$LAUNCHER" "$DESTINATION/aegis-search"
 
   if [[ ! -x "$DESTINATION/aegis-search" ]]; then
     echo "Error: ${NAME} is missing an executable entry point at bin/aegis-search" >&2
