@@ -19,6 +19,35 @@ export function replaceProtocolSnapshot(current, kernel, cursors) {
         selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
     };
 }
+/**
+ * Merges an older page of history in front of what a client already holds.
+ * Only prepending is supported: the newest messages arrive with events, and a
+ * page that would leave a hole is refused rather than silently reordered.
+ */
+export function applyTranscriptPage(current, page) {
+    const session = current.kernel.sessions[page.sessionId];
+    if (!session || page.from >= session.messageOffset)
+        return current;
+    if (page.from + page.messages.length < session.messageOffset)
+        return current;
+    const older = page.messages.slice(0, session.messageOffset - page.from);
+    if (older.length === 0)
+        return current;
+    return {
+        ...current,
+        kernel: {
+            ...current.kernel,
+            sessions: {
+                ...current.kernel.sessions,
+                [page.sessionId]: {
+                    ...session,
+                    messageOffset: page.from,
+                    messages: [...structuredClone(older), ...session.messages],
+                },
+            },
+        },
+    };
+}
 export function selectProtocolSession(current, id) {
     const sessionId = current.kernel.sessions[id] ? id : current.kernel.agents[id]?.sessionId;
     if (!sessionId || !current.kernel.sessions[sessionId])

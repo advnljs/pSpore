@@ -67,7 +67,7 @@ export class AgentApplication {
             case "session.snapshot": {
                 exactPayload(command.payload, [], command.type);
                 const sessionId = requiredSessionId(command);
-                return this.#sessions.has(sessionId) ? this.#snapshot(sessionId) : null;
+                return this.#sessions.has(sessionId) ? this.#view(sessionId) : null;
             }
             case "session.transcript": {
                 // Broadcasts carry only a bounded tail, so scrolling back through a long
@@ -77,16 +77,10 @@ export class AgentApplication {
                 const sessionId = requiredSessionId(command);
                 if (!this.#sessions.has(sessionId))
                     return null;
-                const snapshot = this.#snapshot(sessionId);
                 const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_TRANSCRIPT_PAGE) ?? MAX_TRANSCRIPT_PAGE;
-                const count = snapshot.messages.length;
-                const from = Math.min(optionalBoundedIndex(payload["from"], "payload.from") ?? Math.max(0, count - limit), count);
-                return {
-                    sessionId,
-                    count,
-                    from,
-                    messages: snapshot.messages.slice(from, from + limit),
-                };
+                const from = optionalBoundedIndex(payload["from"], "payload.from");
+                const page = this.#runtime.transcript(sessionId, { limit, ...(from === undefined ? {} : { from }) });
+                return { sessionId, ...page };
             }
             case "session.create": {
                 const payload = exactPayload(command.payload, ["title"], command.type);
@@ -94,7 +88,7 @@ export class AgentApplication {
                 const sessionId = generatedRootSessionId(this.#idFactory());
                 return this.#serializeSession(sessionId, async () => {
                     await this.#createRootSession(sessionId, title);
-                    return this.#snapshot(sessionId);
+                    return this.#view(sessionId);
                 });
             }
             case "session.prompt": {
@@ -360,7 +354,7 @@ export class AgentApplication {
                 });
                 if (finalViolation)
                     throw new AgentRunBudgetError(finalViolation);
-                return snapshot;
+                return this.#view(sessionId);
             }
             finally {
                 signal.removeEventListener("abort", abort);
@@ -412,7 +406,7 @@ export class AgentApplication {
     }
     snapshotAgentSession(sessionId) {
         this.#assertSession(sessionId);
-        return this.#runtime.snapshot(sessionId);
+        return this.#view(sessionId);
     }
     subscribeAgentSession(sessionId, sink) {
         this.#assertSession(sessionId);
@@ -551,14 +545,16 @@ export class AgentApplication {
             return undefined;
         });
     }
-    #snapshot(sessionId) {
+    #metadata(sessionId) {
         const snapshot = this.#runtime.snapshot(sessionId);
         const rootSession = this.#rootSessions.get(sessionId);
         return rootSession ? { ...snapshot, rootSession: structuredClone(rootSession) } : snapshot;
     }
     /** The broadcast shape: session metadata plus a bounded transcript tail. */
     #view(sessionId) {
-        return toSessionView(this.#snapshot(sessionId));
+        const metadata = this.#metadata(sessionId);
+        const page = this.#runtime.transcript(sessionId, { limit: SESSION_VIEW_TAIL_MESSAGES });
+        return { ...metadata, messageOffset: page.from, messages: page.messages };
     }
     async #publishSnapshot(snapshot) {
         await this.#kernel.dispatch({
@@ -680,12 +676,6 @@ function generatedRootSessionId(value) {
         throw new Error("Generated root session id is invalid");
     }
     return id;
-}
-/** Builds the bounded broadcast view of a runtime snapshot. */
-function toSessionView(snapshot) {
-    const { messages, ...metadata } = snapshot;
-    const offset = Math.max(0, messages.length - SESSION_VIEW_TAIL_MESSAGES);
-    return { ...metadata, messageOffset: offset, messages: offset === 0 ? messages : messages.slice(offset) };
 }
 function optionalBoundedIndex(value, path, maximum = Number.MAX_SAFE_INTEGER) {
     if (value === undefined)

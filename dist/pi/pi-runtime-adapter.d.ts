@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, AgentSnapshot, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, ToolGate } from "../domain/runtime.js";
+import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptPage } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 type Clock = () => Date;
 type IdFactory = () => string;
@@ -28,17 +28,22 @@ export declare class PiRuntimeAdapter implements AgentRuntimePort {
     promoteFollowUp(sessionId: SessionId, index: number): Promise<Accepted>;
     abort(sessionId: SessionId, _reason: string): Promise<void>;
     compact(sessionId: SessionId, instructions?: string): Promise<void>;
-    snapshot(sessionId: SessionId): AgentSnapshot;
+    snapshot(sessionId: SessionId): SessionMetadata;
     subscribe(sessionId: SessionId, sink: (event: RuntimeEvent) => void): () => void;
     waitForIdle(sessionId: SessionId): Promise<void>;
     newSession(sessionId: SessionId): Promise<AgentHandle>;
     switchSession(sessionId: SessionId, sessionFile: string): Promise<AgentHandle>;
     /**
-     * The persisted branch, including entries compaction has already dropped from
-     * the model context. It is materialised on demand because it grows without
-     * bound: rebuilding it inside every snapshot made streaming cost grow with
-     * the length of the conversation.
+     * A slice of the persisted branch, which keeps entries a compaction has
+     * already dropped from the model's context. Only the requested slice is
+     * rendered to text: doing that for the whole branch is what made every
+     * streamed token cost as much as the conversation was long.
      */
+    transcript(sessionId: SessionId, options: {
+        from?: number;
+        limit: number;
+    }): TranscriptPage;
+    /** The persisted branch's message entries, unrendered. */
     branch(sessionId: SessionId): readonly RuntimeMessage[];
     fork(sessionId: SessionId, entryId: string, position?: "before" | "at"): Promise<AgentHandle>;
     dispose(sessionId: SessionId): Promise<void>;

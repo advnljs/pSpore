@@ -994,3 +994,21 @@
   - 说明：把 `transcript.item.finished` 从"携带尾窗"改为"客户端追加"之前，字节数是 11.0 MiB（比阶段 1 还略高，因为 delta 多了 itemId/kind 字段）。真正的收益来自不再重复搬运尾窗。
 - 当前状态：非结算事件的 payload 与会话长度完全无关；transcript 只在产生时传一次。
 - 下一步（阶段 3）：GUI 虚拟列表滚到顶时用 `session.transcript` 向前翻页；历史改从持久化分支读，使 compaction 后仍能看到完整对话；单条超长消息改为"截断 + 按需取全文"。
+
+
+## 2026-09-07 CST — 阶段 3／3：历史分页与运行时不再物化 transcript
+
+- 阶段目标：把"客户端只能看到最近 200 条"这个阶段 1 的取舍还回去，并让守护进程本身也不再随手物化整份对话。
+- 完成内容：
+  - **`AgentRuntimePort` 换形**：`snapshot()` 返回 `SessionMetadata`（**不含 messages**），新增 `transcript(sessionId, {from, limit})` 返回 `TranscriptPage`。`AgentSnapshot` 类型被删除——守护进程里已经没有任何地方需要"整份 transcript"这个对象。
+  - **历史读持久化分支**：`transcript()` 走 `sessionManager.getBranch()` 而不是模型 context，因此 **compaction 之后仍能翻到被压缩掉的对话**。只渲染被请求的那一段文本；`messageCount` 只数条目不渲染文本；`firstUserText` 带缓存并在 fork/newSession 时失效。
+  - **GUI 滚动回溯**：滚到距顶 240px 时自动请求前一页（200 条），合并后按"距底距离"复位视口而不是按 scrollTop，因此不跳动；虚拟列表的 key 改用**绝对位置**（`messageOffset + index`），前插历史不会让已测高度全部失效。
+  - **TUI 回溯**：PageUp 到已加载历史顶部时发同样的请求；失败只在状态行提示。
+  - **共享 `applyTranscriptPage`**：只允许前插，拒绝会留下空洞的页与已覆盖的重复页。
+  - `session.snapshot` 命令改为返回有界的 `SessionView`（此前是完整 transcript），CLI/GUI/TUI 的用法不变。
+- 修改文件：`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/application/agent-application.ts`、`src/agents/agent-manager.ts`、`src/ui/shared/protocol-state.ts`、`src/ui/tui/{store,view,tui-app}.ts`、`src/desktop/renderer/{store,renderer}.ts`、`src/cli/main.ts`、相应测试、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：**199/199**（严格 typecheck + 全量测试 + production build）。新增用例：真实 Pi adapter 手动 compaction 之后 `transcript()` 仍能取到被压缩掉的 `create history 0`，且默认尾页定位正确；`applyTranscriptPage` 的前插、空洞拒绝与重复拒绝三条路径。
+  - 压测（同一场景）：1036 ms、0 次断开、单客户端 5.9 MiB、堆 124 MiB。
+- 当前状态：三阶段完成。事件只描述变化，快照与会话长度解耦，历史按需分页且比改造前更完整（compaction 不再吞掉可见历史）。
+- 遗留：GUI 回溯的实机滚动手感只有 CI 的 Electron smoke 覆盖，本机无 `xvfb-run`/`libnspr4`；`limits.ts` 的整体预算现在只是安全网，正常路径不会触发。

@@ -1,5 +1,5 @@
 import { applyCoworkActivityEvent } from "../shared/activity.js";
-import { applyProtocolEvent, initialProtocolUiState, replaceProtocolSnapshot, selectProtocolSession, } from "../shared/protocol-state.js";
+import { applyProtocolEvent, applyTranscriptPage as mergeTranscriptPage, initialProtocolUiState, replaceProtocolSnapshot, selectProtocolSession, } from "../shared/protocol-state.js";
 /** Matches the desktop settle window so both shells report outages alike. */
 export const TUI_CONNECTION_SETTLE_MS = 2_000;
 export class TuiStore {
@@ -88,6 +88,15 @@ export class TuiStore {
         const protocol = selectProtocolSession(protocolState(this.#state), id);
         this.#state = { ...this.#state, ...protocol, notice: `Selected ${id}` };
         return protocol.selectedSessionId;
+    }
+    /** Merges an older page of history fetched by the scrollback request. */
+    applyTranscriptPage(page) {
+        const current = protocolState(this.#state);
+        const next = mergeTranscriptPage(current, page);
+        if (next === current)
+            return false;
+        this.#state = { ...this.#state, ...next };
+        return true;
     }
     applyEvent(event) {
         const result = applyProtocolEvent(protocolState(this.#state), event);

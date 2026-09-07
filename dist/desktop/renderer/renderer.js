@@ -33,6 +33,7 @@ let composerFileReferences = [];
 const transcriptState = {
     sessionId: "",
     count: -1,
+    loadingHistory: false,
     heights: new VirtualHeightIndex(180),
     nodes: new Map(),
     measureFrame: undefined,
@@ -42,6 +43,9 @@ const transcriptState = {
     followTail: true,
 };
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
+/** Distance from the top that triggers loading the page before the tail. */
+const HISTORY_BACKFILL_TRIGGER_PX = 240;
+const HISTORY_PAGE_SIZE = 200;
 const elements = {
     appShell: byId("app-shell"),
     topbar: document.querySelector(".topbar") ?? missingElement(".topbar"),
@@ -231,7 +235,7 @@ function bindStaticActions() {
     elements.refresh.addEventListener("click", () => void refreshSideData());
     elements.newSession.addEventListener("click", () => {
         void perform("新建会话", { action: "session.create" }, (result) => {
-            if (!isAgentSnapshot(result))
+            if (!isSessionView(result))
                 throw new Error("服务返回了无效的会话");
             store.selectSession(result.sessionId);
             elements.composerInput.focus();
@@ -888,7 +892,56 @@ function scheduleTranscriptRender() {
 }
 function handleTranscriptScroll() {
     transcriptState.followTail = isScrollNearEnd(elements.transcript.scrollHeight, elements.transcript.scrollTop, elements.transcript.clientHeight);
+    if (elements.transcript.scrollTop < HISTORY_BACKFILL_TRIGGER_PX)
+        void loadOlderHistory();
     scheduleTranscriptRender();
+}
+/**
+ * Broadcasts carry only the newest part of a conversation, so scrolling to the
+ * top asks the daemon for the page before it. The viewport is pinned to the
+ * message the reader was looking at rather than to a scroll offset that the
+ * prepended history has just moved.
+ */
+async function loadOlderHistory() {
+    if (transcriptState.loadingHistory)
+        return;
+    const snapshot = store.snapshot();
+    const sessionId = snapshot.selectedSessionId;
+    const session = snapshot.kernel.sessions[sessionId];
+    if (!session || session.messageOffset === 0)
+        return;
+    const from = Math.max(0, session.messageOffset - HISTORY_PAGE_SIZE);
+    transcriptState.loadingHistory = true;
+    try {
+        const page = await dispatchAcrossReconnect({
+            action: "session.transcript",
+            sessionId,
+            from,
+            limit: session.messageOffset - from,
+        });
+        if (!isTranscriptPage(page) || page.sessionId !== store.snapshot().selectedSessionId)
+            return;
+        const anchor = elements.transcript.scrollHeight - elements.transcript.scrollTop;
+        if (!store.applyTranscriptPage(page))
+            return;
+        render();
+        elements.transcript.scrollTop = Math.max(0, elements.transcript.scrollHeight - anchor);
+    }
+    catch {
+        // A refused or disconnected backfill simply leaves the history where it is.
+    }
+    finally {
+        transcriptState.loadingHistory = false;
+    }
+}
+function isTranscriptPage(value) {
+    if (typeof value !== "object" || value === null)
+        return false;
+    const page = value;
+    return typeof page["sessionId"] === "string"
+        && typeof page["from"] === "number"
+        && typeof page["count"] === "number"
+        && Array.isArray(page["messages"]);
 }
 function renderHeader(snapshot) {
     // The settled state is what the header shows: a reconnect that finishes inside
@@ -1013,8 +1066,11 @@ function renderConversation(snapshot) {
     const messagesChanged = transcriptState.messageSource !== messages;
     if (messagesChanged) {
         transcriptState.messageSource = messages;
+        // Keyed by absolute transcript position, so prepending older history keeps
+        // the keys — and therefore the measured heights — of what is on screen.
+        const offset = session?.messageOffset ?? 0;
         transcriptState.items = messages.map((message, index) => ({
-            key: messageVirtualKey(message, index),
+            key: messageVirtualKey(message, offset + index),
             message,
         }));
     }
@@ -1606,7 +1662,7 @@ function isResourceEntry(value) {
 function isInspection(value) {
     return isRecord(value) && value["version"] === 1 && typeof value["name"] === "string" && typeof value["digest"] === "string" && Array.isArray(value["files"]);
 }
-function isAgentSnapshot(value) {
+function isSessionView(value) {
     return isRecord(value)
         && typeof value["sessionId"] === "string"
         && typeof value["upstreamSessionId"] === "string"

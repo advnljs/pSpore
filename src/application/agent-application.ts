@@ -6,10 +6,10 @@ import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js
 import type {
   AgentRuntimePort,
   AgentSessionSpec,
-  AgentSnapshot,
   RootSessionMetadata,
   RuntimeEvent,
   SessionId,
+  SessionMetadata,
   SessionView,
 } from "../domain/runtime.js";
 import type { KernelLoop } from "../kernel/loop.js";
@@ -156,7 +156,7 @@ export class AgentApplication implements AgentSessionHost {
       case "session.snapshot": {
         exactPayload(command.payload, [], command.type);
         const sessionId = requiredSessionId(command);
-        return this.#sessions.has(sessionId) ? this.#snapshot(sessionId) : null;
+        return this.#sessions.has(sessionId) ? this.#view(sessionId) : null;
       }
       case "session.transcript": {
         // Broadcasts carry only a bounded tail, so scrolling back through a long
@@ -165,19 +165,10 @@ export class AgentApplication implements AgentSessionHost {
         const payload = exactPayload(command.payload, ["from", "limit"], command.type);
         const sessionId = requiredSessionId(command);
         if (!this.#sessions.has(sessionId)) return null;
-        const snapshot = this.#snapshot(sessionId);
         const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_TRANSCRIPT_PAGE) ?? MAX_TRANSCRIPT_PAGE;
-        const count = snapshot.messages.length;
-        const from = Math.min(
-          optionalBoundedIndex(payload["from"], "payload.from") ?? Math.max(0, count - limit),
-          count,
-        );
-        return {
-          sessionId,
-          count,
-          from,
-          messages: snapshot.messages.slice(from, from + limit),
-        };
+        const from = optionalBoundedIndex(payload["from"], "payload.from");
+        const page = this.#runtime.transcript(sessionId, { limit, ...(from === undefined ? {} : { from }) });
+        return { sessionId, ...page };
       }
       case "session.create": {
         const payload = exactPayload(command.payload, ["title"], command.type);
@@ -185,7 +176,7 @@ export class AgentApplication implements AgentSessionHost {
         const sessionId = generatedRootSessionId(this.#idFactory());
         return this.#serializeSession(sessionId, async () => {
           await this.#createRootSession(sessionId, title);
-          return this.#snapshot(sessionId);
+          return this.#view(sessionId);
         });
       }
       case "session.prompt": {
@@ -404,7 +395,7 @@ export class AgentApplication implements AgentSessionHost {
     this.#resources = resources;
   }
 
-  executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot> {
+  executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<SessionView> {
     const activity = run.activity;
     if (activity.kind !== "agent") throw new Error(`Run ${run.id} is not an agent activity`);
     const sessionId = `run:${run.id}`;
@@ -461,7 +452,7 @@ export class AgentApplication implements AgentSessionHost {
           cost: snapshot.usage.costUsd,
         });
         if (finalViolation) throw new AgentRunBudgetError(finalViolation);
-        return snapshot;
+        return this.#view(sessionId);
       } finally {
         signal.removeEventListener("abort", abort);
         unsubscribeBudget();
@@ -515,9 +506,9 @@ export class AgentApplication implements AgentSessionHost {
     await this.#runtime.abort(sessionId, reason);
   }
 
-  snapshotAgentSession(sessionId: string): AgentSnapshot {
+  snapshotAgentSession(sessionId: string): SessionView {
     this.#assertSession(sessionId);
-    return this.#runtime.snapshot(sessionId);
+    return this.#view(sessionId);
   }
 
   subscribeAgentSession(sessionId: string, sink: (event: RuntimeEvent) => void): () => void {
@@ -664,7 +655,7 @@ export class AgentApplication implements AgentSessionHost {
     });
   }
 
-  #snapshot(sessionId: SessionId): AgentSnapshot {
+  #metadata(sessionId: SessionId): SessionMetadata {
     const snapshot = this.#runtime.snapshot(sessionId);
     const rootSession = this.#rootSessions.get(sessionId);
     return rootSession ? { ...snapshot, rootSession: structuredClone(rootSession) } : snapshot;
@@ -672,7 +663,9 @@ export class AgentApplication implements AgentSessionHost {
 
   /** The broadcast shape: session metadata plus a bounded transcript tail. */
   #view(sessionId: SessionId): SessionView {
-    return toSessionView(this.#snapshot(sessionId));
+    const metadata = this.#metadata(sessionId);
+    const page = this.#runtime.transcript(sessionId, { limit: SESSION_VIEW_TAIL_MESSAGES });
+    return { ...metadata, messageOffset: page.from, messages: page.messages };
   }
 
   async #publishSnapshot(snapshot: SessionView): Promise<void> {
@@ -803,13 +796,6 @@ function generatedRootSessionId(value: string): string {
     throw new Error("Generated root session id is invalid");
   }
   return id;
-}
-
-/** Builds the bounded broadcast view of a runtime snapshot. */
-function toSessionView(snapshot: AgentSnapshot): SessionView {
-  const { messages, ...metadata } = snapshot;
-  const offset = Math.max(0, messages.length - SESSION_VIEW_TAIL_MESSAGES);
-  return { ...metadata, messageOffset: offset, messages: offset === 0 ? messages : messages.slice(offset) };
 }
 
 function optionalBoundedIndex(value: unknown, path: string, maximum = Number.MAX_SAFE_INTEGER): number | undefined {

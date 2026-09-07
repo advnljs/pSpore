@@ -21,6 +21,8 @@ export interface TuiViewOptions {
   onSubmit: (input: string) => void;
   onInterrupt: () => void;
   onBack: () => void;
+  /** Asked for when the reader scrolls past the oldest loaded message. */
+  onScrollBack?: () => void;
 }
 
 export interface TuiRenderOptions {
@@ -97,6 +99,9 @@ export class PsporeTuiView implements Component, Focusable {
       this.#scrollOffset = this.#options.state().panel
         ? Math.max(0, this.#scrollOffset - Math.max(4, this.#options.height() - 14))
         : this.#scrollOffset + Math.max(4, this.#options.height() - 14);
+      // Broadcasts carry only the newest messages, so reading further back has
+      // to ask the daemon for the page before them.
+      if (!this.#options.state().panel) this.#options.onScrollBack?.();
       this.#options.requestRender();
       return;
     }

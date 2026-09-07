@@ -1,7 +1,7 @@
 import type { AgentSessionHost } from "../agents/agent-manager.js";
 import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "../agents/types.js";
 import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";
-import type { AgentRuntimePort, AgentSessionSpec, AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
+import type { AgentRuntimePort, AgentSessionSpec, RuntimeEvent, SessionView } from "../domain/runtime.js";
 import type { KernelLoop } from "../kernel/loop.js";
 import type { McpHealthRecord, McpToolDescriptor } from "../mcp/types.js";
 import type { NotificationService } from "../notifications/notification-service.js";
@@ -78,14 +78,14 @@ export declare class AgentApplication implements AgentSessionHost {
     restoreRootSessions(): Promise<Error[]>;
     setMcp(mcp: McpControl): void;
     setResources(resources: ResourceControl): void;
-    executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<AgentSnapshot>;
+    executeAgentRun(run: RunRecord, signal: AbortSignal): Promise<SessionView>;
     createAgentSession(sessionId: string, cwd: string, authorization: NonNullable<AgentSessionSpec["authorization"]>): Promise<void>;
     hasAgentSession(sessionId: string): boolean;
     startAgentPrompt(sessionId: string, text: string): Promise<void>;
     sendAgentMessage(sessionId: string, text: string, mode: AgentMessageMode): Promise<void>;
     waitForAgentIdle(sessionId: string): Promise<void>;
     abortAgentSession(sessionId: string, reason: string): Promise<void>;
-    snapshotAgentSession(sessionId: string): AgentSnapshot;
+    snapshotAgentSession(sessionId: string): SessionView;
     subscribeAgentSession(sessionId: string, sink: (event: RuntimeEvent) => void): () => void;
     closeAgentSession(sessionId: string): Promise<void>;
     dispose(): Promise<void>;

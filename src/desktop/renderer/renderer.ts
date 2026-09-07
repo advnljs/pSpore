@@ -1,7 +1,7 @@
 /// <reference lib="DOM" />
 
 import type { JobDefinition } from "../../automation/types.js";
-import type { AgentSnapshot, RuntimeMessage } from "../../domain/runtime.js";
+import type { SessionView, RuntimeMessage } from "../../domain/runtime.js";
 import type { ResourceCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
 import { defaultModelFor, type ProviderOption } from "../../settings/llm-settings.js";
@@ -90,11 +90,14 @@ interface TranscriptRenderState {
   items: Array<{ key: string; message: RuntimeMessage }>;
   hasStreaming: boolean;
   followTail: boolean;
+  /** True while an older history page is in flight, so scrolls do not stack. */
+  loadingHistory: boolean;
 }
 
 const transcriptState: TranscriptRenderState = {
   sessionId: "",
   count: -1,
+  loadingHistory: false,
   heights: new VirtualHeightIndex(180),
   nodes: new Map(),
   measureFrame: undefined,
@@ -107,6 +110,9 @@ const transcriptState: TranscriptRenderState = {
 type Theme = "dark" | "light";
 type InspectorTab = "activity" | "automation" | "integrations" | "resources";
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
+/** Distance from the top that triggers loading the page before the tail. */
+const HISTORY_BACKFILL_TRIGGER_PX = 240;
+const HISTORY_PAGE_SIZE = 200;
 
 const elements = {
   appShell: byId<HTMLElement>("app-shell"),
@@ -298,7 +304,7 @@ function bindStaticActions(): void {
   elements.refresh.addEventListener("click", () => void refreshSideData());
   elements.newSession.addEventListener("click", () => {
     void perform("新建会话", { action: "session.create" }, (result) => {
-      if (!isAgentSnapshot(result)) throw new Error("服务返回了无效的会话");
+      if (!isSessionView(result)) throw new Error("服务返回了无效的会话");
       store.selectSession(result.sessionId);
       elements.composerInput.focus();
     });
@@ -948,7 +954,55 @@ function handleTranscriptScroll(): void {
     elements.transcript.scrollTop,
     elements.transcript.clientHeight,
   );
+  if (elements.transcript.scrollTop < HISTORY_BACKFILL_TRIGGER_PX) void loadOlderHistory();
   scheduleTranscriptRender();
+}
+
+/**
+ * Broadcasts carry only the newest part of a conversation, so scrolling to the
+ * top asks the daemon for the page before it. The viewport is pinned to the
+ * message the reader was looking at rather than to a scroll offset that the
+ * prepended history has just moved.
+ */
+async function loadOlderHistory(): Promise<void> {
+  if (transcriptState.loadingHistory) return;
+  const snapshot = store.snapshot();
+  const sessionId = snapshot.selectedSessionId;
+  const session = snapshot.kernel.sessions[sessionId];
+  if (!session || session.messageOffset === 0) return;
+  const from = Math.max(0, session.messageOffset - HISTORY_PAGE_SIZE);
+  transcriptState.loadingHistory = true;
+  try {
+    const page = await dispatchAcrossReconnect({
+      action: "session.transcript",
+      sessionId,
+      from,
+      limit: session.messageOffset - from,
+    });
+    if (!isTranscriptPage(page) || page.sessionId !== store.snapshot().selectedSessionId) return;
+    const anchor = elements.transcript.scrollHeight - elements.transcript.scrollTop;
+    if (!store.applyTranscriptPage(page)) return;
+    render();
+    elements.transcript.scrollTop = Math.max(0, elements.transcript.scrollHeight - anchor);
+  } catch {
+    // A refused or disconnected backfill simply leaves the history where it is.
+  } finally {
+    transcriptState.loadingHistory = false;
+  }
+}
+
+function isTranscriptPage(value: unknown): value is {
+  sessionId: string;
+  from: number;
+  count: number;
+  messages: Array<{ role: string; text: string }>;
+} {
+  if (typeof value !== "object" || value === null) return false;
+  const page = value as Record<string, unknown>;
+  return typeof page["sessionId"] === "string"
+    && typeof page["from"] === "number"
+    && typeof page["count"] === "number"
+    && Array.isArray(page["messages"]);
 }
 
 function renderHeader(snapshot: DesktopStoreSnapshot): void {
@@ -1081,8 +1135,11 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   const messagesChanged = transcriptState.messageSource !== messages;
   if (messagesChanged) {
     transcriptState.messageSource = messages;
+    // Keyed by absolute transcript position, so prepending older history keeps
+    // the keys — and therefore the measured heights — of what is on screen.
+    const offset = session?.messageOffset ?? 0;
     transcriptState.items = messages.map((message, index) => ({
-      key: messageVirtualKey(message, index),
+      key: messageVirtualKey(message, offset + index),
       message,
     }));
   }
@@ -1186,7 +1243,7 @@ function textFingerprint(value: string): string {
   return (hash >>> 0).toString(36);
 }
 
-function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: AgentSnapshot | undefined): void {
+function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: SessionView | undefined): void {
   const direct = session?.queue.steering ?? [];
   const queued = session?.queue.followUp ?? [];
   elements.messageQueue.hidden = direct.length + queued.length === 0;
@@ -1700,7 +1757,7 @@ function isInspection(value: unknown): value is StagedResourceInspection {
   return isRecord(value) && value["version"] === 1 && typeof value["name"] === "string" && typeof value["digest"] === "string" && Array.isArray(value["files"]);
 }
 
-function isAgentSnapshot(value: unknown): value is AgentSnapshot {
+function isSessionView(value: unknown): value is SessionView {
   return isRecord(value)
     && typeof value["sessionId"] === "string"
     && typeof value["upstreamSessionId"] === "string"

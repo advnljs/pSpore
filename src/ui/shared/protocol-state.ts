@@ -1,4 +1,4 @@
-import type { SessionMetadata, SessionView } from "../../domain/runtime.js";
+import type { RuntimeMessage, SessionMetadata, SessionView } from "../../domain/runtime.js";
 import { initialKernelState, type KernelState } from "../../kernel/state.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 
@@ -43,6 +43,36 @@ export function replaceProtocolSnapshot(
     streamingThinking: {},
     streamingItems: {},
     selectedSessionId: selectAvailable(current.selectedSessionId, kernel),
+  };
+}
+
+/**
+ * Merges an older page of history in front of what a client already holds.
+ * Only prepending is supported: the newest messages arrive with events, and a
+ * page that would leave a hole is refused rather than silently reordered.
+ */
+export function applyTranscriptPage(
+  current: ProtocolUiState,
+  page: { sessionId: string; from: number; count: number; messages: readonly RuntimeMessage[] },
+): ProtocolUiState {
+  const session = current.kernel.sessions[page.sessionId];
+  if (!session || page.from >= session.messageOffset) return current;
+  if (page.from + page.messages.length < session.messageOffset) return current;
+  const older = page.messages.slice(0, session.messageOffset - page.from);
+  if (older.length === 0) return current;
+  return {
+    ...current,
+    kernel: {
+      ...current.kernel,
+      sessions: {
+        ...current.kernel.sessions,
+        [page.sessionId]: {
+          ...session,
+          messageOffset: page.from,
+          messages: [...structuredClone(older), ...session.messages],
+        },
+      },
+    },
   };
 }
 

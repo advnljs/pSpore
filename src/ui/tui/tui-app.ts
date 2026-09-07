@@ -25,7 +25,7 @@ import { TUI_HELP_LINES } from "./commands.js";
 import { PsporeTuiView } from "./view.js";
 import { activityDetailLines } from "../shared/activity.js";
 import { conversationIntent, selectedAgent } from "../shared/presentation.js";
-import type { AgentSnapshot } from "../../domain/runtime.js";
+import type { SessionView, TranscriptPage } from "../../domain/runtime.js";
 
 export interface TuiSettingsPort {
   get(): Promise<LlmSettings>;
@@ -58,6 +58,9 @@ export interface TuiAppOptions {
   onSettingsSaved?: () => Promise<{ applied: boolean; restartRequired: boolean; message: string }>;
 }
 
+/** How many older messages one scrollback request asks for. */
+const HISTORY_PAGE_SIZE = 200;
+
 export class PsporeTuiApp {
   readonly #options: TuiAppOptions;
   readonly #store = new TuiStore();
@@ -70,6 +73,7 @@ export class PsporeTuiApp {
   #settleTimer: NodeJS.Timeout | undefined;
   #retryMs = 250;
   #lastInterruptAt = 0;
+  #loadingHistory = false;
   #resolveExit: (() => void) | undefined;
   #view: PsporeTuiView | undefined;
 
@@ -86,6 +90,7 @@ export class PsporeTuiApp {
       onSubmit: (input) => void this.#submit(input),
       onInterrupt: () => void this.#interrupt(),
       onBack: () => this.#store.clearPanel(),
+      onScrollBack: () => void this.#loadOlderHistory(),
     });
     this.#view = view;
     this.#tui.setLayoutRoot(view);
@@ -150,6 +155,28 @@ export class PsporeTuiApp {
     }
   }
 
+  /**
+   * Fetches the page of history before the oldest message this client holds.
+   * The daemon broadcasts only a bounded tail, so scrollback is a request.
+   */
+  async #loadOlderHistory(): Promise<void> {
+    if (this.#loadingHistory) return;
+    const state = this.#store.snapshot();
+    const sessionId = state.selectedSessionId;
+    const session = state.kernel.sessions[sessionId];
+    if (!session || session.messageOffset === 0) return;
+    const from = Math.max(0, session.messageOffset - HISTORY_PAGE_SIZE);
+    this.#loadingHistory = true;
+    try {
+      const page = await this.#command("session.transcript", { from, limit: session.messageOffset - from }, sessionId);
+      if (this.#store.applyTranscriptPage(page as TranscriptPage & { sessionId: string })) this.#tui.requestRender();
+    } catch (error) {
+      this.#store.setNotice(`Could not load older history: ${toError(error).message}`);
+    } finally {
+      this.#loadingHistory = false;
+    }
+  }
+
   /** Surfaces a genuine outage once the store's masking window expires. */
   #scheduleSettle(): void {
     if (this.#stopping || this.#settleTimer) return;
@@ -196,7 +223,7 @@ export class PsporeTuiApp {
       }
       if (input === "/new" || input.startsWith("/new ")) {
         const title = input.slice(4).trim();
-        const session = await this.#command("session.create", title ? { title } : {}) as AgentSnapshot;
+        const session = await this.#command("session.create", title ? { title } : {}) as SessionView;
         this.#store.selectSession(session.sessionId);
         this.#store.setNotice(`New session ${session.sessionId}`);
         return;

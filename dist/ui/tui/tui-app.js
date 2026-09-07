@@ -23,6 +23,8 @@ export function acceptsModelSetupOffer(answer) {
     const normalized = answer.trim().toLowerCase();
     return normalized === "" || normalized === "y" || normalized === "yes";
 }
+/** How many older messages one scrollback request asks for. */
+const HISTORY_PAGE_SIZE = 200;
 export class PsporeTuiApp {
     #options;
     #store = new TuiStore();
@@ -35,6 +37,7 @@ export class PsporeTuiApp {
     #settleTimer;
     #retryMs = 250;
     #lastInterruptAt = 0;
+    #loadingHistory = false;
     #resolveExit;
     #view;
     constructor(options) {
@@ -49,6 +52,7 @@ export class PsporeTuiApp {
             onSubmit: (input) => void this.#submit(input),
             onInterrupt: () => void this.#interrupt(),
             onBack: () => this.#store.clearPanel(),
+            onScrollBack: () => void this.#loadOlderHistory(),
         });
         this.#view = view;
         this.#tui.setLayoutRoot(view);
@@ -115,6 +119,32 @@ export class PsporeTuiApp {
             this.#scheduleSettle();
             this.#tui.requestRender();
             this.#scheduleReconnect();
+        }
+    }
+    /**
+     * Fetches the page of history before the oldest message this client holds.
+     * The daemon broadcasts only a bounded tail, so scrollback is a request.
+     */
+    async #loadOlderHistory() {
+        if (this.#loadingHistory)
+            return;
+        const state = this.#store.snapshot();
+        const sessionId = state.selectedSessionId;
+        const session = state.kernel.sessions[sessionId];
+        if (!session || session.messageOffset === 0)
+            return;
+        const from = Math.max(0, session.messageOffset - HISTORY_PAGE_SIZE);
+        this.#loadingHistory = true;
+        try {
+            const page = await this.#command("session.transcript", { from, limit: session.messageOffset - from }, sessionId);
+            if (this.#store.applyTranscriptPage(page))
+                this.#tui.requestRender();
+        }
+        catch (error) {
+            this.#store.setNotice(`Could not load older history: ${toError(error).message}`);
+        }
+        finally {
+            this.#loadingHistory = false;
         }
     }
     /** Surfaces a genuine outage once the store's masking window expires. */

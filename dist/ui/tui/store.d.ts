@@ -1,4 +1,4 @@
-import type { ModelRef } from "../../domain/runtime.js";
+import type { ModelRef, RuntimeMessage } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
 import { type CoworkActivity } from "../shared/activity.js";
@@ -46,6 +46,13 @@ export declare class TuiStore {
     setPanel(title: string, lines: readonly string[]): void;
     clearPanel(): void;
     selectSession(id: string): string;
+    /** Merges an older page of history fetched by the scrollback request. */
+    applyTranscriptPage(page: {
+        sessionId: string;
+        from: number;
+        count: number;
+        messages: readonly RuntimeMessage[];
+    }): boolean;
     applyEvent(event: EventEnvelope): void;
 }
 //# sourceMappingURL=store.d.ts.map

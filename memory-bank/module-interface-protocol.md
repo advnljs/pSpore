@@ -94,3 +94,10 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 - 携带 transcript 尾窗的事件只剩 `run.settled`/`session.replaced`/`runtime.error`/`compaction.completed`；其余非瞬时事件只带会话元数据，客户端合并时保留自己已有的消息。
 - `transcript.item.finished` 由客户端**追加**（事件里就有完整文本），`run.settled` 的权威尾窗负责校正漂移——对应 Pi 的 snapshot-resets-overlay 与 OpenClaw 的 cursor-stale-reset。
 - 客户端维护 `streamingItems`（每会话当前流式 item id），delta 属于被取代的 item 时另起缓冲；desktop delta 合并键为 `sessionId+itemId+channel`。
+
+## 2026-09-07：阶段 3 —— 历史分页
+
+- `AgentRuntimePort.snapshot()` 返回 `SessionMetadata`（无 messages），新增 `transcript(sessionId, {from, limit})` → `TranscriptPage`；`AgentSnapshot` 类型已删除。
+- `transcript()` 读 `sessionManager` 的持久化分支而非模型 context，因此 compaction 之后仍能翻到被压缩掉的历史；只渲染被请求的那一段文本。
+- 客户端用共享 `applyTranscriptPage` 前插历史：拒绝会留下空洞的页与已覆盖的重复页。GUI 在距顶 240px 处自动取前 200 条并按"距底距离"复位视口；虚拟列表 key 用绝对位置，前插不会让已测高度失效。TUI 用 PageUp 触发同一请求。
+- `session.snapshot` 命令返回有界的 `SessionView`（不再是完整 transcript）。

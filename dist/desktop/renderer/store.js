@@ -1,4 +1,4 @@
-import { applyProtocolDelta, applyProtocolEvent, initialProtocolUiState, replaceProtocolSnapshot, selectProtocolSession, } from "../../ui/shared/protocol-state.js";
+import { applyProtocolDelta, applyProtocolEvent, applyTranscriptPage as mergeTranscriptPage, initialProtocolUiState, replaceProtocolSnapshot, selectProtocolSession, } from "../../ui/shared/protocol-state.js";
 import { applyCoworkActivityEvent, } from "../../ui/shared/activity.js";
 /**
  * A reconnect that resolves inside this window is invisible to the user. Long
@@ -75,6 +75,14 @@ export class DesktopStore {
             return;
         }
         this.#applyEvent(frame.event);
+    }
+    /** Merges an older page of history fetched by the transcript backfill. */
+    applyTranscriptPage(page) {
+        const next = mergeTranscriptPage(protocolState(this.#state), page);
+        if (next === protocolState(this.#state))
+            return false;
+        this.#state = { ...this.#state, ...next };
+        return true;
     }
     selectSession(id) {
         this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: `已切换到 ${id}` };

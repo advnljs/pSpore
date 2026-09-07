@@ -6,7 +6,7 @@ import { afterEach, describe, test } from "node:test";
 
 import { AgentManager, type AgentSessionHost } from "../../src/agents/agent-manager.js";
 import type { AgentMessageMode } from "../../src/agents/types.js";
-import type { AgentSessionSpec, AgentSnapshot, RuntimeEvent } from "../../src/domain/runtime.js";
+import type { AgentSessionSpec, SessionView, RuntimeEvent } from "../../src/domain/runtime.js";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map(async (root) => rm(root, { recursive: true, force: true }))));
@@ -96,7 +96,7 @@ class FakeHost implements AgentSessionHost {
   readonly started: string[] = [];
   readonly sent: Array<{ sessionId: string; text: string; mode: AgentMessageMode }> = [];
   readonly authorizations = new Map<string, NonNullable<AgentSessionSpec["authorization"]>>();
-  readonly #snapshots = new Map<string, AgentSnapshot>();
+  readonly #snapshots = new Map<string, SessionView>();
   readonly #listeners = new Map<string, Set<(event: RuntimeEvent) => void>>();
   readonly #idle = new Map<string, { promise: Promise<void>; resolve: () => void }>();
 
@@ -144,7 +144,7 @@ class FakeHost implements AgentSessionHost {
     this.#idle.get(sessionId)?.resolve();
   }
 
-  snapshotAgentSession(sessionId: string): AgentSnapshot {
+  snapshotAgentSession(sessionId: string): SessionView {
     return structuredClone(this.required(sessionId));
   }
 
@@ -189,7 +189,7 @@ class FakeHost implements AgentSessionHost {
     for (const listener of this.#listeners.get(sessionId) ?? []) listener(event);
   }
 
-  private required(sessionId: string): AgentSnapshot {
+  private required(sessionId: string): SessionView {
     const value = this.#snapshots.get(sessionId);
     if (!value) throw new Error(`Missing fake session: ${sessionId}`);
     return value;
@@ -212,7 +212,7 @@ async function workspace(): Promise<string> {
   return root;
 }
 
-function snapshot(sessionId: string, cwd: string): AgentSnapshot {
+function snapshot(sessionId: string, cwd: string): SessionView {
   return {
     sessionId,
     upstreamSessionId: `fake-${sessionId}`,
@@ -221,6 +221,7 @@ function snapshot(sessionId: string, cwd: string): AgentSnapshot {
     thinking: "off",
     messages: [],
     messageCount: 0,
+    messageOffset: 0,
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };

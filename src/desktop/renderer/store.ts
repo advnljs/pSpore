@@ -1,8 +1,10 @@
+import type { RuntimeMessage } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 import {
   applyProtocolDelta,
   applyProtocolEvent,
+  applyTranscriptPage as mergeTranscriptPage,
   initialProtocolUiState,
   replaceProtocolSnapshot,
   selectProtocolSession,
@@ -119,6 +121,14 @@ export class DesktopStore {
       return;
     }
     this.#applyEvent(frame.event);
+  }
+
+  /** Merges an older page of history fetched by the transcript backfill. */
+  applyTranscriptPage(page: { sessionId: string; from: number; count: number; messages: readonly RuntimeMessage[] }): boolean {
+    const next = mergeTranscriptPage(protocolState(this.#state), page);
+    if (next === protocolState(this.#state)) return false;
+    this.#state = { ...this.#state, ...next };
+    return true;
   }
 
   selectSession(id: string): void {

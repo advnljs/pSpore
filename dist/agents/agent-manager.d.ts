@@ -1,5 +1,5 @@
 import type { RunBudget } from "../automation/types.js";
-import type { AgentSessionSpec, AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
+import type { AgentSessionSpec, SessionView, RuntimeEvent } from "../domain/runtime.js";
 import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "./types.js";
 export interface AgentSessionHost {
     createAgentSession(sessionId: string, cwd: string, authorization: NonNullable<AgentSessionSpec["authorization"]>): Promise<void>;
@@ -8,7 +8,7 @@ export interface AgentSessionHost {
     sendAgentMessage(sessionId: string, text: string, mode: AgentMessageMode): Promise<void>;
     waitForAgentIdle(sessionId: string): Promise<void>;
     abortAgentSession(sessionId: string, reason: string): Promise<void>;
-    snapshotAgentSession(sessionId: string): AgentSnapshot;
+    snapshotAgentSession(sessionId: string): SessionView;
     subscribeAgentSession(sessionId: string, sink: (event: RuntimeEvent) => void): () => void;
     closeAgentSession(sessionId: string): Promise<void>;
 }

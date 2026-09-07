@@ -3,7 +3,7 @@ import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep } from "node:path";
 
 import type { RunBudget } from "../automation/types.js";
-import type { AgentSessionSpec, AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
+import type { AgentSessionSpec, SessionView, RuntimeEvent } from "../domain/runtime.js";
 import { estimateTokens } from "../memory/tokenizer.js";
 import type {
   AgentMessage,
@@ -21,7 +21,7 @@ export interface AgentSessionHost {
   sendAgentMessage(sessionId: string, text: string, mode: AgentMessageMode): Promise<void>;
   waitForAgentIdle(sessionId: string): Promise<void>;
   abortAgentSession(sessionId: string, reason: string): Promise<void>;
-  snapshotAgentSession(sessionId: string): AgentSnapshot;
+  snapshotAgentSession(sessionId: string): SessionView;
   subscribeAgentSession(sessionId: string, sink: (event: RuntimeEvent) => void): () => void;
   closeAgentSession(sessionId: string): Promise<void>;
 }
@@ -377,7 +377,7 @@ export class AgentManager {
   async #finish(
     record: AgentRecord,
     status: Extract<AgentStatus, "succeeded" | "failed" | "cancelled" | "budget_exhausted">,
-    input: { summary: string; error?: string; snapshot?: AgentSnapshot; counters: BudgetCounters },
+    input: { summary: string; error?: string; snapshot?: SessionView; counters: BudgetCounters },
   ): Promise<AgentRecord> {
     const usage = input.snapshot?.usage ?? {
       input: input.counters.input,

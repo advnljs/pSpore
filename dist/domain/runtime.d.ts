@@ -93,8 +93,12 @@ export interface SessionView extends SessionMetadata {
     messageOffset: number;
     messages: readonly RuntimeMessage[];
 }
-/** The runtime's own view, carrying the session's complete message list. */
-export interface AgentSnapshot extends SessionMetadata {
+/** One requested slice of a session's persisted transcript. */
+export interface TranscriptPage {
+    /** Index of `messages[0]` within the full transcript. */
+    from: number;
+    /** Total transcript messages available. */
+    count: number;
     messages: readonly RuntimeMessage[];
 }
 /**
@@ -153,7 +157,17 @@ export interface AgentRuntimePort {
     promoteFollowUp(sessionId: SessionId, index: number): Promise<Accepted>;
     abort(sessionId: SessionId, reason: string): Promise<void>;
     compact(sessionId: SessionId, instructions?: string): Promise<void>;
-    snapshot(sessionId: SessionId): AgentSnapshot;
+    /** Session state without its transcript: never grows with the conversation. */
+    snapshot(sessionId: SessionId): SessionMetadata;
+    /**
+     * A slice of the persisted transcript, newest-first by default. Reading from
+     * the persisted branch rather than the model's context means history stays
+     * visible after a compaction rewrites what the model sees.
+     */
+    transcript(sessionId: SessionId, options: {
+        from?: number;
+        limit: number;
+    }): TranscriptPage;
     subscribe(sessionId: SessionId, sink: (event: RuntimeEvent) => void): () => void;
     waitForIdle(sessionId: SessionId): Promise<void>;
     dispose(sessionId: SessionId): Promise<void>;

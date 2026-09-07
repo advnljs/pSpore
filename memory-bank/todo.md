@@ -76,7 +76,7 @@
 | P0 | 长任务掉线与重启后仍 lost connection | Done | 无 | 根因是每 token 复制整份会话 + 每 durable 事件搬运整份 transcript + 超限内容让桌面端永久拒帧 + systemd start limit 死锁。已用出站裁剪、快照节流、共享不可变 state、`reset-failed` 自愈修复；压测由 147.5 s/66 次断开降到 2.3 s/0 次断开，300000 字符消息场景由 5 秒 95 次重连变为立即连接 |
 | P0 | 阶段 1／3：服务器级快照瘦身 | Done | 无 | `KernelState.sessions` 改为 `SessionView`（元数据 + 200 条有界尾窗 + `messageOffset`/`messageCount`），新增 `session.transcript` 分页命令。广播与 hello 体积不再随会话长度增长；压测 1042 ms / 0 次断开 / 堆 113 MiB |
 | P0 | 阶段 2／3：item 级 transcript 事件 | Done | 无 | adapter 停止把 Pi 事件压扁成 `{role,text}`，保留 item id 与 status；广播 `transcript.item.{started,updated,finished}` + `transcript.delta{itemId,contentIndex,kind}`；客户端照 Pi 的 `applyTranscriptProgress`/`selectTranscript` 做 overlay 合并。已完成：三个 item 级事件取代四个 message 事件，`transcript.item.finished` 由客户端追加而非重发尾窗，250 ms 节流已撤销。单客户端字节数 10.2 → 5.9 MiB |
-| P1 | 阶段 3／3：历史分页与完整历史 | Todo | 依赖阶段 2 | GUI 虚拟列表滚到顶时用 `session.transcript` 向前翻页（OpenClaw 的 cursor/reset 语义）；历史改从持久化分支读，使 compaction 后仍能看到完整对话；单条超长消息改为"截断 + 按需取全文" |
-| P2 | GUI transcript 只显示最近 2000 条 / 8 MiB | Pending | 出站裁剪的取舍：先保证客户端永不被大会话锁死 | 若要客户端保留完整历史，改为按 offset 的增量 transcript 协议（快照带 `messageOffset`/`messageCount`，客户端按 offset 合并），并让 GUI 在选中会话时按需拉取更早的历史 |
+| P1 | 阶段 3／3：历史分页与完整历史 | Done | 无 | GUI 虚拟列表滚到顶时用 `session.transcript` 向前翻页（OpenClaw 的 cursor/reset 语义）。已完成：`AgentRuntimePort.snapshot()` 不再含 messages、新增 `transcript()` 读持久化分支、GUI 滚动回溯（绝对 key + 视口锚定）、TUI PageUp 回溯、共享 `applyTranscriptPage`。单条超长消息的"按需取全文"未做，见下一行 |
+| P3 | 单条超长消息仍按 64 KiB 截断显示 | Pending | 出站安全网，正常不触发 | 可在 GUI 上给被截断的消息加"载入全文"按钮，走一条按 item 取原文的命令 |
 | P3 | hello 的 8 MiB 预算在多个大会话间按插入顺序分配 | Pending | 单值预算是防止 hello 超过 64 MiB 逻辑消息上限 | 可改为按会话平分预算，或只给选中会话完整 transcript、其余给摘要 |
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

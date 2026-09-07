@@ -12,9 +12,11 @@ import type {
   AgentHandle,
   AgentRuntimePort,
   AgentSessionSpec,
-  AgentSnapshot,
   ResumeSessionSpec,
   RuntimeEvent,
+  SessionMetadata,
+  SessionView,
+  TranscriptPage,
 } from "../../src/domain/runtime.js";
 import type { JobDefinition, RunRecord } from "../../src/automation/types.js";
 import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
@@ -84,7 +86,7 @@ describe("daemon vertical slice", () => {
     assert.deepEqual(duplicate, accepted);
     assert.equal(runtime.promptCalls, 1);
     await waitFor(() => events.includes("run.settled"));
-    const status = await client.command<{ sessions: Record<string, AgentSnapshot> }>("status.get", {});
+    const status = await client.command<{ sessions: Record<string, SessionView> }>("status.get", {});
     assert.equal(status.sessions["main"]?.messages.at(-1)?.text, "fake reply");
 
     await client.close();
@@ -240,7 +242,7 @@ describe("daemon vertical slice", () => {
     });
     const firstClient = new ProtocolClient({ socketPath: first.paths.socket, clientId: "session-first-client" });
     await firstClient.connect();
-    const created = await firstClient.command<AgentSnapshot>("session.create", { title: "Persistent research" });
+    const created = await firstClient.command<SessionView>("session.create", { title: "Persistent research" });
     await firstClient.command("session.prompt", { text: "remember this history", mode: "auto" }, { sessionId: created.sessionId });
     await waitFor(() => first.kernel.snapshot().sessions[created.sessionId]?.messages.at(-1)?.text === "fake reply");
     await firstClient.close();
@@ -618,7 +620,7 @@ describe("daemon vertical slice", () => {
 class FakeRuntime implements AgentRuntimePort {
   promptCalls = 0;
   readonly #listeners = new Map<string, Set<(event: RuntimeEvent) => void>>();
-  readonly #snapshots = new Map<string, AgentSnapshot>();
+  readonly #snapshots = new Map<string, SessionView>();
   readonly #autoSettle: boolean;
   readonly #persistenceRoot: string | undefined;
   readonly #files = new Map<string, string>();
@@ -651,7 +653,7 @@ class FakeRuntime implements AgentRuntimePort {
   }
 
   async resume(spec: ResumeSessionSpec): Promise<AgentHandle> {
-    const stored = JSON.parse((await readFile(spec.sessionFile, "utf8")).trim()) as AgentSnapshot;
+    const stored = JSON.parse((await readFile(spec.sessionFile, "utf8")).trim()) as SessionView;
     const snapshot = {
       ...stored,
       sessionId: spec.sessionId,
@@ -728,9 +730,15 @@ class FakeRuntime implements AgentRuntimePort {
     this.#resolveIdle.delete(sessionId);
   }
   async compact(): Promise<void> {}
-  snapshot(sessionId: string): AgentSnapshot {
-    const stored = this.required(sessionId);
-    return structuredClone({ ...stored, messageCount: stored.messages.length });
+  snapshot(sessionId: string): SessionMetadata {
+    const { messages, messageOffset, ...metadata } = this.required(sessionId);
+    return structuredClone({ ...metadata, messageCount: messages.length });
+  }
+
+  transcript(sessionId: string, options: { from?: number; limit: number }): TranscriptPage {
+    const messages = this.required(sessionId).messages;
+    const from = Math.min(options.from ?? Math.max(0, messages.length - options.limit), messages.length);
+    return { from, count: messages.length, messages: structuredClone(messages.slice(from, from + options.limit)) };
   }
   subscribe(sessionId: string, sink: (event: RuntimeEvent) => void): () => void {
     const listeners = this.#listeners.get(sessionId) ?? new Set();
@@ -778,7 +786,7 @@ class FakeRuntime implements AgentRuntimePort {
     this.emit(sessionId, type, transient);
   }
 
-  required(sessionId: string): AgentSnapshot {
+  required(sessionId: string): SessionView {
     const snapshot = this.#snapshots.get(sessionId);
     if (!snapshot) throw new Error(`Fake session was not created: ${sessionId}`);
     return snapshot;
@@ -818,7 +826,7 @@ function jobFile(id: string): Record<string, unknown> {
   };
 }
 
-function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {
+function baseSnapshot(spec: AgentSessionSpec): SessionView {
   return {
     sessionId: spec.sessionId,
     upstreamSessionId: `fake-${spec.sessionId}`,
@@ -827,6 +835,7 @@ function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {
     thinking: "off",
     messages: [],
     messageCount: 0,
+    messageOffset: 0,
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };

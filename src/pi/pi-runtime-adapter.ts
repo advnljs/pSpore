@@ -23,16 +23,17 @@ import type {
   AgentHandle,
   AgentRuntimePort,
   AgentSessionSpec,
-  AgentSnapshot,
   ModelRef,
   ResumeSessionSpec,
   RuntimeEvent,
   RuntimeEventType,
   RuntimeMessage,
   SessionId,
+  SessionMetadata,
+  ToolGate,
   TranscriptDeltaKind,
   TranscriptItem,
-  ToolGate,
+  TranscriptPage,
 } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
@@ -73,7 +74,11 @@ interface SessionRecord {
    */
   streaming: { id: string; role: string; text: string; thinking: string; startedAt: string } | undefined;
   itemSequence: number;
+  /** Cached session title source; "" means "looked and found none". */
+  firstUserText: string | undefined;
 }
+
+type BranchMessageEntry = { type: "message"; id: string; message: unknown };
 
 export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #agentDir: string;
@@ -226,16 +231,17 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     }
   }
 
-  snapshot(sessionId: SessionId): AgentSnapshot {
+  snapshot(sessionId: SessionId): SessionMetadata {
     const record = this.#record(sessionId);
     const session = record.runtime.session;
     const stats = session.getSessionStats();
     const model = session.model;
     const sessionFile = session.sessionFile;
     const lastError = record.lastError;
-    const messages = session.messages.map(toRuntimeMessage);
-    // Only ever used as a session title, so it never needs the whole message.
-    const firstUserText = messages.find((message) => message.role === "user" && message.text.trim())?.text.slice(0, 200);
+    // Counting entries walks the branch but renders no text, so session state
+    // stays cheap no matter how long the conversation has grown.
+    const entries = this.#branchEntries(record);
+    const firstUserText = this.#firstUserText(record, entries);
 
     return {
       sessionId,
@@ -245,8 +251,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       status: lastError ? "failed" : session.isStreaming ? "running" : "idle",
       ...(model ? { model: { provider: model.provider, model: model.id } } : {}),
       thinking: session.thinkingLevel,
-      messages,
-      messageCount: messages.length,
+      messageCount: entries.length,
       ...(firstUserText === undefined ? {} : { firstUserText }),
       queue: {
         steering: [...record.queue.steering],
@@ -298,20 +303,41 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   }
 
   /**
-   * The persisted branch, including entries compaction has already dropped from
-   * the model context. It is materialised on demand because it grows without
-   * bound: rebuilding it inside every snapshot made streaming cost grow with
-   * the length of the conversation.
+   * A slice of the persisted branch, which keeps entries a compaction has
+   * already dropped from the model's context. Only the requested slice is
+   * rendered to text: doing that for the whole branch is what made every
+   * streamed token cost as much as the conversation was long.
    */
+  transcript(sessionId: SessionId, options: { from?: number; limit: number }): TranscriptPage {
+    const record = this.#record(sessionId);
+    const entries = this.#branchEntries(record);
+    const limit = Math.max(0, options.limit);
+    const from = Math.min(Math.max(0, options.from ?? Math.max(0, entries.length - limit)), entries.length);
+    return {
+      from,
+      count: entries.length,
+      messages: entries.slice(from, from + limit).map(toBranchMessage),
+    };
+  }
+
+  /** The persisted branch's message entries, unrendered. */
   branch(sessionId: SessionId): readonly RuntimeMessage[] {
-    return this.#record(sessionId).runtime.session.sessionManager
+    return this.#branchEntries(this.#record(sessionId)).map(toBranchMessage);
+  }
+
+  #branchEntries(record: SessionRecord): readonly BranchMessageEntry[] {
+    return record.runtime.session.sessionManager
       .getBranch()
-      .filter((entry) => entry.type === "message")
-      .map((entry) => ({
-        id: entry.id,
-        role: entry.message.role,
-        text: messageText(entry.message),
-      }));
+      .filter((entry) => entry.type === "message") as unknown as readonly BranchMessageEntry[];
+  }
+
+  #firstUserText(record: SessionRecord, entries: readonly BranchMessageEntry[]): string | undefined {
+    if (record.firstUserText !== undefined) return record.firstUserText || undefined;
+    const first = entries.find((entry) => asRecord(entry.message)["role"] === "user");
+    // Only ever used as a session title, so it never needs the whole message.
+    const text = first ? messageText(first.message).trim().slice(0, 200) : undefined;
+    record.firstUserText = text ?? "";
+    return text;
   }
 
   async fork(sessionId: SessionId, entryId: string, position: "before" | "at" = "at"): Promise<AgentHandle> {
@@ -354,6 +380,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       lastError: undefined,
       streaming: undefined,
       itemSequence: 0,
+      firstUserText: undefined,
     };
     this.#sessions.set(spec.sessionId, record);
     this.#bind(record, runtime.session, false);
@@ -486,6 +513,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     record.lastError = undefined;
     record.queue = { steering: [], followUp: [] };
     record.streaming = undefined;
+    record.firstUserText = undefined;
     record.unsubscribe = session.subscribe((event) => this.#onPiEvent(record, event));
     if (replacement) {
       this.#emit(
@@ -687,6 +715,10 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       ...(sessionFile ? { sessionFile } : {}),
     };
   }
+}
+
+function toBranchMessage(entry: BranchMessageEntry): RuntimeMessage {
+  return { id: entry.id, ...toRuntimeMessage(entry.message) };
 }
 
 function toRuntimeMessage(message: unknown): RuntimeMessage {

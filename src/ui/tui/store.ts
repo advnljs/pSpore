@@ -1,9 +1,10 @@
-import type { ModelRef } from "../../domain/runtime.js";
+import type { ModelRef, RuntimeMessage } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import type { EventEnvelope, ServerHelloFrame } from "../../protocol/schema.js";
 import { applyCoworkActivityEvent, type CoworkActivity } from "../shared/activity.js";
 import {
   applyProtocolEvent,
+  applyTranscriptPage as mergeTranscriptPage,
   initialProtocolUiState,
   replaceProtocolSnapshot,
   selectProtocolSession,
@@ -124,6 +125,15 @@ export class TuiStore {
     const protocol = selectProtocolSession(protocolState(this.#state), id);
     this.#state = { ...this.#state, ...protocol, notice: `Selected ${id}` };
     return protocol.selectedSessionId;
+  }
+
+  /** Merges an older page of history fetched by the scrollback request. */
+  applyTranscriptPage(page: { sessionId: string; from: number; count: number; messages: readonly RuntimeMessage[] }): boolean {
+    const current = protocolState(this.#state);
+    const next = mergeTranscriptPage(current, page);
+    if (next === current) return false;
+    this.#state = { ...this.#state, ...next };
+    return true;
   }
 
   applyEvent(event: EventEnvelope): void {

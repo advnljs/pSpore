@@ -1,3 +1,4 @@
+import type { RuntimeMessage } from "../../domain/runtime.js";
 import type { KernelState } from "../../kernel/state.js";
 import { type CoworkActivity } from "../../ui/shared/activity.js";
 import type { DesktopBootstrap, DesktopConnectionState, DesktopFrame } from "../ipc-contract.js";
@@ -46,6 +47,13 @@ export declare class DesktopStore {
     snapshot(): DesktopStoreSnapshot;
     applyBootstrap(bootstrap: DesktopBootstrap): void;
     applyFrame(frame: DesktopFrame): void;
+    /** Merges an older page of history fetched by the transcript backfill. */
+    applyTranscriptPage(page: {
+        sessionId: string;
+        from: number;
+        count: number;
+        messages: readonly RuntimeMessage[];
+    }): boolean;
     selectSession(id: string): void;
     setNotice(notice: string): void;
 }

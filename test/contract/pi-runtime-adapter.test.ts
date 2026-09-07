@@ -97,7 +97,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal((await stat(handle.sessionFile)).mode & 0o777, 0o600);
     await adapter.prompt("restored", "continue");
     await adapter.waitForIdle("restored");
-    assert.equal(adapter.snapshot("restored").messages.at(-1)?.text, "continued after repair");
+    assert.equal(adapter.branch("restored").at(-1)?.text, "continued after repair");
   });
 
   test("maps streaming, settled and provider cache usage without leaking Pi objects", async () => {
@@ -121,7 +121,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
 
     const snapshot = adapter.snapshot("main");
     assert.equal(snapshot.status, "idle");
-    assert.equal(snapshot.messages.at(-1)?.text, "second turn");
+    assert.equal(adapter.branch("main").at(-1)?.text, "second turn");
     assert.ok(snapshot.usage.cacheWrite > 0);
     assert.ok(snapshot.usage.cacheRead > 0);
   });
@@ -149,8 +149,8 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     const text = deltas("text");
     assert.equal(thinking, "private chain of thought");
     assert.equal(text, "public final answer");
-    assert.equal(adapter.snapshot("main").messages.at(-1)?.text, "public final answer");
-    assert.doesNotMatch(adapter.snapshot("main").messages.at(-1)?.text ?? "", /private chain/);
+    assert.equal(adapter.branch("main").at(-1)?.text, "public final answer");
+    assert.doesNotMatch(adapter.branch("main").at(-1)?.text ?? "", /private chain/);
   });
 
   test("rebinds subscriptions after new-session and fork replacement", async () => {
@@ -217,9 +217,9 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     });
 
     await adapter.resume({ ...spec(first.root), sessionId: "resumed", sessionFile: handle.sessionFile });
-    const snapshot = adapter.snapshot("resumed");
-    assert.ok(snapshot.messages.some((message) => message.text === "remember this"));
-    assert.ok(snapshot.messages.some((message) => message.text === "persisted"));
+    const restored = adapter.branch("resumed");
+    assert.ok(restored.some((message) => message.text === "remember this"));
+    assert.ok(restored.some((message) => message.text === "persisted"));
   });
 
   test("fails closed before a denied tool executes", async () => {
@@ -247,7 +247,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.waitForIdle("main");
 
     assert.equal(executed, false);
-    const messages = adapter.snapshot("main").messages;
+    const messages = adapter.branch("main");
     const toolResult = messages.find((message) => message.role === "toolResult");
     assert.match(toolResult?.text ?? "", /blocked by contract policy/);
     assert.ok(messages.every((message) => !message.text.includes("[tool:")));
@@ -291,7 +291,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     await adapter.followUp("main", "follow-up-message");
     await adapter.waitForIdle("main");
 
-    const messages = adapter.snapshot("main").messages;
+    const messages = adapter.branch("main");
     assert.equal(faux.state.callCount, 3);
     assert.ok(messages.some((message) => message.text === "steering-message"));
     assert.ok(messages.some((message) => message.text === "follow-up-message"));
@@ -323,7 +323,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     });
     await adapter.waitForIdle("main");
 
-    const userMessages = adapter.snapshot("main").messages
+    const userMessages = adapter.branch("main")
       .filter((message) => message.role === "user")
       .map((message) => message.text);
     assert.deepEqual(userMessages, ["start", "send this now", "continue waiting"]);
@@ -355,6 +355,16 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.ok(events.some(
       (event) => event.type === "compaction.completed" && event.payload["reason"] === "manual",
     ));
+
+    // Reading the persisted branch rather than the model's context is what lets
+    // a client still scroll back to what compaction dropped from the context.
+    const page = adapter.transcript("main", { from: 0, limit: 500 });
+    assert.equal(page.from, 0);
+    assert.ok(page.count >= 8, "the branch keeps the turns compaction removed from the context");
+    assert.ok(page.messages.some((message) => message.text.includes("create history 0")));
+    const tail = adapter.transcript("main", { limit: 2 });
+    assert.equal(tail.from, page.count - 2);
+    assert.equal(tail.messages.length, 2);
   });
 
   test("automatically compacts at the configured direct context-token threshold", async () => {

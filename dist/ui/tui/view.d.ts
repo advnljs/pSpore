@@ -7,6 +7,8 @@ export interface TuiViewOptions {
     onSubmit: (input: string) => void;
     onInterrupt: () => void;
     onBack: () => void;
+    /** Asked for when the reader scrolls past the oldest loaded message. */
+    onScrollBack?: () => void;
 }
 export interface TuiRenderOptions {
     scrollOffset?: number;

@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { PsporeDaemon } from "../daemon/daemon.js";
-import type { AgentSnapshot } from "../domain/runtime.js";
+import type { SessionView } from "../domain/runtime.js";
 import { parseConfig, type PsporeConfig } from "../config/config.js";
 import type { KernelState } from "../kernel/state.js";
 import { ProtocolClient } from "../protocol/client.js";
@@ -863,7 +863,7 @@ async function runPrompt(home: string, text: string, sessionId: string): Promise
   try {
     await client.command("session.prompt", { text, mode: "auto" }, { sessionId });
     await settled;
-    const snapshot = await client.command<AgentSnapshot | null>("session.snapshot", {}, { sessionId });
+    const snapshot = await client.command<SessionView | null>("session.snapshot", {}, { sessionId });
     if (!snapshot) throw new CliError("Session disappeared before completion");
     const finalText = snapshot.messages.at(-1)?.text;
     if (printedDelta) process.stdout.write("\n");
@@ -901,7 +901,7 @@ async function runSessionCommand(home: string, args: readonly string[]): Promise
   const title = args.slice(1).join(" ").trim();
   const client = await connectFromEndpoint(home, "session-new");
   try {
-    const created = await client.command<AgentSnapshot>("session.create", title ? { title } : {});
+    const created = await client.command<SessionView>("session.create", title ? { title } : {});
     process.stdout.write(`${created.sessionId}\t${created.rootSession?.title ?? "New session"}\n`);
     return 0;
   } finally {

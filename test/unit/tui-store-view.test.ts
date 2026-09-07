@@ -75,6 +75,38 @@ describe("TUI protocol store", () => {
     assert.deepEqual(store.snapshot().gap, { streamId: "kernel", expected: 4, received: 5 });
   });
 
+  test("prepends a fetched history page and refuses one that would leave a hole", () => {
+    const store = new TuiStore();
+    const initial = hello();
+    const main = initial.snapshot.sessions["main"];
+    assert.ok(main);
+    // A long session arrives as its newest messages plus where they sit.
+    store.applyHello({
+      ...initial,
+      snapshot: {
+        ...initial.snapshot,
+        sessions: {
+          ...initial.snapshot.sessions,
+          main: { ...main, messages: [{ role: "user", text: "recent" }], messageOffset: 40, messageCount: 41 },
+        },
+      },
+    });
+
+    const older = [{ role: "assistant", text: "older 38" }, { role: "user", text: "older 39" }];
+    assert.equal(store.applyTranscriptPage({ sessionId: "main", from: 38, count: 41, messages: older }), true);
+    const merged = store.snapshot().kernel.sessions["main"];
+    assert.equal(merged?.messageOffset, 38);
+    assert.deepEqual(merged?.messages.map((message) => message.text), ["older 38", "older 39", "recent"]);
+
+    // A page that stops short of what is already loaded would reorder history.
+    assert.equal(
+      store.applyTranscriptPage({ sessionId: "main", from: 0, count: 41, messages: [{ role: "user", text: "ancient" }] }),
+      false,
+    );
+    // A page already covered changes nothing.
+    assert.equal(store.applyTranscriptPage({ sessionId: "main", from: 38, count: 41, messages: older }), false);
+  });
+
   test("appends a finished item instead of waiting for the transcript to be re-sent", () => {
     const store = new TuiStore();
     store.applyHello(hello());
