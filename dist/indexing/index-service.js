@@ -1,17 +1,8 @@
 import { spawn } from "node:child_process";
 import { access, constants } from "node:fs/promises";
 import { join } from "node:path";
-export function initialIndexingStatus() {
-    return {
-        version: 1,
-        phase: "disabled",
-        directories: [],
-        total: 0,
-        processed: 0,
-        failed: 0,
-        skipped: 0,
-    };
-}
+import { initialIndexingStatus } from "../domain/indexing.js";
+export { initialIndexingStatus } from "../domain/indexing.js";
 export class IndexService {
     #options;
     #clock;

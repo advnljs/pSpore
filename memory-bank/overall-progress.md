@@ -846,3 +846,15 @@
 - **CI 取二进制**：`release.yml` 的 x64 打包步骤与 `package-arm64.yml`（经 `secrets: inherit` 并在 `runuser` 环境中显式转发）都接受 `secrets.BUNDLED_BINARIES_TOKEN`，缺失时回退到默认 token —— 此时打包仍成功，skill 不带二进制，运行时如实报 `unavailable`。
 - 验证方式与结果：`npm run check` 全绿（174/174），版本提升为 `0.1.16`。
 - 遗留问题：需要在 pSpore 仓库创建 `BUNDLED_BINARIES_TOKEN` secret（对 advnljs/aegis-searcher 只读的 fine-grained PAT），否则 CI 发出的包不含索引二进制。排序 boost 的 12/4/6 仍未在大规模真实语料上调优。
+
+
+## 2026-09-07 CST — 修复渲染器模块图触达 Node 内置模块
+
+- 现象：`0.1.16` 推送后 CI 的 release job 拒绝打 tag，因为同 commit 的 ARM64 构建失败；失败点是 Electron smoke 等待 `document.documentElement.dataset.ready === 'true'` 超时 10 秒。重跑一次仍然失败，说明不是偶发。
+- **根因（本轮自己引入）**：`KernelState` 被 Electron renderer 通过 `store.ts` / `protocol-state.ts` 导入，而我把 `IndexingStatus` 与 `initialIndexingStatus()` 放在了 `src/indexing/index-service.ts` 里，该模块导入 `node:child_process`、`node:fs/promises`、`node:path`。渲染器以 `sandbox: true`、`nodeIntegration: false` 运行，无法解析 Node 内置模块，整个模块图加载失败 —— 于是 `initialize()` 根本没执行，`dataset.ready` 永远不会被置位。
+- 完整链路：`renderer.ts → store.ts → protocol-state.ts → kernel/state.ts → indexing/index-service.ts → node:child_process`。
+- **修复**：新增 `src/domain/indexing.ts` 承载纯类型与 `initialIndexingStatus()`；`kernel/state.ts` 改为从它导入；`index-service.ts` 保留进程/文件系统职责并 re-export 该形状，渲染器永远不会导入它。
+- **防回归**：新增 `test/unit/renderer-module-graph.test.ts`，静态遍历渲染器入口的 import 图，发现任何可达的 Node 内置模块即失败并打印完整链路（`import type` 因编译期擦除不计入）。已用「把 bug 改回去」验证该用例确实会失败并准确报出上述链路。这类问题类型检查看不到，x64 CI 也跑不到（只有 ARM 跑真实 Electron smoke），因此必须由单测守住。
+- **可诊断性**：`src/desktop/main.ts` 增加渲染器诊断缓冲（console-message / did-fail-load / preload-error / render-process-gone），`waitForRenderer` 超时时一并抛出，避免下次只看到一句无信息的 timeout。
+- 验证：`npm run check` 176/176 通过。版本保持 `0.1.16`（此前的 tag 被安全门拒绝，未被消耗）。
+- 反思：我先前判断"ARM 失败与我的改动无关"是错的。依据是一个纯文档提交也失败、而 v0.1.15 的 Release 用同一 workflow 构建 ARM 成功；但重跑两次仍失败推翻了该判断，最终静态追踪 import 图定位到确实是本轮改动引入。

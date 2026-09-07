@@ -4,6 +4,11 @@ import type { Readable } from "node:stream";
 import { access, constants } from "node:fs/promises";
 import { join } from "node:path";
 
+import { initialIndexingStatus, type IndexingStatus } from "../domain/indexing.js";
+
+export { initialIndexingStatus } from "../domain/indexing.js";
+export type { IndexingPhase, IndexingStatus } from "../domain/indexing.js";
+
 /**
  * Drives the bundled `aegis-search` CLI so the local full-text index stays
  * current while the daemon runs. The CLI writes the same index directory the
@@ -12,24 +17,11 @@ import { join } from "node:path";
  *
  * Indexing is incremental: the CLI skips files whose mtime and size are
  * unchanged, so a pass over an already-indexed tree is cheap.
+ *
+ * This module reaches for the filesystem and spawns a process, so nothing the
+ * sandboxed renderer imports may import it; the status shape it publishes lives
+ * in `domain/indexing.ts` for exactly that reason.
  */
-export type IndexingPhase = "disabled" | "unavailable" | "idle" | "scanning" | "indexing" | "failed";
-
-export interface IndexingStatus {
-  version: 1;
-  phase: IndexingPhase;
-  directories: readonly string[];
-  total: number;
-  processed: number;
-  failed: number;
-  skipped: number;
-  currentFile?: string;
-  startedAt?: string;
-  finishedAt?: string;
-  nextRunAt?: string;
-  message?: string;
-}
-
 /** The subset of a spawned indexer this service actually reads. */
 export interface IndexerProcess extends ChildProcess {
   stdout: Readable;
@@ -47,18 +39,6 @@ export interface IndexServiceOptions {
   clock?: () => Date;
   /** Injected for tests so a pass can be driven without a real binary. */
   spawnProcess?: (command: string, args: readonly string[]) => IndexerProcess;
-}
-
-export function initialIndexingStatus(): IndexingStatus {
-  return {
-    version: 1,
-    phase: "disabled",
-    directories: [],
-    total: 0,
-    processed: 0,
-    failed: 0,
-    skipped: 0,
-  };
 }
 
 export class IndexService {

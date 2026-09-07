@@ -1,4 +1,4 @@
-import { initialIndexingStatus } from "../indexing/index-service.js";
+import { initialIndexingStatus } from "../domain/indexing.js";
 export function initialKernelState() {
     return {
         revision: 0,

@@ -1,4 +1,4 @@
-import { initialIndexingStatus, type IndexingStatus } from "../indexing/index-service.js";
+import { initialIndexingStatus, type IndexingStatus } from "../domain/indexing.js";
 import type { AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
 import type { AgentMessage, AgentRecord } from "../agents/types.js";
 import type { RunRecord } from "../automation/types.js";
