@@ -39,6 +39,14 @@ export function defaultConfig(home) {
         boot: {
             enabled: false,
         },
+        indexing: {
+            // Off until the user names directories: indexing their whole home
+            // directory uninvited would be both slow and presumptuous.
+            enabled: false,
+            directories: [],
+            intervalMinutes: 30,
+            extensions: ["txt", "md", "pdf", "doc", "docx", "xls", "xlsx"],
+        },
         plugins: [],
         mcpServers: [],
     };
@@ -56,6 +64,7 @@ const CONFIG_SECTION_KEYS = {
     shell: ["defaultTimeoutMs", "maxOutputBytes"],
     scheduler: ["enabled", "maxConcurrentRuns"],
     boot: ["enabled"],
+    indexing: ["enabled", "directories", "intervalMinutes", "extensions"],
 };
 /**
  * Incremental upgrade merge: an existing value always wins, and only genuinely
@@ -98,7 +107,7 @@ export function withConfigDefaults(value, home) {
 }
 export function parseConfig(value, home) {
     const root = withConfigDefaults(value, home);
-    exactKeys(root, ["version", "runtime", "model", "context", "permissions", "memory", "shell", "scheduler", "boot", "plugins", "mcpServers"], "config");
+    exactKeys(root, ["version", "runtime", "model", "context", "permissions", "memory", "shell", "scheduler", "boot", "indexing", "plugins", "mcpServers"], "config");
     if (root["version"] !== 1)
         throw new Error("config.version must be 1");
     const runtime = object(root["runtime"], "config.runtime");
@@ -117,6 +126,8 @@ export function parseConfig(value, home) {
     exactKeys(scheduler, ["enabled", "maxConcurrentRuns"], "config.scheduler");
     const boot = object(root["boot"], "config.boot");
     exactKeys(boot, ["enabled"], "config.boot");
+    const indexing = object(root["indexing"], "config.indexing");
+    exactKeys(indexing, ["enabled", "directories", "intervalMinutes", "extensions"], "config.indexing");
     const model = parseModel(root["model"], home);
     const rules = array(permissions["rules"], "config.permissions.rules").map((rule, index) => parsePermissionRule(rule, index));
     const pinnedFiles = array(context["pinnedFiles"], "config.context.pinnedFiles").map((file, index) => string(file, `config.context.pinnedFiles[${index}]`));
@@ -167,6 +178,12 @@ export function parseConfig(value, home) {
             maxConcurrentRuns: positiveInteger(scheduler["maxConcurrentRuns"], "config.scheduler.maxConcurrentRuns"),
         },
         boot: { enabled: boolean(boot["enabled"], "config.boot.enabled") },
+        indexing: {
+            enabled: boolean(indexing["enabled"], "config.indexing.enabled"),
+            directories: array(indexing["directories"], "config.indexing.directories").map((value, index) => resolveConfiguredPath(string(value, `config.indexing.directories[${index}]`), home)),
+            intervalMinutes: boundedPositiveInteger(indexing["intervalMinutes"], "config.indexing.intervalMinutes", 10_080),
+            extensions: array(indexing["extensions"], "config.indexing.extensions").map((value, index) => parseIndexExtension(string(value, `config.indexing.extensions[${index}]`), index)),
+        },
         plugins,
         mcpServers,
     };
@@ -217,6 +234,13 @@ function parseModel(value, home) {
             ? {}
             : { cookieFile: resolveConfiguredPath(string(cookieFile, "config.model.cookieFile"), home) }),
     };
+}
+function parseIndexExtension(value, index) {
+    const normalized = (value.startsWith(".") ? value.slice(1) : value).toLowerCase();
+    if (!/^[a-z0-9]{1,16}$/.test(normalized)) {
+        throw new Error(`config.indexing.extensions[${index}] must be a short alphanumeric extension`);
+    }
+    return normalized;
 }
 function parseModelBaseUrl(value) {
     let url;

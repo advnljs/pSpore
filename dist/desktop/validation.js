@@ -4,6 +4,7 @@ const MAX_STRING_LENGTH = 262_144;
 const MAX_COLLECTION_ENTRIES = 10_000;
 const EVENT_TYPES = new Set([
     "daemon.state",
+    "indexing.status",
     "session.snapshot",
     "session.closed",
     "session.replaced",
@@ -52,7 +53,7 @@ const RUNTIME_EVENT_TYPES = new Set([
 export function validateKernelState(value) {
     assertSafeProtocolValue(value);
     const state = record(value, "kernel state");
-    exactKeys(state, ["revision", "daemon", "sessions", "approvals", "runs", "notifications", "agents", "agentMessages", "mcpServers", "resources"], "kernel state");
+    exactKeys(state, ["revision", "daemon", "sessions", "approvals", "runs", "notifications", "agents", "agentMessages", "mcpServers", "resources", "indexing"], "kernel state");
     nonNegativeInteger(state["revision"], "kernel state.revision");
     validateDaemon(state["daemon"]);
     validateSessionCollection(state["sessions"], "kernel state.sessions");
@@ -63,6 +64,7 @@ export function validateKernelState(value) {
     validateArrayCollection(state["agentMessages"], "kernel state.agentMessages", "id");
     validateRecordCollection(state["mcpServers"], "kernel state.mcpServers", "serverId");
     validateRecordCollection(state["resources"], "kernel state.resources", "key");
+    record(state["indexing"], "kernel state.indexing");
     return structuredClone(state);
 }
 export function validateServerHello(value) {

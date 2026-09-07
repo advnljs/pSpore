@@ -1,3 +1,4 @@
+import { type IndexingStatus } from "../indexing/index-service.js";
 import type { AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
 import type { AgentMessage, AgentRecord } from "../agents/types.js";
 import type { RunRecord } from "../automation/types.js";
@@ -23,6 +24,8 @@ export interface KernelState {
     agentMessages: readonly AgentMessage[];
     mcpServers: Readonly<Record<string, McpHealthRecord>>;
     resources: Readonly<Record<string, ResourceHealthRecord>>;
+    /** Progress of the daemon's continuous local document indexing. */
+    indexing: IndexingStatus;
 }
 interface EventMetadata {
     id: string;
@@ -31,6 +34,9 @@ interface EventMetadata {
     causationId?: string;
 }
 export type KernelEvent = (EventMetadata & {
+    type: "indexing.status";
+    status: IndexingStatus;
+}) | (EventMetadata & {
     type: "daemon.transition";
     daemon: DaemonSnapshot;
 }) | (EventMetadata & {

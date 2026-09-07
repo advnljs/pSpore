@@ -2,6 +2,11 @@ import type { KernelEvent, KernelState, PublicKernelEvent, Reduction } from "./s
 
 export function reduceKernel(state: KernelState, event: KernelEvent): Reduction {
   switch (event.type) {
+    case "indexing.status": {
+      const status = structuredClone(event.status);
+      const next = changed(state, { ...state, indexing: status });
+      return broadcast(next, event, "indexing.status", { status, revision: next.revision }, true);
+    }
     case "daemon.transition": {
       const next = changed(state, { ...state, daemon: structuredClone(event.daemon) });
       return broadcast(next, event, "daemon.state", { daemon: next.daemon, revision: next.revision }, true);

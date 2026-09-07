@@ -1,3 +1,4 @@
+import { initialIndexingStatus } from "../indexing/index-service.js";
 export function initialKernelState() {
     return {
         revision: 0,
@@ -10,6 +11,7 @@ export function initialKernelState() {
         agentMessages: [],
         mcpServers: {},
         resources: {},
+        indexing: initialIndexingStatus(),
     };
 }
 //# sourceMappingURL=state.js.map

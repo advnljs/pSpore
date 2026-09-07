@@ -171,6 +171,18 @@
             </section>
 
             <section id="panel-automation" class="inspector-view" role="tabpanel" aria-labelledby="tab-automation" data-inspector-panel="automation" hidden>
+              <div class="section-heading">
+                <div><h2>本机索引</h2></div>
+                <span id="indexing-phase" class="count-pill">—</span>
+              </div>
+              <div id="indexing-panel" class="indexing-panel">
+                <div class="indexing-bar" role="progressbar" aria-labelledby="indexing-phase" aria-valuemin="0" aria-valuemax="100">
+                  <i id="indexing-bar-fill"></i>
+                </div>
+                <p id="indexing-counts" class="indexing-counts">尚未开始</p>
+                <p id="indexing-current" class="indexing-current"></p>
+                <p id="indexing-note" class="settings-field-note"></p>
+              </div>
               <div class="section-heading"><div><h2>计划与运行</h2></div></div>
               <div class="subsection-heading"><span>计划任务</span></div>
               <div id="job-list" class="dense-list"></div>

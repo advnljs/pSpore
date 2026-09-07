@@ -820,3 +820,14 @@
 - 验证方式与结果：`gh release view v0.1.15` 为非 draft、非 prerelease，恰好 12 项资产。x64 overlay 为 29,800,192 bytes（全量包 155,321,157 bytes），下载后 `sha256sum --check` 通过。解压清单确认 overlay 顶层为 `overlay-manifest.json`、`payload/`、`覆盖升级.sh`、`图形界面升级.sh`、`覆盖升级说明.txt`；`payload/` 顶层恰为 `resources`、`创建桌面快捷方式.sh`、`安装说明.txt`，不含任何 Chromium/Electron 运行时条目。manifest 为 `0.1.15 / Electron 43.3.0 / linux / x64`，payload digest `fc664ee2…3738`。
 - 当前状态：`https://github.com/advnljs/pSpore/releases/tag/v0.1.15` 已发布；整包 overlay 与图形界面升级脚本均已进入正式产物。
 - 遗留问题：overlay 升级仍未在真实安装目录上实跑——本机 Electron 缺 `libasound2`、`libnspr4`、`libnss3` 系列共 5 个 so，而 updater 依赖目标安装的 Electron 充当 Node。是否安装这些系统包需用户决定。
+
+
+## 2026-09-07 CST — bundled skills 机制、aegis-search CLI 与守护进程持续索引
+
+- 阶段目标：把用户的 aegis-searcher 做成最小二进制 CLI、包装为随发行版携带的 skill，pSpore 启动时链接进 workspace 并按版本升级；守护进程负责持续索引，状态在 GUI 右侧面板展示。
+- **aegis-searcher 侧**（另一个仓库，改动已备好待推）：新增 `src/cli/` 无 Qt 的 `aegis-search`（`search`/`index`/`status`，`--json`），默认复用桌面版索引目录；修复整串匹配排序（CJK 单字分词导致拆字散落可压过完整字串，新增整串精确短语 boost 12、邻近短语 boost 4、文件名整串 boost 6 三条只影响排序的 SHOULD 子句）；新增 `--sort newest|oldest`（`mtime` 本就是 NOT_ANALYZED 字符串字段，用 `SortField::STRING` 排序，无需重建索引）；顺带修复 `extFilter`/`scopePath` 此前被完全忽略；`scripts/package.sh` 随包产出 CLI 与其启动器；版本 0.1.3 → 0.2.0。
+- **pSpore 侧**：新增 `src/plugins/bundled-skills.ts`（读取、asar-unpacked 路径解析、workspace 链接、版本比对升级、保护用户自有目录）并接入 `ExtensionManager`/`Daemon`，链接后的路径一并进入 Pi 的 `additionalSkillPaths`；新增 `bundled-skills/aegis-search/SKILL.md`；构建把 `bundled-skills/` 复制进 `dist/` 并在 `electron-builder.yml` 用 `asarUnpack` 保持为真实文件；新增 `config.indexing` 与 `src/indexing/index-service.ts` 驱动增量索引，进度经 `indexing.status` 领域事件进入 Kernel 权威状态；GUI 检查器"自动化"页新增只读索引面板（进度条、计数、当前文件、下次检查时间）。
+- 修改文件：`src/plugins/{bundled-skills.ts,extension-manager.ts}`、`src/indexing/index-service.ts`、`src/daemon/daemon.ts`、`src/kernel/{state.ts,reducer.ts}`、`src/config/config.ts`、`src/desktop/validation.ts`、`src/ui/shared/protocol-state.ts`、`src/desktop/renderer/{index.html,styles.css,renderer.ts}`、`scripts/copy-desktop-assets.mjs`、`electron-builder.yml`、`bundled-skills/**`、新增 `test/unit/{bundled-skills,index-service}.test.ts`。
+- 验证方式与结果：`npm run check` 全绿——严格 typecheck、**174/174** 测试、production build。新增 15 项用例覆盖：bundled skill 的读取与版本校验、首次链接与幂等、旧安装路径重指向、真实目录按版本升级、**用户自有目录永不被覆盖**、单个 skill 失败不影响其余、SemVer（含 prerelease）比较、dist/源码/asar 三种布局的根解析且 unpacked 优先；索引服务的 JSON 进度解析、参数传递、失败上报后仍保留下次调度、未启用/无目录/二进制缺失三种降级。渲染层 104 个 `byId` 目标全部存在，构建产物解析通过。测试暴露并修复了 `runNow()` 的真实缺陷——它在定时器回调赋值 `#pass` 之前就 await，导致根本没等待本次索引。
+- 当前状态：pSpore 侧机制完整可用；bundled skill 目前只含 `SKILL.md`，二进制待 aegis-searcher 发 release 后接入，此前 `IndexService` 会如实报告 `unavailable`。**版本保持 0.1.15 未提升**，因此 CI 的 release job 会跳过，不会在功能未完整时发版。
+- 遗留问题：见 `todo.md` 的四项（二进制接入、C++ 编译验证、boost 调优、索引目录配置入口）。本机无 C++ 工具链与 lucene++/Qt5 开发包，aegis-searcher 的 C++ 改动只能由其自身 CI 编译验证。

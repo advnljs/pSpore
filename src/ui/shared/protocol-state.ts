@@ -100,6 +100,13 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
       kernel = { ...kernel, daemon: daemon as unknown as KernelState["daemon"], revision: payload["revision"] };
     }
   }
+  if (event.type === "indexing.status" && isRecord(payload["status"])) {
+    kernel = {
+      ...kernel,
+      revision: numericRevision(payload, kernel.revision),
+      indexing: structuredClone(payload["status"]) as unknown as KernelState["indexing"],
+    };
+  }
   const session = payload["session"];
   if (isAgentSnapshot(session)) {
     kernel = {

@@ -28,6 +28,8 @@ import { createMcpTools } from "../mcp/mcp-tools.js";
 import { NotificationService } from "../notifications/notification-service.js";
 import { createNotificationTools } from "../notifications/notification-tools.js";
 import { PiRuntimeAdapter } from "../pi/pi-runtime-adapter.js";
+import { resolveBundledSkillsRoot } from "../plugins/bundled-skills.js";
+import { bundledIndexerPath, IndexService } from "../indexing/index-service.js";
 import { ExtensionManager } from "../plugins/extension-manager.js";
 import { ApprovalService, PolicyToolGate } from "../policy/approval-service.js";
 import { PolicyEngine } from "../policy/policy.js";
@@ -70,6 +72,7 @@ export class PsporeDaemon {
   readonly #agents: AgentManager;
   readonly #mcp: McpManager;
   readonly #extensions: ExtensionManager;
+  readonly #indexing: IndexService | undefined;
   readonly #lock: DaemonLock;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -90,6 +93,7 @@ export class PsporeDaemon {
     agents: AgentManager;
     mcp: McpManager;
     extensions: ExtensionManager;
+    indexing?: IndexService;
     lock: DaemonLock;
     clock: () => Date;
     idFactory: () => string;
@@ -105,6 +109,7 @@ export class PsporeDaemon {
     this.#agents = options.agents;
     this.#mcp = options.mcp;
     this.#extensions = options.extensions;
+    this.#indexing = options.indexing;
     this.#lock = options.lock;
     this.#clock = options.clock;
     this.#idFactory = options.idFactory;
@@ -132,6 +137,7 @@ export class PsporeDaemon {
     let agents: AgentManager | undefined;
     let mcp: McpManager | undefined;
     let extensions: ExtensionManager | undefined;
+    let indexing: IndexService | undefined;
     let daemon: PsporeDaemon | undefined;
     const startedAt = clock().toISOString();
     const kernel = new KernelLoop((effect) => {
@@ -173,9 +179,11 @@ export class PsporeDaemon {
         cwd: paths.workspace,
       });
       const toolGate = new PolicyToolGate(policy, approvals);
+      const bundledSkills = await resolveBundledSkillsRoot();
       extensions = await ExtensionManager.create({
         stagingRoot: join(paths.workspace, "staging"),
         skillsRoot: join(paths.workspace, "skills"),
+        ...(bundledSkills === undefined ? {} : { bundledSkillsRoot: bundledSkills }),
         pluginsRoot: paths.plugins,
         trustPath: paths.resourceTrust,
         activations: config.plugins,
@@ -183,6 +191,17 @@ export class PsporeDaemon {
         onHealth: (health) => void kernel.dispatch(event({ type: "resource.health", health })),
       });
       await extensions.startHostPlugins();
+      // Continuous indexing runs the binary from the bundled skill's workspace
+      // link, so an overlay upgrade swaps the indexer along with everything else.
+      indexing = new IndexService({
+        binaryPath: bundledIndexerPath(join(paths.workspace, "skills", "aegis-search")),
+        directories: config.indexing.directories,
+        extensions: config.indexing.extensions,
+        intervalMs: config.indexing.intervalMinutes * 60_000,
+        enabled: config.indexing.enabled,
+        clock,
+        onStatus: (status) => void kernel.dispatch(event({ type: "indexing.status", status })),
+      });
       mcp = await McpManager.create({
         configs: config.mcpServers,
         artifactRoot: paths.artifacts,
@@ -338,10 +357,12 @@ export class PsporeDaemon {
         agents,
         mcp,
         extensions,
+        indexing,
         lock,
         clock,
         idFactory,
       });
+      void indexing.start().catch(() => undefined);
       const resourceFailure = extensions.listHealth().find((health) => health.status === "blocked" || health.status === "degraded");
       const restoreFailure = sessionRestoreFailures[0];
       const phase = resourceFailure || restoreFailure ? "degraded" as const : "ready" as const;
@@ -374,6 +395,7 @@ export class PsporeDaemon {
       if (scheduler) await scheduler.stop().catch(() => undefined);
       if (agents) await agents.stop().catch(() => undefined);
       if (application) await application.dispose().catch(() => undefined);
+      if (indexing) await indexing.stop().catch(() => undefined);
       if (extensions) await extensions.stop("daemon startup failed").catch(() => undefined);
       if (mcp) await mcp.stop().catch(() => undefined);
       if (approvals) await approvals.close().catch(() => undefined);
@@ -421,6 +443,7 @@ export class PsporeDaemon {
     await step(async () => this.#agents.stop());
     await step(async () => this.#approvals.close());
     await step(async () => this.#application.dispose());
+    await step(async () => this.#indexing?.stop());
     await step(async () => this.#extensions.stop());
     await step(async () => this.#mcp.stop());
     await step(async () => this.#transition("stopped"));

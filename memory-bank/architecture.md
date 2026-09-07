@@ -110,3 +110,11 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **overlay 边界**：overlay payload = 完整安装目录减去 Electron/Chromium 运行时清单，升级时在安装根目录整体替换。运行时版本/架构必须与目标完全一致，否则在写入前拒绝。升级后重跑随包的快捷方式安装器，保证已有桌面快捷方式指向本次升级的目录。
 
 - **发版触发**：`main` 上的 CI 在 `check` 通过后运行 `release` job。它以 `package.json` 版本是否已有 tag/Release 作为唯一开关：已存在则跳过，不存在则等待同 commit 的 ARM64 preview 成功，再创建 annotated `v<version>` 并显式 `gh workflow run "Release desktop" --ref <tag>`。显式派发是必需的——用 `GITHUB_TOKEN` 推送的 tag 不会触发 `on: push: tags`，`workflow_dispatch` 是 `GITHUB_TOKEN` 仍可触发的事件。`scripts/release.sh` 保留为“先在本机完整打包验证再打 tag”的手动路径，两条路径都受同一套不可变校验保护。
+
+
+## 2026-09-07 变更：bundled skills 与持续索引
+
+- **bundled skills**：随发行版携带的 skill 目录（`bundled-skills/`，构建时复制到 `dist/bundled-skills/`）。它们**不走** staging 的 inspect/install 信任流程——与运行它们的二进制来自同一个包，信任级别本就相同。守护进程启动时把每个 skill 链接到 `workspace/skills/<name>`，并把该路径一并交给 Pi 的 `additionalSkillPaths`。
+- **链接与版本**：默认建立 symlink，指向发行版内的真实目录，因此 overlay 就地升级后链接自动指向新版本。若 workspace 中已存在：symlink 指向别的安装路径就重新指向；真实目录带 `.pspore-bundled.json` 标记则按 SemVer 比对，只有发行版更新时才替换；没有标记的目录视为用户自己的内容，**永不覆盖**。
+- **asar 边界**：Electron 包里模块位于 `app.asar` 内，其中的条目不是真实文件，无法被 symlink 指向也无法执行。因此 `bundled-skills` 通过 `asarUnpack` 落到 `app.asar.unpacked/`，`bundledSkillsRoots()` 会把路径中的 `.asar/` 改写为 `.asar.unpacked/` 并优先选用。
+- **持续索引**：`config.indexing`（enabled/directories/intervalMinutes/extensions）驱动 `IndexService`，它按间隔调用 bundled skill 里的 `aegis-search index --json`，解析进度并通过 `indexing.status` 领域事件进入 Kernel 权威状态，GUI 检查器"自动化"页只读展示。索引是增量的（CLI 依据 mtime/size 指纹跳过未变化文件），与 Aegis Searcher 桌面版共用同一份索引目录。默认关闭且目录为空——未经用户指定就索引整个 home 目录既慢又越权。

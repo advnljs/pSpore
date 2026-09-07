@@ -16,6 +16,9 @@
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
+| `bundled-skills/` | 随发行版携带的 skills；启动时由守护进程链接进 `workspace/skills/<name>`，见 `src/plugins/bundled-skills.ts` |
+| `src/plugins/bundled-skills.ts` | 发行版 skills 的读取、asar-unpacked 路径解析、workspace 链接与版本比对升级 |
+| `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |

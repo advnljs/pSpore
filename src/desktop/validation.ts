@@ -8,6 +8,7 @@ const MAX_COLLECTION_ENTRIES = 10_000;
 
 const EVENT_TYPES = new Set([
   "daemon.state",
+  "indexing.status",
   "session.snapshot",
   "session.closed",
   "session.replaced",
@@ -60,7 +61,7 @@ export function validateKernelState(value: unknown): KernelState {
   const state = record(value, "kernel state");
   exactKeys(
     state,
-    ["revision", "daemon", "sessions", "approvals", "runs", "notifications", "agents", "agentMessages", "mcpServers", "resources"],
+    ["revision", "daemon", "sessions", "approvals", "runs", "notifications", "agents", "agentMessages", "mcpServers", "resources", "indexing"],
     "kernel state",
   );
   nonNegativeInteger(state["revision"], "kernel state.revision");
@@ -73,6 +74,7 @@ export function validateKernelState(value: unknown): KernelState {
   validateArrayCollection(state["agentMessages"], "kernel state.agentMessages", "id");
   validateRecordCollection(state["mcpServers"], "kernel state.mcpServers", "serverId");
   validateRecordCollection(state["resources"], "kernel state.resources", "key");
+  record(state["indexing"], "kernel state.indexing");
   return structuredClone(state) as unknown as KernelState;
 }
 

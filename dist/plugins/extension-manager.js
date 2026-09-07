@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { atomicWriteJson } from "../storage/atomic.js";
 import { inspectResourceDirectory, installSnapshot, resourceInstallPath, resourceKey, resolveStagedResource, validateDigest, validateName, } from "./resource-inspector.js";
+import { linkBundledSkills, readBundledSkills, } from "./bundled-skills.js";
 export class ExtensionManager {
     #stagingRoot;
     #skillsRoot;
@@ -18,6 +19,8 @@ export class ExtensionManager {
     #store;
     #tail = Promise.resolve();
     #stopping = false;
+    #bundled = [];
+    #bundledLinks = [];
     constructor(options, store) {
         this.#stagingRoot = options.stagingRoot;
         this.#skillsRoot = options.skillsRoot;
@@ -40,7 +43,33 @@ export class ExtensionManager {
         const store = await loadTrustStore(options.trustPath);
         const manager = new ExtensionManager(options, store);
         await manager.#verifyInstalled();
+        await manager.#linkBundledSkills(options.bundledSkillsRoot);
         return manager;
+    }
+    /**
+     * Materializes the release's skills into the workspace. Failures are reported
+     * but never block startup: a missing bundled skill degrades the agent's
+     * abilities, it does not make the daemon unusable.
+     */
+    async #linkBundledSkills(root) {
+        if (!root)
+            return;
+        try {
+            this.#bundled = await readBundledSkills(root);
+            this.#bundledLinks = await linkBundledSkills(this.#bundled, this.#skillsRoot);
+            for (const link of this.#bundledLinks) {
+                if (link.action === "failed" || link.action === "kept-user-copy") {
+                    this.#onError?.(new Error(`Bundled skill ${link.name}: ${link.message ?? link.action}`));
+                }
+            }
+        }
+        catch (error) {
+            this.#onError?.(toError(error));
+        }
+    }
+    /** Bundled skills shipped by this release, with how each was reconciled. */
+    listBundledSkills() {
+        return this.#bundledLinks.map((link) => structuredClone(link));
     }
     async inspect(stagingPath) {
         const directory = await resolveStagedResource(this.#stagingRoot, stagingPath);
@@ -156,6 +185,12 @@ export class ExtensionManager {
                     message: "Included in new sessions through Pi progressive disclosure",
                 });
             }
+        }
+        // Bundled skills are surfaced from their workspace link, so Pi sees exactly
+        // the directory the user can inspect.
+        for (const link of this.#bundledLinks) {
+            if (link.action !== "failed" && link.action !== "kept-user-copy")
+                paths.push(link.targetPath);
         }
         return paths.sort();
     }

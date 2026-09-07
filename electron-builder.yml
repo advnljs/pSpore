@@ -8,6 +8,10 @@ files:
 extraMetadata:
   main: dist/desktop/main.js
 asar: true
+# Bundled skills are symlinked into the workspace and may carry native helper
+# binaries, neither of which works from inside the archive.
+asarUnpack:
+  - dist/bundled-skills/**
 linux:
   category: Utility
   executableName: pspore-desktop

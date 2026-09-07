@@ -1,4 +1,4 @@
-import { copyFile, mkdir } from "node:fs/promises";
+import { cp, copyFile, mkdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -17,3 +17,10 @@ for (const [source, target] of assets) {
   await mkdir(dirname(destination), { recursive: true });
   await copyFile(resolve(root, source), destination);
 }
+
+// Skills that ship with the release. They land inside dist/ so `files: dist/**/*`
+// carries them into the npm package and electron-builder into the app payload;
+// the daemon links them into the workspace on startup.
+const bundledSkills = resolve(root, "dist/bundled-skills");
+await rm(bundledSkills, { recursive: true, force: true });
+await cp(resolve(root, "bundled-skills"), bundledSkills, { recursive: true });

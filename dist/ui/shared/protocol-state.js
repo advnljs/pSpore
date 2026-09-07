@@ -65,6 +65,13 @@ export function applyProtocolEvent(current, event) {
             kernel = { ...kernel, daemon: daemon, revision: payload["revision"] };
         }
     }
+    if (event.type === "indexing.status" && isRecord(payload["status"])) {
+        kernel = {
+            ...kernel,
+            revision: numericRevision(payload, kernel.revision),
+            indexing: structuredClone(payload["status"]),
+        };
+    }
     const session = payload["session"];
     if (isAgentSnapshot(session)) {
         kernel = {

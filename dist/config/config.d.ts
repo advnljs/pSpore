@@ -65,6 +65,20 @@ export interface PsporeConfig {
     boot: {
         enabled: boolean;
     };
+    /**
+     * Continuous local document indexing. The daemon drives the bundled
+     * aegis-search CLI so the full-text index stays current between sessions;
+     * the same index is shared with the Aegis Searcher desktop application.
+     */
+    indexing: {
+        enabled: boolean;
+        /** Absolute directories to index. Empty means nothing is indexed. */
+        directories: string[];
+        /** Minutes between incremental passes. */
+        intervalMinutes: number;
+        /** File extensions to index, without the leading dot. */
+        extensions: string[];
+    };
     plugins: HostPluginActivationConfig[];
     mcpServers: McpServerConfig[];
 }

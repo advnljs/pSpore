@@ -65,6 +65,12 @@ const elements = {
     sessionCount: byId("session-count"),
     newSession: byId("new-session-button"),
     sessionList: byId("session-list"),
+    indexingPanel: byId("indexing-panel"),
+    indexingPhase: byId("indexing-phase"),
+    indexingBarFill: byId("indexing-bar-fill"),
+    indexingCounts: byId("indexing-counts"),
+    indexingCurrent: byId("indexing-current"),
+    indexingNote: byId("indexing-note"),
     railRuns: byId("rail-runs"),
     railMcp: byId("rail-mcp"),
     railResources: byId("rail-resources"),
@@ -768,6 +774,7 @@ function render() {
     renderSessions(snapshot);
     renderConversation(snapshot);
     renderActivities(snapshot.activities);
+    renderIndexing(snapshot);
     renderJobs(snapshot);
     renderIntegrations(snapshot);
     renderNotifications(snapshot);
@@ -1217,6 +1224,50 @@ function renderActivities(activities) {
             revealListItems(cards, { distance: 6, maxStagger: 8 });
         lastActivitySignature = signature;
     }
+}
+const INDEXING_PHASE_LABEL = {
+    disabled: "未启用",
+    unavailable: "不可用",
+    idle: "空闲",
+    scanning: "扫描中",
+    indexing: "索引中",
+    failed: "失败",
+};
+/**
+ * Continuous indexing status. The daemon owns the work; this is a read-only
+ * view so the user can tell whether a search is running against a current index.
+ */
+function renderIndexing(snapshot) {
+    const indexing = snapshot.kernel.indexing;
+    const phase = indexing?.phase ?? "disabled";
+    elements.indexingPanel.dataset["phase"] = phase;
+    elements.indexingPhase.textContent = INDEXING_PHASE_LABEL[phase] ?? phase;
+    const total = indexing?.total ?? 0;
+    const processed = indexing?.processed ?? 0;
+    const done = phase === "idle" && total > 0;
+    const percent = done ? 100 : total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
+    elements.indexingBarFill.style.width = `${percent}%`;
+    elements.indexingBarFill.parentElement?.setAttribute("aria-valuenow", String(percent));
+    if (phase === "disabled" || phase === "unavailable") {
+        elements.indexingCounts.textContent = indexing?.message ?? "未启用本机索引";
+    }
+    else if (total > 0) {
+        elements.indexingCounts.textContent =
+            `${processed} / ${total} 个文件 · 跳过 ${indexing?.skipped ?? 0} · 失败 ${indexing?.failed ?? 0}`;
+    }
+    else {
+        elements.indexingCounts.textContent = phase === "scanning" ? "正在扫描目录…" : "尚未开始";
+    }
+    elements.indexingCurrent.textContent = phase === "indexing" ? (indexing?.currentFile ?? "") : "";
+    const directories = indexing?.directories ?? [];
+    const notes = [];
+    if (phase === "failed" && indexing?.message)
+        notes.push(indexing.message);
+    else if (directories.length > 0)
+        notes.push(`索引目录：${directories.join("、")}`);
+    if (phase === "idle" && indexing?.nextRunAt)
+        notes.push(`下次检查 ${clockTime(indexing.nextRunAt)}`);
+    elements.indexingNote.textContent = notes.join(" · ");
 }
 function renderJobs(snapshot) {
     const connected = snapshot.stableConnection.phase === "connected";
