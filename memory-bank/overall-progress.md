@@ -811,3 +811,12 @@
 - 完成内容：新增与清单无关的独立守卫——payload 根目录只允许 `resources`、`*.sh`、`*.txt`，出现任何其他顶层条目立即失败并提示应加入运行时清单还是应用白名单；另加一条"payload 根目录不得含 ELF/可执行镜像"的检查（`resources/app.asar.unpacked` 下的原生 `.node` 不在范围内，属于合法内容）。
 - 验证方式与结果：以真实 `release-dist/pspore-desktop-0.1.14-linux-x64` 的目录布局构造 fixture，把 `package-desktop.sh` 中的 payload 构造段原样抽出执行。正常包产出恰好为 `resources/`、`创建桌面快捷方式.sh`、`安装说明.txt`，排除了全部 Chromium 条目且 `0755` 权限保留；删掉清单中的 `pspore-desktop` 模拟清单过期 → 加固前 exit 0（漏过），加固后正确失败；凭空新增 `libnewthing.so` → 正确失败；缺少快捷方式安装器、缺少 `app.asar` 两个既有守卫也分别正确失败。
 - 当前状态：`scripts/package-desktop.sh` 已加固，`release-scripts` 集成测试仍全部通过。
+
+
+## 2026-09-07 04:53 UTC — `v0.1.15` 由 CI 自动发布并复验
+
+- 阶段目标：确认新增的 CI `release` job 能端到端把版本推到 Release，并复验产物确实是本轮重做的整包 overlay。
+- 完成内容：commit `6d6b0d6` 推送后，CI run `34084272469` 通过，`release` job 自动创建 annotated tag `v0.1.15`（`2f89706b…`）并派发 `Release desktop`；run `34084496369` 成功，Release 于 `2026-09-07T04:53:12Z` 发布。
+- 验证方式与结果：`gh release view v0.1.15` 为非 draft、非 prerelease，恰好 12 项资产。x64 overlay 为 29,800,192 bytes（全量包 155,321,157 bytes），下载后 `sha256sum --check` 通过。解压清单确认 overlay 顶层为 `overlay-manifest.json`、`payload/`、`覆盖升级.sh`、`图形界面升级.sh`、`覆盖升级说明.txt`；`payload/` 顶层恰为 `resources`、`创建桌面快捷方式.sh`、`安装说明.txt`，不含任何 Chromium/Electron 运行时条目。manifest 为 `0.1.15 / Electron 43.3.0 / linux / x64`，payload digest `fc664ee2…3738`。
+- 当前状态：`https://github.com/advnljs/pSpore/releases/tag/v0.1.15` 已发布；整包 overlay 与图形界面升级脚本均已进入正式产物。
+- 遗留问题：overlay 升级仍未在真实安装目录上实跑——本机 Electron 缺 `libasound2`、`libnspr4`、`libnss3` 系列共 5 个 so，而 updater 依赖目标安装的 Electron 充当 Node。是否安装这些系统包需用户决定。
