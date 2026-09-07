@@ -296,6 +296,25 @@
           </section>
 
           <section class="settings-section">
+            <div class="settings-section-title"><h3>本机索引</h3><p>后台持续为选定目录建立全文索引，供助手检索你自己的文档。</p></div>
+            <label class="checkbox-field">
+              <input id="settings-indexing-enabled" name="indexingEnabled" type="checkbox" />
+              <span><b>启用本机索引</b><small>与 Aegis Searcher 桌面版共用同一份索引。</small></span>
+            </label>
+            <div class="field-grid two-columns">
+              <label><span>检查间隔（分钟）</span><input id="settings-indexing-interval" name="indexingInterval" type="number" min="1" max="10080" step="1" /></label>
+              <label><span>文件类型</span><input id="settings-indexing-ext" name="indexingExtensions" maxlength="256" spellcheck="false" placeholder="txt,md,pdf" /></label>
+            </div>
+            <div class="indexing-directories">
+              <div class="subsection-heading"><span>索引目录</span>
+                <button id="settings-indexing-add" class="quiet-text-button" type="button">添加目录…</button>
+              </div>
+              <div id="settings-indexing-list" class="indexing-dir-list" role="list"></div>
+            </div>
+            <p id="settings-indexing-note" class="settings-field-note"></p>
+          </section>
+
+          <section class="settings-section">
             <div class="settings-section-title"><h3>凭据</h3><p>Key 只保存到当前用户私有目录（0600），config.json 只记录文件地址。</p></div>
             <label><span>API Key</span>
               <div class="secret-input">

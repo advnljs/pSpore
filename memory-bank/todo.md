@@ -70,7 +70,7 @@
 | P0 | 把 aegis-search 二进制接入 bundled skill | Done | 无 | `v0.2.1` 已发布，digest 已记录，fetch 脚本实测通过（校验 → 裁剪 → 安装 → 运行），`IndexService` 已驱动真实二进制跑通一次索引 |
 | P0 | aegis-searcher 的 loongarch64 cross 构建失败挡住发版 | Done | master 上 `linux-loongarch64 (cross)` job 长期失败（x64/arm64 均成功），而 `Create GitHub Release` job `needs` 它，因此无法发出 release——而 pSpore 正是要按版本从该 release 下载 `aegis-search`。2026-03 的日志已过期（410），PR run 会产生新日志 | 用户决定只做 x86_64 与 ARM64。已把 loongarch job 标记 `continue-on-error` 并从 release 的 `needs` 中移除，下载 pattern 收窄为 `{x64,arm64}`。`v0.2.0` 已成功发布 2 项资产 |
 | P1 | aegis-searcher C++ 改动的编译验证 | Done | 本机无 cmake/pkg-config 与 lucene++/Qt5 等开发包，只编译并单测了 `src/cli/paths.cpp`、`src/cli/json_out.cpp` | run 34091667516 暴露链接失败（lucene++ 需要 `boost_system` 在链接行上，pkg-config 不带、静态库也不传递），对齐 `src/app` 依赖列表后 run 34092351755 的 x64 与 arm64 均成功。PR #1 已 squash 合并到 master |
-| P1 | 排序 boost 取值实机调优 | Pending | 整串短语 boost 12 / 邻近 4 / 文件名 6 未在真实语料上验证 | 在真实文档集上比对"整串匹配"与"拆字散落"的排序，必要时调整常量 |
-| P2 | 索引目录的 GUI 设置项 | Pending | CLI 已完成 | 已有 `pspore config indexing show\|on\|off\|add\|remove\|interval\|ext`；GUI 设置弹层里的对应入口尚未添加 |
+| P1 | 排序 boost 取值实机调优 | Done | 无 | 在 75 篇（含 60 篇共享查询字的干扰文档）语料上实测：「授信业务」仅 5 篇整串文档命中；「授信 业务」整串文档占据前五、0.05–0.077 对其余 0.008–0.012，约 5–7 倍。受控实验（等长等词频）下整串/拆字 130 倍、近距离/远距离 11.3 倍，确认三个 boost 均生效，**无需调整**。已用 `test/integration/aegis-search-ranking.test.ts` 锁定该行为（二进制缺失时自动跳过）|
+| P2 | 索引目录的 GUI 设置项 | Done | 无 | 设置弹层新增「本机索引」区：启用开关、间隔、文件类型、目录列表（经主进程原生选择器添加、可逐条移除）。渲染器无文件系统权限，绝对路径只能由 `dialog.showOpenDialog` 提供 |
 | P0 | 在 pSpore 仓库创建 `BUNDLED_BINARIES_TOKEN` secret | Pending | 需要用户创建对 advnljs/aegis-searcher 只读的 fine-grained PAT | 没有它时 CI 打出的包不含索引二进制，skill 运行时报 unavailable；workflow 已写好 `secrets.BUNDLED_BINARIES_TOKEN || github.token` 的回退 |
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

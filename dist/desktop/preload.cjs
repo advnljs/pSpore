@@ -7,6 +7,9 @@ const DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 const FRAME_CHANNEL = "pspore:desktop:frame";
 const SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
 const SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+const INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
+const INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
+const INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
 
 const api = Object.freeze({
   bootstrap() {
@@ -20,6 +23,15 @@ const api = Object.freeze({
   },
   saveSettings(settings) {
     return ipcRenderer.invoke(SETTINGS_SAVE_CHANNEL, settings);
+  },
+  getIndexing() {
+    return ipcRenderer.invoke(INDEXING_GET_CHANNEL);
+  },
+  saveIndexing(settings) {
+    return ipcRenderer.invoke(INDEXING_SAVE_CHANNEL, settings);
+  },
+  pickIndexDirectory() {
+    return ipcRenderer.invoke(INDEXING_PICK_CHANNEL);
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file);

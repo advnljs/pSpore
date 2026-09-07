@@ -22,6 +22,7 @@ import {
 } from "../ipc-contract.js";
 import type {
   DesktopCommand,
+  DesktopIndexingSettings,
   DesktopFrame,
   DesktopLlmSettings,
   DesktopLlmSettingsUpdate,
@@ -74,6 +75,7 @@ let lastSessionSignature = "";
 let lastSessionStatus = "";
 let lastActivitySignature = "";
 let lastReferenceCount = 0;
+let indexingDirectories: string[] = [];
 let renderFrame: number | undefined;
 let transcriptRenderFrame: number | undefined;
 let composerFileReferences: ComposerFileReference[] = [];
@@ -206,6 +208,12 @@ const elements = {
   settingsCookiePath: byId<HTMLElement>("settings-cookie-path"),
   settingsCookieState: byId<HTMLElement>("settings-cookie-state"),
   settingsCookieCopyPath: byId<HTMLButtonElement>("settings-cookie-copy-path"),
+  settingsIndexingEnabled: byId<HTMLInputElement>("settings-indexing-enabled"),
+  settingsIndexingInterval: byId<HTMLInputElement>("settings-indexing-interval"),
+  settingsIndexingExt: byId<HTMLInputElement>("settings-indexing-ext"),
+  settingsIndexingAdd: byId<HTMLButtonElement>("settings-indexing-add"),
+  settingsIndexingList: byId<HTMLElement>("settings-indexing-list"),
+  settingsIndexingNote: byId<HTMLElement>("settings-indexing-note"),
   settingsStatus: byId<HTMLElement>("settings-status"),
   settingsSave: byId<HTMLButtonElement>("settings-save"),
   approvalOverlay: byId<HTMLElement>("approval-overlay"),
@@ -307,6 +315,7 @@ function bindStaticActions(): void {
   bindSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey);
   bindSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie);
   bindPathCopy(elements.settingsKeyCopyPath, elements.settingsApiKeyPath);
+  elements.settingsIndexingAdd.addEventListener("click", () => void addIndexingDirectory());
   bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
   elements.settingsOverlay.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !savingSettings) {
@@ -537,13 +546,57 @@ async function openSettings(): Promise<void> {
   updateAppInert();
   requestAnimationFrame(() => elements.settingsClose.focus());
   try {
-    const settings = await window.pspore.getSettings();
+    const [settings, indexing] = await Promise.all([
+      window.pspore.getSettings(),
+      window.pspore.getIndexing(),
+    ]);
     populateSettings(settings);
+    populateIndexingSettings(indexing);
     elements.settingsStatus.textContent = settingsStatus(settings);
     elements.settingsSave.disabled = false;
   } catch (error) {
     elements.settingsStatus.textContent = `读取失败：${toError(error).message}`;
   }
+}
+
+function populateIndexingSettings(indexing: DesktopIndexingSettings): void {
+  elements.settingsIndexingEnabled.checked = indexing.enabled;
+  elements.settingsIndexingInterval.value = String(indexing.intervalMinutes);
+  elements.settingsIndexingExt.value = indexing.extensions.join(",");
+  indexingDirectories = [...indexing.directories];
+  renderIndexingDirectories();
+  elements.settingsIndexingNote.textContent = indexing.indexerAvailable
+    ? `索引程序：${indexing.indexerPath}`
+    : `本次发行版未包含索引程序（${indexing.indexerPath}），启用后会报告不可用。`;
+}
+
+function renderIndexingDirectories(): void {
+  elements.settingsIndexingList.replaceChildren(...indexingDirectories.map((directory) => {
+    const row = element("div", "indexing-dir");
+    row.setAttribute("role", "listitem");
+    const path = element("code");
+    path.textContent = directory;
+    const remove = element("button", "quiet-text-button") as HTMLButtonElement;
+    remove.type = "button";
+    remove.textContent = "移除";
+    remove.setAttribute("aria-label", `移除索引目录 ${directory}`);
+    remove.addEventListener("click", () => {
+      indexingDirectories = indexingDirectories.filter((candidate) => candidate !== directory);
+      renderIndexingDirectories();
+    });
+    row.append(path, remove);
+    return row;
+  }));
+}
+
+async function addIndexingDirectory(): Promise<void> {
+  // The renderer has no filesystem access, so the absolute path can only come
+  // from the main process's native chooser.
+  const directory = await window.pspore.pickIndexDirectory();
+  if (!directory || indexingDirectories.includes(directory)) return;
+  indexingDirectories = [...indexingDirectories, directory].sort();
+  renderIndexingDirectories();
+  popChips(Array.from(elements.settingsIndexingList.children));
 }
 
 function populateSettings(settings: DesktopLlmSettings): void {
@@ -627,7 +680,15 @@ async function saveSettings(): Promise<void> {
   try {
     const result = await window.pspore.saveSettings(update);
     populateSettings(result.settings);
-    elements.settingsStatus.textContent = result.message;
+    // Indexing is a separate config section; saving it here keeps one button.
+    const indexing = await window.pspore.saveIndexing({
+      enabled: elements.settingsIndexingEnabled.checked,
+      directories: [...indexingDirectories],
+      intervalMinutes: elements.settingsIndexingInterval.valueAsNumber,
+      extensions: elements.settingsIndexingExt.value.split(",").map((value) => value.trim()).filter(Boolean),
+    });
+    populateIndexingSettings(indexing.settings);
+    elements.settingsStatus.textContent = `${result.message} ${indexing.message}`;
   } catch (error) {
     elements.settingsStatus.textContent = `保存失败：${toError(error).message}`;
   } finally {

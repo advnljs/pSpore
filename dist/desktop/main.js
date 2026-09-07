@@ -1,18 +1,19 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, ipcMain, screen, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, session } from "electron";
 import { resolvePsporeHome } from "../config/config.js";
 import { DaemonSupervisor } from "../daemon/supervisor.js";
 import { stopLegacyDaemon } from "../service/legacy-daemon.js";
 import { serviceLaunchSpec } from "../service/service-launch.js";
 import { SystemServiceManager } from "../service/system-service.js";
+import { IndexingSettingsService } from "../settings/indexing-settings-service.js";
 import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { DaemonBridge } from "./daemon-bridge.js";
-import { DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
+import { DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
 import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 const arguments_ = parseArguments(process.argv.slice(1));
@@ -75,10 +76,11 @@ async function startDesktop() {
     });
     bridge.start();
     settingsService = new LlmSettingsService(home, paths);
+    const indexingService = new IndexingSettingsService(home, paths);
     window = new BrowserWindow(desktopWindowOptions(preloadPath, primaryWorkArea()));
     captureRendererDiagnostics(window);
     hardenWindow(window, rendererUrl);
-    installIpc(window, bridge, settingsService);
+    installIpc(window, bridge, settingsService, indexingService);
     unsubscribeBridge = bridge.subscribe((frame) => sendFrame(window, frame));
     await window.loadFile(rendererPath);
     if (arguments_.smokeDirectory) {
@@ -134,11 +136,14 @@ function hardenWindow(target, expectedUrl) {
     });
     contents.on("will-attach-webview", (event) => event.preventDefault());
 }
-function installIpc(target, daemonBridge, desktopSettings) {
+function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
     ipcMain.removeHandler(DESKTOP_BOOTSTRAP_CHANNEL);
     ipcMain.removeHandler(DESKTOP_DISPATCH_CHANNEL);
     ipcMain.removeHandler(DESKTOP_SETTINGS_GET_CHANNEL);
     ipcMain.removeHandler(DESKTOP_SETTINGS_SAVE_CHANNEL);
+    ipcMain.removeHandler(DESKTOP_INDEXING_GET_CHANNEL);
+    ipcMain.removeHandler(DESKTOP_INDEXING_SAVE_CHANNEL);
+    ipcMain.removeHandler(DESKTOP_INDEXING_PICK_CHANNEL);
     ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
         assertTrustedSender(event, target.webContents);
         return daemonBridge.bootstrap();
@@ -150,6 +155,35 @@ function installIpc(target, daemonBridge, desktopSettings) {
     ipcMain.handle(DESKTOP_SETTINGS_GET_CHANNEL, async (event) => {
         assertTrustedSender(event, target.webContents);
         return desktopSettings.get();
+    });
+    ipcMain.handle(DESKTOP_INDEXING_GET_CHANNEL, async (event) => {
+        assertTrustedSender(event, target.webContents);
+        return indexingSettings.get();
+    });
+    ipcMain.handle(DESKTOP_INDEXING_SAVE_CHANNEL, async (event, candidate) => {
+        assertTrustedSender(event, target.webContents);
+        const update = decodeDesktopIndexingSettingsUpdate(candidate);
+        const settings = await indexingSettings.save(update);
+        // The daemon reads config.indexing once at startup, so a saved change only
+        // takes effect after it restarts; the client is told which happened.
+        if (systemService) {
+            await daemonBridge.stop();
+            await systemService.restart();
+            daemonBridge.start();
+            await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 10_000);
+            return { settings, applied: true, message: "索引设置已保存并应用，后台服务已重启。" };
+        }
+        return { settings, applied: false, message: "索引设置已保存；重启服务后生效。" };
+    });
+    ipcMain.handle(DESKTOP_INDEXING_PICK_CHANNEL, async (event) => {
+        assertTrustedSender(event, target.webContents);
+        // A native chooser is the only way the renderer learns an absolute path: it
+        // has no filesystem access of its own.
+        const result = await dialog.showOpenDialog(target, {
+            title: "选择要索引的目录",
+            properties: ["openDirectory", "createDirectory"],
+        });
+        return result.canceled ? undefined : result.filePaths[0];
     });
     ipcMain.handle(DESKTOP_SETTINGS_SAVE_CHANNEL, async (event, candidate) => {
         assertTrustedSender(event, target.webContents);

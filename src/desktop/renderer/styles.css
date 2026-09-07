@@ -649,6 +649,12 @@ select {
 .settings-section-title h3 { margin: 0 0 4px; color: var(--text); font-size: 15.5px; font-weight: 700; }
 .settings-section-title p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.55; }
 .settings-field-note { margin: 12px 0 0; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.indexing-directories { margin: 12px 0 0; }
+.indexing-directories .subsection-heading { display: flex; align-items: center; justify-content: space-between; }
+.indexing-dir-list { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.indexing-dir-list:empty::after { content: "尚未选择目录，启用后不会索引任何内容"; color: var(--faint); font-size: 12px; }
+.indexing-dir { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-soft); }
+.indexing-dir code { flex: 1 1 auto; min-width: 0; overflow-x: auto; color: var(--text); font-family: var(--font-mono); font-size: 11.5px; white-space: nowrap; }
 .indexing-panel { margin: 0 0 18px; }
 .indexing-bar { position: relative; height: 6px; margin: 0 0 10px; border-radius: 999px; background: var(--surface-soft); border: 1px solid var(--border-soft); overflow: hidden; }
 .indexing-bar i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px; background: var(--accent); transition: width 220ms var(--motion-out); }

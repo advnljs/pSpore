@@ -1,11 +1,15 @@
 import type { KernelState } from "../kernel/state.js";
 import type { EventEnvelope } from "../protocol/schema.js";
+import { type IndexingSettings, type IndexingSettingsUpdate } from "../settings/indexing-settings.js";
 import { type LlmSettings, type LlmSettingsUpdate, type ModelApi, type ThinkingLevel } from "../settings/llm-settings.js";
 export declare const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
 export declare const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export declare const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
 export declare const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
 export declare const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+export declare const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
+export declare const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
+export declare const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
 /**
  * Thrown before a command is written to the socket, so a caller may safely retry
  * it once the bridge reconnects. Never used for a command that was already sent.
@@ -154,12 +158,24 @@ export interface DesktopApi {
     dispatch(command: DesktopCommand): Promise<unknown>;
     getSettings(): Promise<DesktopLlmSettings>;
     saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;
+    getIndexing(): Promise<DesktopIndexingSettings>;
+    saveIndexing(settings: DesktopIndexingSettingsUpdate): Promise<DesktopIndexingSaveResult>;
+    /** Opens a native directory chooser; resolves to undefined when cancelled. */
+    pickIndexDirectory(): Promise<string | undefined>;
     /** Resolve only an operating-system-backed File supplied by a user drag. */
     getPathForFile(file: unknown): string;
     subscribe(listener: (frame: DesktopFrame) => void): () => void;
 }
 export type DesktopModelApi = ModelApi;
 export type DesktopThinkingLevel = ThinkingLevel;
+export type DesktopIndexingSettings = IndexingSettings;
+export type DesktopIndexingSettingsUpdate = IndexingSettingsUpdate;
+export interface DesktopIndexingSaveResult {
+    settings: DesktopIndexingSettings;
+    applied: boolean;
+    message: string;
+}
+export declare function decodeDesktopIndexingSettingsUpdate(value: unknown): DesktopIndexingSettingsUpdate;
 export type DesktopLlmSettings = LlmSettings;
 export type DesktopLlmSettingsUpdate = LlmSettingsUpdate;
 export interface DesktopSettingsSaveResult {

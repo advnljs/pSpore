@@ -1,6 +1,11 @@
 import type { KernelState } from "../kernel/state.js";
 import type { EventEnvelope } from "../protocol/schema.js";
 import {
+  decodeIndexingSettingsUpdate,
+  type IndexingSettings,
+  type IndexingSettingsUpdate,
+} from "../settings/indexing-settings.js";
+import {
   decodeLlmSettingsUpdate,
   type LlmSettings,
   type LlmSettingsUpdate,
@@ -13,6 +18,9 @@ export const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
 export const DESKTOP_SETTINGS_GET_CHANNEL = "pspore:desktop:settings:get";
 export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
+export const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
+export const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
+export const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
 
 /**
  * Thrown before a command is written to the socket, so a caller may safely retry
@@ -102,6 +110,10 @@ export interface DesktopApi {
   dispatch(command: DesktopCommand): Promise<unknown>;
   getSettings(): Promise<DesktopLlmSettings>;
   saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;
+  getIndexing(): Promise<DesktopIndexingSettings>;
+  saveIndexing(settings: DesktopIndexingSettingsUpdate): Promise<DesktopIndexingSaveResult>;
+  /** Opens a native directory chooser; resolves to undefined when cancelled. */
+  pickIndexDirectory(): Promise<string | undefined>;
   /** Resolve only an operating-system-backed File supplied by a user drag. */
   getPathForFile(file: unknown): string;
   subscribe(listener: (frame: DesktopFrame) => void): () => void;
@@ -109,6 +121,19 @@ export interface DesktopApi {
 
 export type DesktopModelApi = ModelApi;
 export type DesktopThinkingLevel = ThinkingLevel;
+export type DesktopIndexingSettings = IndexingSettings;
+export type DesktopIndexingSettingsUpdate = IndexingSettingsUpdate;
+
+export interface DesktopIndexingSaveResult {
+  settings: DesktopIndexingSettings;
+  applied: boolean;
+  message: string;
+}
+
+export function decodeDesktopIndexingSettingsUpdate(value: unknown): DesktopIndexingSettingsUpdate {
+  return decodeIndexingSettingsUpdate(value, "desktop indexing settings");
+}
+
 export type DesktopLlmSettings = LlmSettings;
 export type DesktopLlmSettingsUpdate = LlmSettingsUpdate;
 
