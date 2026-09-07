@@ -1032,5 +1032,6 @@
 - 验证方式与结果：
   - `npm run check`：**205 项、201 通过、4 跳过、0 失败**（严格 typecheck + 全量测试 + production build）。新增用例：权威尾窗到达时保留回溯历史且 `session.replaced` 仍整体替换；`session.message` 端到端把 300 000 字符消息分 5 片取回并与原文逐字相等，id 缺失时报错；adapter contract 按 entry id 分片读取；`readFullMessage` 的多片拼接、错位拒绝与空片保护；`publishedTextTruncation` 的正反例；desktop IPC 对 `session.message` 的边界与必填校验；TUI 只在越过已加载历史时请求下一页。
   - `npm run test:electron`：**本机实跑通过**（此前 todo 记录本机缺 `xvfb-run`/`libnspr4`，本轮确认两者均已具备，`electron` 二进制经 npmmirror 下载）。`1920×1080` 主基准 + `1440×900`/`1180×720` 补测、双主题、owned/external Daemon、重连与 IPC allowlist 全部通过；新增两条断言：截断消息渲染出"载入全文"入口，且被拒绝的载入会把按钮恢复为"重试载入全文"。截图已人工复核（深/浅两套主题下提示行与按钮排版正确）。
-- 当前状态：`0.1.18` 已在本机完成全量检查与 Electron 实机验收，等待 CI 创建 `v0.1.18` 与双架构 Release。
+- 发布：CI run `34142793645` 与 ARM64 preview `34142793667` 均成功，`release` job 创建 annotated `v0.1.18` 并派发 Release run `34143092977`（成功，12 项资产，非 draft/prerelease）。远端复验：`pspore-desktop-0.1.18-linux-x64-overlay.zip` 的 SHA-256 校验通过，`overlay-manifest.json` 为 `appVersion 0.1.18` / `electron 43.3.0` / `x64`，包内 `app.asar` 含 `PSPORE_VERSION = "0.1.18"` 与本轮新增的 `session.message`、`message-truncated`、`载入全文`。
+- 当前状态：`v0.1.18` 已发布并远端复验通过。
 - 遗留：TUI 侧未提供"载入全文"入口（TUI 本身按宽度截行，价值低）；守护进程对每个非瞬时事件仍会渲染 200 条尾窗，虽然与会话长度无关，但对非结算事件是白做的。两项已记入 `todo.md`。
