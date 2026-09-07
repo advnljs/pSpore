@@ -194,7 +194,7 @@ function validateSessionCollection(value, path) {
         throw new Error(`${path} is too large`);
     for (const [key, item] of Object.entries(collection)) {
         identifier(key, `${path} key`);
-        const sessionId = validateAgentSnapshot(item, `${path}.${key}`);
+        const sessionId = validateSessionView(item, `${path}.${key}`);
         if (sessionId !== key)
             throw new Error(`${path}.${key}.sessionId must match its collection key`);
     }
@@ -207,7 +207,7 @@ function validateArrayCollection(value, path, identityField) {
         identifier(entry[identityField], `${path}[${index}].${identityField}`);
     }
 }
-function validateAgentSnapshot(value, path) {
+function validateSessionView(value, path) {
     const snapshot = record(value, path);
     const sessionId = identifier(snapshot["sessionId"], `${path}.sessionId`);
     identifier(snapshot["upstreamSessionId"], `${path}.upstreamSessionId`);
@@ -215,7 +215,12 @@ function validateAgentSnapshot(value, path) {
     const status = snapshot["status"];
     if (status !== "idle" && status !== "running" && status !== "failed")
         throw new Error(`${path}.status is invalid`);
+    // A view carries a bounded tail of the transcript plus where that tail sits,
+    // so a client can tell "these are the newest 200 of 5000" from "this is all".
     validateMessageArray(snapshot["messages"], `${path}.messages`);
+    nonNegativeInteger(snapshot["messageCount"], `${path}.messageCount`);
+    nonNegativeInteger(snapshot["messageOffset"], `${path}.messageOffset`);
+    optionalBoundedString(snapshot["firstUserText"], `${path}.firstUserText`, MAX_STRING_LENGTH);
     const queue = record(snapshot["queue"], `${path}.queue`);
     validateStringArray(queue["steering"], `${path}.queue.steering`);
     validateStringArray(queue["followUp"], `${path}.queue.followUp`);
@@ -247,7 +252,7 @@ function validateEventPayload(type, payload) {
         identifier(payload["sessionId"], "event.payload.sessionId");
         identifier(payload["upstreamSessionId"], "event.payload.upstreamSessionId");
         if (payload["session"] !== undefined)
-            validateAgentSnapshot(payload["session"], "event.payload.session");
+            validateSessionView(payload["session"], "event.payload.session");
         optionalRevision(payload["revision"], "event.payload.revision");
         return;
     }
@@ -257,7 +262,7 @@ function validateEventPayload(type, payload) {
             requiredRevision(payload["revision"], "event.payload.revision");
             return;
         case "session.snapshot":
-            validateAgentSnapshot(payload["session"], "event.payload.session");
+            validateSessionView(payload["session"], "event.payload.session");
             requiredRevision(payload["revision"], "event.payload.revision");
             return;
         case "session.closed":

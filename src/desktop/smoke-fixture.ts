@@ -1,4 +1,4 @@
-import type { AgentSnapshot, RuntimeMessage } from "../domain/runtime.js";
+import type { RuntimeMessage, SessionView } from "../domain/runtime.js";
 import type { AgentMessage } from "../agents/types.js";
 import { initialKernelState, type KernelState } from "../kernel/state.js";
 import type { NotificationRecord } from "../notifications/notification-service.js";
@@ -252,9 +252,9 @@ function session(
   sessionId: string,
   upstreamSessionId: string,
   messages: RuntimeMessage[],
-  status: AgentSnapshot["status"],
-  usage: AgentSnapshot["usage"],
-): AgentSnapshot {
+  status: SessionView["status"],
+  usage: SessionView["usage"],
+): SessionView {
   return {
     sessionId,
     upstreamSessionId,
@@ -263,6 +263,8 @@ function session(
     model: { provider: "local", model: "v1-smoke" },
     thinking: "medium",
     messages,
+    messageCount: messages.length,
+    messageOffset: 0,
     queue: { steering: [], followUp: [] },
     usage,
   };

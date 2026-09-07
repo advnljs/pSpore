@@ -953,3 +953,24 @@
 
 - GUI transcript 现在最多显示最近 2000 条消息 / 8 MiB；超出部分只在守护进程侧保留（JSONL 完整）。若要在客户端保留完整历史，需要改为按 offset 的增量 transcript 协议，见 `todo.md`。
 - 多根会话都很大时，hello 的 8 MiB 预算按 sessions 插入顺序分配，靠后的会话可能拿到较短的 transcript；它们在下一次自身 settling 事件时会恢复。
+
+
+## 2026-09-07 CST — 阶段 1／3：服务器级快照瘦身（参考 Pi / Codex / OpenClaw）
+
+- 阶段目标：消除"快照体积随会话长度增长"这一结构性问题的第一层——服务器级快照不再携带每个会话的完整 transcript。
+- 参考实现（三家做法一致，pSpore 此前每条都反着来）：
+  - **Pi**（我们的上游）：`ServerSnapshot` 只含 `SessionMetadata[]`（id/name/cwd/时间），**不含 transcript**；带 transcript 的 `SessionSnapshot` 按会话 open 时取一次并带 `revision`；增量走 item 级 `item_started`/`item_updated`/`item_finished` + `assistant_delta{messageId,contentIndex,kind}`；客户端把 progress 作 overlay 叠在 snapshot 上（`applyTranscriptProgress`/`selectTranscript`）。
+  - **Codex**：纯 item-scoped，`AgentMessageContentDelta{item_id,turn_id}`、`ExecCommandBegin/OutputDelta/End{call_id}`，**没有任何事件携带完整历史**。
+  - **OpenClaw**：`sessions.messages.subscribe` 按会话订阅，`session.message`/`session.operation`/`session.tool` 都是单条增量；历史走 `chat.history` 分页 + 不透明 `deltaCursor`，cursor 失效返回 `{kind:"reset"}`。
+- 完成内容：
+  - `src/domain/runtime.ts` 拆出三层：`SessionMetadata`（不含 transcript，新增 `messageCount`/`firstUserText`）、`SessionView`（元数据 + 有界尾窗 + `messageOffset`，**广播用**）、`AgentSnapshot`（运行时自用，含完整 messages）。
+  - `KernelState.sessions` 改为 `Record<string, SessionView>`；广播的尾窗固定 200 条（`SESSION_VIEW_TAIL_MESSAGES`），与会话长度无关。
+  - 新增 `session.transcript {from?, limit?}` 命令（单页上限 500 条），按范围取历史；桌面 IPC 增加对应 action 与严格解码。
+  - 会话标题改用 `firstUserText`（尾窗里通常已经没有开场白），TUI 160×45 快照哈希与改动前**逐字节一致**，证明渲染未变。
+  - `desktop/validation.ts` 的 `validateAgentSnapshot` 改为 `validateSessionView`，校验 `messageCount`/`messageOffset`/`firstUserText`。
+- 修改文件：`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/kernel/state.ts`、`src/application/agent-application.ts`、`src/ui/shared/presentation.ts`、`src/ui/shared/protocol-state.ts`、`src/desktop/{validation,ipc-contract,smoke-fixture}.ts`、若干测试 fixture、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：**196/196** 通过（严格 typecheck + 全量测试 + production build）。新增用例断言 602 条消息的会话广播出 200 条尾窗、`messageOffset=402`、`messageCount=602`，`session.transcript` 能取任意区间与默认尾页，新客户端 hello 同样只拿 200 条。
+  - 压测（1 MiB transcript + 20000 token + 200 次工具调用）：**1042 ms**、GUI 断开 0 次、堆 **113 MiB**。对照：修复前 147561 ms / 66 次 / 752 MiB，上一轮 2341 ms / 0 次 / 167 MiB。
+- 当前状态：广播与 hello 的体积已与会话长度解耦；`limits.ts` 的整体预算退化为纯安全网。
+- 下一步（阶段 2）：把事件改为 item 级——adapter 保留 Pi 的 item 身份，广播 `transcript.item.{started,updated,finished}` 与 `transcript.delta{itemId,contentIndex,kind}`，客户端按 Pi 的 overlay 模型合并；随后即可撤掉 250 ms 快照节流与 `publishSnapshot`。

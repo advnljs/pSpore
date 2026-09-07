@@ -82,6 +82,11 @@ export type DesktopCommand = {
     action: "session.create";
     title?: string;
 } | {
+    action: "session.transcript";
+    sessionId: string;
+    from?: number;
+    limit?: number;
+} | {
     action: "queue.send-now";
     sessionId: string;
     index: number;

@@ -44,6 +44,17 @@ export function decodeDesktopCommand(value) {
                 ...(title === undefined ? {} : { title: boundedString(title, "session.create.title", 120) }),
             };
         }
+        case "session.transcript": {
+            exactKeys(input, ["action", "sessionId", "from", "limit"], action, ["from", "limit"]);
+            const from = input["from"];
+            const limit = input["limit"];
+            return {
+                action,
+                sessionId: identifier(input["sessionId"], "session.transcript.sessionId"),
+                ...(from === undefined ? {} : { from: nonNegativeInteger(from, "session.transcript.from", Number.MAX_SAFE_INTEGER) }),
+                ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "session.transcript.limit", 500) }),
+            };
+        }
         case "queue.send-now":
             exactKeys(input, ["action", "sessionId", "index"], action);
             return {
@@ -141,6 +152,15 @@ export function toProtocolInvocation(command, paths) {
             return { type: "session.compact", payload: {}, sessionId: command.sessionId };
         case "session.create":
             return { type: "session.create", payload: command.title === undefined ? {} : { title: command.title } };
+        case "session.transcript":
+            return {
+                type: "session.transcript",
+                payload: {
+                    ...(command.from === undefined ? {} : { from: command.from }),
+                    ...(command.limit === undefined ? {} : { limit: command.limit }),
+                },
+                sessionId: command.sessionId,
+            };
         case "queue.send-now":
             return { type: "session.queue.send-now", payload: { index: command.index }, sessionId: command.sessionId };
         case "approval.resolve":

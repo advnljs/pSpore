@@ -81,3 +81,9 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 - **背压**：进出预算分离——`maxPendingBytes` 只管连接的入站缓冲，新增 `maxOutgoingBytes`（默认 64 MiB）管出站；只有真正停止读取的客户端才会被断开，断开原因经 `onWarning` 写入 journal。
 - **replay window 双上限**：除 1024 条外还有 16 MiB 字节上限（`maxReplayBytes`）。durable 事件带快照，只按条数计会在长任务中滞留数百 MiB transcript；游标落在窗口外的客户端改由 hello 快照恢复。
 - **诊断**：`DaemonBridge` 记录自己拒帧/判缺口的原因并作为断线消息上报，重连不再静默；退避睡眠可被 `stop()` 打断，关窗不必等定时器。
+
+## 2026-09-07：阶段 1 —— 会话视图与 transcript 分页
+
+- `SessionMetadata` / `SessionView` / `AgentSnapshot` 三层分开：广播只用 `SessionView`（元数据 + 最近 200 条 + `messageOffset`/`messageCount`），`AgentSnapshot`（完整 messages）只在守护进程内部与 `session.snapshot` 命令响应中出现。
+- `session.transcript {from?, limit?}`（sessionId 必填，单页 ≤ 500）按范围取历史；`from` 省略时返回尾页。索引是当前 transcript 的下标，compaction 重写上下文后会位移，客户端据 `messageCount` 变化重取即可。
+- 会话标题来源改为 `SessionView.firstUserText`，因为尾窗里通常已经没有开场白。

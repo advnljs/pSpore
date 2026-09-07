@@ -73,7 +73,7 @@ export function applyProtocolEvent(current, event) {
         };
     }
     const session = payload["session"];
-    if (isAgentSnapshot(session)) {
+    if (isSessionView(session)) {
         kernel = {
             ...kernel,
             revision: numericRevision(payload, kernel.revision),
@@ -193,12 +193,14 @@ function asRecord(value) {
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
-function isAgentSnapshot(value) {
+function isSessionView(value) {
     return (isRecord(value)
         && typeof value["sessionId"] === "string"
         && typeof value["upstreamSessionId"] === "string"
         && typeof value["cwd"] === "string"
         && (value["status"] === "idle" || value["status"] === "running" || value["status"] === "failed")
-        && Array.isArray(value["messages"]));
+        && Array.isArray(value["messages"])
+        && typeof value["messageOffset"] === "number"
+        && typeof value["messageCount"] === "number");
 }
 //# sourceMappingURL=protocol-state.js.map

@@ -1,18 +1,20 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
-import type { AgentSnapshot } from "../../src/domain/runtime.js";
+import type { SessionView } from "../../src/domain/runtime.js";
 import { KernelLoop } from "../../src/kernel/loop.js";
 import { reduceKernel } from "../../src/kernel/reducer.js";
 import { initialKernelState, type KernelEffect } from "../../src/kernel/state.js";
 
-const snapshot = (status: AgentSnapshot["status"]): AgentSnapshot => ({
+const snapshot = (status: SessionView["status"]): SessionView => ({
   sessionId: "main",
   upstreamSessionId: "pi-main",
   cwd: "/workspace",
   status,
   thinking: "off",
   messages: [],
+  messageCount: 0,
+  messageOffset: 0,
   queue: { steering: [], followUp: [] },
   usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
 });

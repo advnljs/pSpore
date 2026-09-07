@@ -151,6 +151,9 @@ export class PiRuntimeAdapter {
         const model = session.model;
         const sessionFile = session.sessionFile;
         const lastError = record.lastError;
+        const messages = session.messages.map(toRuntimeMessage);
+        // Only ever used as a session title, so it never needs the whole message.
+        const firstUserText = messages.find((message) => message.role === "user" && message.text.trim())?.text.slice(0, 200);
         return {
             sessionId,
             upstreamSessionId: session.sessionId,
@@ -159,7 +162,9 @@ export class PiRuntimeAdapter {
             status: lastError ? "failed" : session.isStreaming ? "running" : "idle",
             ...(model ? { model: { provider: model.provider, model: model.id } } : {}),
             thinking: session.thinkingLevel,
-            messages: session.messages.map(toRuntimeMessage),
+            messages,
+            messageCount: messages.length,
+            ...(firstUserText === undefined ? {} : { firstUserText }),
             queue: {
                 steering: [...record.queue.steering],
                 followUp: [...record.queue.followUp],

@@ -1,4 +1,4 @@
-import type { AgentSnapshot } from "../../domain/runtime.js";
+import type { SessionView } from "../../domain/runtime.js";
 import { initialKernelState, type KernelState } from "../../kernel/state.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 
@@ -108,7 +108,7 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
     };
   }
   const session = payload["session"];
-  if (isAgentSnapshot(session)) {
+  if (isSessionView(session)) {
     kernel = {
       ...kernel,
       revision: numericRevision(payload, kernel.revision),
@@ -234,7 +234,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function isAgentSnapshot(value: unknown): value is AgentSnapshot {
+function isSessionView(value: unknown): value is SessionView {
   return (
     isRecord(value)
     && typeof value["sessionId"] === "string"
@@ -242,5 +242,7 @@ function isAgentSnapshot(value: unknown): value is AgentSnapshot {
     && typeof value["cwd"] === "string"
     && (value["status"] === "idle" || value["status"] === "running" || value["status"] === "failed")
     && Array.isArray(value["messages"])
+    && typeof value["messageOffset"] === "number"
+    && typeof value["messageCount"] === "number"
   );
 }

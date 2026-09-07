@@ -1,5 +1,5 @@
 import { initialIndexingStatus, type IndexingStatus } from "../domain/indexing.js";
-import type { AgentSnapshot, RuntimeEvent } from "../domain/runtime.js";
+import type { RuntimeEvent, SessionView } from "../domain/runtime.js";
 import type { AgentMessage, AgentRecord } from "../agents/types.js";
 import type { RunRecord } from "../automation/types.js";
 import type { NotificationRecord } from "../notifications/notification-service.js";
@@ -19,7 +19,7 @@ export interface DaemonSnapshot {
 export interface KernelState {
   revision: number;
   daemon: DaemonSnapshot;
-  sessions: Readonly<Record<string, AgentSnapshot>>;
+  sessions: Readonly<Record<string, SessionView>>;
   approvals: Readonly<Record<string, ApprovalRequest>>;
   runs: Readonly<Record<string, RunRecord>>;
   notifications: readonly NotificationRecord[];
@@ -41,12 +41,12 @@ interface EventMetadata {
 export type KernelEvent =
   | (EventMetadata & { type: "indexing.status"; status: IndexingStatus })
   | (EventMetadata & { type: "daemon.transition"; daemon: DaemonSnapshot })
-  | (EventMetadata & { type: "session.snapshot"; snapshot: AgentSnapshot })
+  | (EventMetadata & { type: "session.snapshot"; snapshot: SessionView })
   | (EventMetadata & { type: "session.closed"; sessionId: string })
   | (EventMetadata & {
       type: "runtime.received";
       event: RuntimeEvent;
-      snapshot?: AgentSnapshot;
+      snapshot?: SessionView;
       /**
        * Whether the broadcast carries the session snapshot. State always
        * absorbs it; clients only need it often enough to stay current, and

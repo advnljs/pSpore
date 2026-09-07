@@ -72,7 +72,13 @@ export interface RootSessionMetadata {
   updatedAt: string;
 }
 
-export interface AgentSnapshot {
+/**
+ * Everything about a session except its transcript. Clients need this for every
+ * session they know about, so it must not grow with the length of a
+ * conversation — a snapshot that carries every session's full history is the
+ * one frame a reconnect cannot avoid.
+ */
+export interface SessionMetadata {
   sessionId: SessionId;
   upstreamSessionId: string;
   sessionFile?: string;
@@ -80,11 +86,30 @@ export interface AgentSnapshot {
   status: "idle" | "running" | "failed";
   model?: ModelRef;
   thinking: ThinkingLevel;
-  messages: readonly RuntimeMessage[];
+  /** Total transcript messages the daemon holds, independent of what is sent. */
+  messageCount: number;
+  /** First user text, so a session can be titled without its transcript. */
+  firstUserText?: string;
   queue: RuntimeQueueSnapshot;
   usage: RuntimeUsage;
   rootSession?: RootSessionMetadata;
   lastError?: string;
+}
+
+/**
+ * What the daemon broadcasts: session metadata plus a bounded tail of the
+ * transcript, enough for a client to render immediately. Older history is
+ * fetched on demand with the `session.transcript` command.
+ */
+export interface SessionView extends SessionMetadata {
+  /** Index of `messages[0]` within the full transcript. */
+  messageOffset: number;
+  messages: readonly RuntimeMessage[];
+}
+
+/** The runtime's own view, carrying the session's complete message list. */
+export interface AgentSnapshot extends SessionMetadata {
+  messages: readonly RuntimeMessage[];
 }
 
 export type RuntimeEventType =

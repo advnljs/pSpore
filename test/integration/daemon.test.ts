@@ -505,6 +505,64 @@ describe("daemon vertical slice", () => {
     assert.equal(bridge.bootstrap().connection.attempt, 0);
   });
 
+  test("broadcasts a bounded transcript tail and serves older history on request", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime();
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("tail-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "tail-client" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+    await client.command<Accepted>("session.prompt", { text: "start", mode: "prompt" }, { sessionId: "main" });
+    await waitFor(() => runtime.required("main").messages.length >= 2);
+    for (let index = 0; index < 600; index += 1) runtime.seedMessage("main", "assistant", `line ${index}`);
+
+    const events: EventEnvelope[] = [];
+    client.subscribe((event) => events.push(event));
+    runtime.emit("main", "message.completed", false, { role: "assistant", text: "done" });
+    await waitFor(() => events.some((event) => event.type === "message.completed"));
+
+    const view = (events.find((event) => event.type === "message.completed")?.payload as {
+      session: { messages: unknown[]; messageOffset: number; messageCount: number };
+    }).session;
+    // The broadcast stays the same size whether the session holds 60 messages
+    // or 60000; the rest is fetched only when someone scrolls back to it.
+    assert.equal(view.messages.length, 200);
+    assert.equal(view.messageCount, 602);
+    assert.equal(view.messageOffset, 402);
+
+    const page = await client.command<{ from: number; count: number; messages: Array<{ text: string }> }>(
+      "session.transcript",
+      { from: 5, limit: 3 },
+      { sessionId: "main" },
+    );
+    assert.equal(page.count, 602);
+    assert.equal(page.from, 5);
+    assert.deepEqual(page.messages.map((message) => message.text), ["line 3", "line 4", "line 5"]);
+
+    const tail = await client.command<{ from: number; messages: unknown[] }>(
+      "session.transcript",
+      { limit: 10 },
+      { sessionId: "main" },
+    );
+    assert.equal(tail.from, 592);
+    assert.equal(tail.messages.length, 10);
+
+    // A fresh handshake pays the same bounded price.
+    const second = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "tail-client-2" });
+    cleanups.push(async () => second.close());
+    const hello = await second.connect();
+    assert.equal(hello.snapshot.sessions["main"]?.messages.length, 200);
+    assert.equal(hello.snapshot.sessions["main"]?.messageCount, 602);
+  });
+
   test("keeps streaming cheap by attaching the session only where clients need it", async () => {
     const home = await configuredHome();
     const runtime = new FakeRuntime();
@@ -668,7 +726,8 @@ class FakeRuntime implements AgentRuntimePort {
   }
   async compact(): Promise<void> {}
   snapshot(sessionId: string): AgentSnapshot {
-    return structuredClone(this.required(sessionId));
+    const stored = this.required(sessionId);
+    return structuredClone({ ...stored, messageCount: stored.messages.length });
   }
   subscribe(sessionId: string, sink: (event: RuntimeEvent) => void): () => void {
     const listeners = this.#listeners.get(sessionId) ?? new Set();
@@ -764,6 +823,7 @@ function baseSnapshot(spec: AgentSessionSpec): AgentSnapshot {
     status: "idle",
     thinking: "off",
     messages: [],
+    messageCount: 0,
     queue: { steering: [], followUp: [] },
     usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
   };

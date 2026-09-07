@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 
 import { stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 
-import type { AgentSnapshot } from "../../src/domain/runtime.js";
+import type { SessionView } from "../../src/domain/runtime.js";
 import { initialKernelState } from "../../src/kernel/state.js";
 import type { ServerHelloFrame } from "../../src/protocol/schema.js";
 import { conversationIntent } from "../../src/ui/shared/presentation.js";
@@ -323,7 +323,7 @@ describe("first-run model setup offer", () => {
 });
 
 function hello(): ServerHelloFrame {
-  const session: AgentSnapshot = {
+  const session: SessionView = {
     sessionId: "main",
     upstreamSessionId: "pi-main",
     cwd: "/workspace",
@@ -334,10 +334,13 @@ function hello(): ServerHelloFrame {
       { role: "user", text: "hello" },
       { role: "assistant", text: "hello from fake" },
     ],
+    firstUserText: "hello",
+    messageCount: 2,
+    messageOffset: 0,
     queue: { steering: [], followUp: [] },
     usage: { input: 12, output: 4, cacheRead: 6, cacheWrite: 2, total: 24, costUsd: 0 },
   };
-  const child: AgentSnapshot = {
+  const child: SessionView = {
     ...session,
     sessionId: "agent:child-1",
     upstreamSessionId: "pi-child-1",
@@ -346,6 +349,7 @@ function hello(): ServerHelloFrame {
       { role: "user", text: "inspect the public API" },
       { role: "assistant", text: "child result in progress" },
     ],
+    firstUserText: "inspect the public API",
     usage: { input: 7, output: 3, cacheRead: 0, cacheWrite: 0, total: 10, costUsd: 0 },
   };
   const kernel = {

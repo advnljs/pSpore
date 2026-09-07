@@ -18,7 +18,7 @@ export function presentSessions(kernel, selectedSessionId) {
         result.push({
             id,
             sessionId: id,
-            title: session?.rootSession?.title ?? sessionTitle(session?.messages, id),
+            title: session?.rootSession?.title ?? sessionTitle(session?.firstUserText, id),
             status: session?.status ?? "idle",
             depth: 0,
             selected: selectedSessionId === id,
@@ -84,8 +84,13 @@ export function conversationIntent(kernel, selectedSessionId, text, mode) {
     const sessionId = kernel.sessions[selectedSessionId] ? selectedSessionId : "main";
     return { target: "main", sessionId, text, mode };
 }
-function sessionTitle(messages, id) {
-    const first = messages?.find((message) => message.role === "user" && message.text.trim())?.text.replace(/\s+/g, " ").trim();
+/**
+ * Derived from the session view's `firstUserText` rather than its transcript:
+ * a broadcast carries only a bounded tail, so the opening message of a long
+ * conversation is usually not in it.
+ */
+function sessionTitle(firstUserText, id) {
+    const first = firstUserText?.replace(/\s+/g, " ").trim();
     if (!first)
         return id === "main" ? "Main session" : "New session";
     const chars = [...first];

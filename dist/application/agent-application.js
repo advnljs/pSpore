@@ -12,6 +12,14 @@ const SETTLING_RUNTIME_EVENTS = new Set([
 ]);
 /** Minimum spacing between snapshot-carrying broadcasts for one session. */
 const SNAPSHOT_PUBLISH_INTERVAL_MS = 250;
+/**
+ * How much of a transcript rides along with a broadcast session view. Enough to
+ * render a conversation on arrival, bounded so the payload never grows with the
+ * length of the session; older history comes from `session.transcript`.
+ */
+const SESSION_VIEW_TAIL_MESSAGES = 200;
+/** Largest transcript page one `session.transcript` command may return. */
+const MAX_TRANSCRIPT_PAGE = 500;
 export class AgentRunBudgetError extends Error {
     constructor(message) {
         super(message);
@@ -61,6 +69,25 @@ export class AgentApplication {
                 exactPayload(command.payload, [], command.type);
                 const sessionId = requiredSessionId(command);
                 return this.#sessions.has(sessionId) ? this.#snapshot(sessionId) : null;
+            }
+            case "session.transcript": {
+                // Broadcasts carry only a bounded tail, so scrolling back through a long
+                // conversation asks for the range it needs instead of making every
+                // client pay for the whole history on every update.
+                const payload = exactPayload(command.payload, ["from", "limit"], command.type);
+                const sessionId = requiredSessionId(command);
+                if (!this.#sessions.has(sessionId))
+                    return null;
+                const snapshot = this.#snapshot(sessionId);
+                const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_TRANSCRIPT_PAGE) ?? MAX_TRANSCRIPT_PAGE;
+                const count = snapshot.messages.length;
+                const from = Math.min(optionalBoundedIndex(payload["from"], "payload.from") ?? Math.max(0, count - limit), count);
+                return {
+                    sessionId,
+                    count,
+                    from,
+                    messages: snapshot.messages.slice(from, from + limit),
+                };
             }
             case "session.create": {
                 const payload = exactPayload(command.payload, ["title"], command.type);
@@ -490,14 +517,14 @@ export class AgentApplication {
     async #attachSession(sessionId) {
         this.#sessions.add(sessionId);
         this.#unsubscribers.set(sessionId, this.#runtime.subscribe(sessionId, (event) => this.#onRuntimeEvent(event)));
-        await this.#publishSnapshot(this.#snapshot(sessionId));
+        await this.#publishSnapshot(this.#view(sessionId));
     }
     #onRuntimeEvent(event) {
         // Transient events arrive per streamed token. Rebuilding and cloning the
         // whole session for each one makes streaming cost grow with the length of
         // the conversation, which stalls the daemon's event loop on long runs until
         // clients are dropped for falling behind. They carry no snapshot anyway.
-        const snapshot = event.transient ? undefined : this.#snapshot(event.sessionId);
+        const snapshot = event.transient ? undefined : this.#view(event.sessionId);
         void this.#dispatch({
             id: event.id,
             ts: event.ts,
@@ -546,6 +573,10 @@ export class AgentApplication {
         const snapshot = this.#runtime.snapshot(sessionId);
         const rootSession = this.#rootSessions.get(sessionId);
         return rootSession ? { ...snapshot, rootSession: structuredClone(rootSession) } : snapshot;
+    }
+    /** The broadcast shape: session metadata plus a bounded transcript tail. */
+    #view(sessionId) {
+        return toSessionView(this.#snapshot(sessionId));
     }
     async #publishSnapshot(snapshot) {
         await this.#kernel.dispatch({
@@ -668,6 +699,20 @@ function generatedRootSessionId(value) {
         throw new Error("Generated root session id is invalid");
     }
     return id;
+}
+/** Builds the bounded broadcast view of a runtime snapshot. */
+function toSessionView(snapshot) {
+    const { messages, ...metadata } = snapshot;
+    const offset = Math.max(0, messages.length - SESSION_VIEW_TAIL_MESSAGES);
+    return { ...metadata, messageOffset: offset, messages: offset === 0 ? messages : messages.slice(offset) };
+}
+function optionalBoundedIndex(value, path, maximum = Number.MAX_SAFE_INTEGER) {
+    if (value === undefined)
+        return undefined;
+    if (!Number.isSafeInteger(value) || Number(value) < 0 || Number(value) > maximum) {
+        throw new CommandError("invalid_payload", `${path} must be an integer from 0 to ${maximum}`);
+    }
+    return Number(value);
 }
 function rootMetadata(record) {
     return {
