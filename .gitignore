@@ -17,3 +17,8 @@ ds_key.txt
 
 .pspore/
 .DS_Store
+
+# Native helpers for bundled skills are fetched at packaging time from their own
+# upstream release (scripts/fetch-bundled-binaries.sh), never committed here.
+bundled-skills/*/bin/*
+!bundled-skills/*/bin/.gitkeep

@@ -54,6 +54,17 @@ if [[ ! "$ELECTRON_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 fi
 
 echo "==> Packaging desktop zip ${FULL_NAME}.zip, overlay ${OVERLAY_NAME}.zip and CLI binary"
+
+# Native helpers for bundled skills. Best effort on purpose: until the upstream
+# release exists the skill ships without its binary and pSpore reports the
+# feature as unavailable, which is better than blocking the whole release.
+echo "--- fetching bundled skill binaries (${ARCH})"
+if bash "$REPO_ROOT/scripts/fetch-bundled-binaries.sh" "$ARCH"; then
+  echo "--- bundled skill binaries ready"
+else
+  echo "WARNING: bundled skill binaries unavailable; skills that need them will report unavailable at runtime" >&2
+fi
+
 echo "--- npm run build"
 npm run build
 
