@@ -87,6 +87,11 @@
 | P0 | `.docx` 等二进制内容让桌面端被永久锁死 | Done | 无 | `boundPublishedText` 把 NUL 替换成 `\uFFFD`；`read` 拒绝非 UTF-8 文件。已反向验证：撤掉修复后三条回归用例全部失败 |
 | P2 | 新 GUI 连旧 daemon 时仍可能被旧快照锁死 | Pending | 实际风险低：overlay 升级同时替换 GUI 与 daemon，且桌面端会重启服务，版本错配只是瞬时的 | 若要彻底消除，可让客户端校验器对 NUL 做净化而不是拒帧；但校验器是渲染器与守护进程之间的信任边界，改成"修正数据"要单独权衡 |
 | P2 | pSpore 没有文档正文抽取能力 | Pending | 用户真正想做的是"总结 .docx"，现在只会得到一句可执行的报错 | `aegis-search` 只给 `snippet`，没有导出单个文件全文的子命令。可考虑给它加一个 extract 子命令，或在 pSpore 侧加一个受限的文档转文本工具 |
+| P1 | 通用文档正文抽取 | Done | 无 | `src/documents/` + `document` 工具 + `doc-extract` 内置 skill，覆盖 docx/xlsx/pptx、doc/xls/ppt、pdf、纯文本（含 GB18030）。打包后从 app.asar 内实测六种格式全通 |
+| P2 | 扫描件 PDF 没有文字层 | Pending | 需要 OCR，本轮不做 | 抽取结果为空时 skill 已要求如实说明是扫描件。若要支持，需引入 OCR 引擎与中文模型，体积和离线可用性都要单独评估 |
+| P3 | 独立 SEA CLI 不支持 PDF | Pending | 影响面小：守护进程实际跑在 Electron 运行时下，npm 全局安装也能解析到 pdfjs | esbuild 静态分析不到动态 import，所以 pdfjs 未打进二进制（也因此没有体积回归）。若要支持，需在 SEA 里附带 pdfjs 及其 cmaps/standard_fonts 数据文件 |
+| P3 | WPS 私有 `.wps`/`.et`/`.dps` 不支持 | Pending | 用户已明确"麻烦就先不支持" | 命中时报错并提示另存为 OOXML。注意 WPS 存的标准格式文件已经能读，因为识别走魔数而非扩展名 |
+| P3 | 文档抽取只取文字，不还原表格结构 | Pending | 摘要类问题够用 | Excel 现在按制表符分隔行输出；若要支持"第几行第几列"这类精确定位，需要保留单元格坐标 |
 | P3 | 删除会话没有撤销入口 | Pending | 破坏性操作已用两步确认兜住 | 若要做，可在删除前把 JSONL 移到 `state/sessions/.trash/<id>-<ts>.jsonl` 并加保留期清理，而不是直接 unlink |
 | P3 | TUI 删除会话没有二次确认 | Pending | TUI 命令本身是显式输入，误触概率低于 GUI 点击 | 若要做，可让 `/delete` 先回显会话标题并要求 `/delete ID confirm` |
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

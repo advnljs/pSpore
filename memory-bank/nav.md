@@ -32,7 +32,8 @@
 | `src/service/` | systemd user service 安装/状态/重启、Node/SEA/Electron 启动规格与 legacy daemon 迁移 |
 | `src/sessions/session-catalog.ts` | 持久根会话目录、legacy 最近会话迁移与 Pi JSONL 路径边界 |
 | `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
-| `src/tools/core-tools.ts` | read/edit/search/shell 固定基础工具 |
+| `src/tools/core-tools.ts` | read/document/edit/search/shell 固定基础工具 |
+| `src/documents/` | 文档正文抽取：按魔数分派到 OOXML(zip)/OLE 复合文档/PDF/纯文本，`extract.ts` 是唯一入口 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
 | `src/automation/` | cron adapter、job parser、run ledger、scheduler 与 Daemon executor |
 | `src/agents/` | subagent tree、独立 session、双工 mailbox、budget/permission ceiling 与 bundled tools |
@@ -78,6 +79,7 @@
 - `module-interface-protocol.md`：Gateway、协议、TUI/Electron 与重连。
 - `module-desktop.md`：Electron main/preload/renderer、安全边界、视觉与 smoke harness。
 - `module-settings.md`：GUI/TUI/CLI 共用 LLM Provider、验证、持久化和 secret 边界。
+- `module-documents.md`：文档正文抽取（OOXML/OLE/PDF/纯文本）、`document` 工具与 doc-extract skill。
 - `module-extensions-integrations.md`：skills、plugins、MCP 与信任边界。
 - `module-storage-daemon.md`：home、原子存储、锁、Daemon 启停与 CLI。
 
@@ -107,6 +109,7 @@
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
 - 会话：GUI 左栏 `＋` 新建、会话行右侧 `✕`→`确认删除` 两步删除；TUI `/new [TITLE]`、`/select ID`、`/send-now N`、`/delete [ID]`；CLI `sessions`、`session new [TITLE]`、`session delete ID`、`prompt --session ID TEXT`。删除会同时移除 session-catalog 记录与 `state/sessions/` 下的 Pi JSONL。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。
+- 文档抽取：`document` 工具（`src/documents/extract.ts`）支持 docx/xlsx/pptx、doc/xls/ppt、pdf 与纯文本（UTF-8/UTF-16/GB18030）；格式按文件头字节判断，不看扩展名。PDF 依赖 `pdfjs-dist`，桌面版与 npm 安装可用，独立 SEA CLI 解析不到会明确报错降级（其余格式不受影响）。WPS 私有 `.wps`/`.et`/`.dps` 不支持，会提示另存为 OOXML。
 - 本机索引：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`，写入 `config.indexing`，需 `service restart` 生效；默认关闭且目录为空。`indexing.status.phase` 区分 `disabled`（未启用）/`unconfigured`（已启用但没选目录）/`unavailable`（缺索引程序），`status.enabled` 直接反映 `config.indexing.enabled`，GUI 右侧面板据此不再把已启用的索引显示成未启用。
 - 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP] [TRIGGER]`；CLI `config compact on|off [RESERVE] [KEEP] [TRIGGER]`。`TRIGGER` 是直接 active-context token 长度，默认 100000；保存于 `config.context.autoCompaction`，服务重启后应用。
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。

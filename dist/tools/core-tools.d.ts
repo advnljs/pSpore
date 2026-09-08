@@ -7,6 +7,8 @@ export interface CoreToolOptions {
     defaultShellTimeoutMs: number;
     maxShellOutputBytes: number;
     maxReadBytes?: number;
+    /** Largest document `document` will open; defaults to `DEFAULT_MAX_DOCUMENT_BYTES`. */
+    maxDocumentBytes?: number;
     maxSearchOutputBytes?: number;
     retrieval?: Pick<SearchService, "search">;
     defaultSearchMaxResults?: number;

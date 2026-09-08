@@ -64,6 +64,23 @@ while `RESERVE` remains a safety margin below the model limit; whichever thresho
 is reached first triggers compaction. Existing v1 config files receive the defaults
 automatically.
 
+## Reading your own documents
+
+The built-in `document` tool turns a file on your machine into plain text, so the
+agent can summarize or quote from it. Word (`.docx`/`.doc`), Excel
+(`.xlsx`/`.xls`), PowerPoint (`.pptx`/`.ppt`), PDF and plain-text files are
+supported, and text files are decoded as UTF-8, UTF-16 or GB18030 as needed.
+
+The format is decided by the file's own bytes rather than its extension, so a
+renamed file or one WPS saved under its own extension still reads. WPS's
+proprietary `.wps`/`.et`/`.dps` are not supported; save those as `.docx`,
+`.xlsx` or `.pptx` first. A scanned PDF holds images rather than text and will
+come back empty.
+
+PDF support needs `pdfjs-dist`, which ships with the desktop package and with an
+npm install. The standalone SEA binary does not carry it and says so; every
+other format works there.
+
 ## Approvals
 
 Tool calls are gated by a single daemon-wide policy. The default `ask_risky` only stops on

@@ -60,6 +60,7 @@ describe("daemon vertical slice", () => {
     assert.equal(Object.keys(hello.snapshot.sessions).length, 0);
     assert.deepEqual(toolNames, [
       "read",
+      "document",
       "edit",
       "search",
       "shell",

@@ -1,5 +1,32 @@
 # Overall Progress
 
+## 2026-09-08 — 通用文档正文抽取
+
+- 阶段目标：让 pSpore 能读用户自己的文档（pdf / ppt·pptx / doc·docx / xls·xlsx / 各类文本），补上"总结 .docx"这条一直走不通的路。
+- 完成内容：
+  - 新增 `src/documents/`，`extractDocument()` 为唯一入口。**格式一律按文件头字节判断，不看扩展名**——WPS 会用自己的扩展名存标准格式，邮件附件常丢扩展名，`.txt` 里放 docx 也很常见。
+    - `zip.ts` + `ooxml.ts`：docx/xlsx/pptx，Node 内置 `zlib`，零依赖。xlsx 走共享字符串表，公式取缓存值，空行略过；幻灯片按数字序排（`slide10` 不能排到 `slide2` 前面）。
+    - `ole.ts` + `legacy-office.ts`：复合文档容器 + doc（FIB 与分片表）、xls（BIFF 记录与 SST）、ppt（记录树与文本原子），同样零依赖。
+    - `pdf.ts`：`pdfjs-dist@6.3.289`（用户批准的新增生产依赖）。中文 PDF 普遍用 Type0/CID 字体，必须带上 `cmaps/` 里的预定义 CMap 才能正确解码，自己实现极易抽出乱码——这是唯一引入依赖的地方。
+    - `plain-text.ts`：BOM → 严格 UTF-8 → GB18030 的编码嗅探。Windows/WPS 存的中文 txt 基本都是 GB18030，按 UTF-8 读会整篇变成替换字符。
+  - 对模型暴露为固定工具 `document`（`path`/`offset`/`limit`，单次默认 30000 字符，返回头写明 `characters: A-B of TOTAL` 与下一段的 `offset`）。
+  - 新增内置 skill `bundled-skills/doc-extract/`：说明何时用、输出形态、扫描件 PDF 抽不出文字要如实说明、WPS 私有格式怎么办。
+  - `read` 的二进制拒绝消息改为指向 `document` 工具；`aegis-search` skill 同步更新（升到 `0.2.2`），检索到 pdf/docx 时不再引导去 `read`。
+  - WPS 私有 `.wps`/`.et`/`.dps` 按用户意见不支持，命中时明确提示另存为 OOXML。
+- 修改文件：
+  - 新增 `src/documents/{extract,errors,zip,ooxml,ole,legacy-office,pdf,plain-text}.ts`
+  - `src/tools/core-tools.ts`、`bundled-skills/doc-extract/SKILL.md`（新增）、`bundled-skills/aegis-search/SKILL.md`
+  - `test/fixtures/documents.ts`（新增）、`test/unit/document-extract.test.ts`（新增）、`test/integration/core-tools.test.ts`、`test/integration/daemon.test.ts`
+  - `package.json` / `package-lock.json`、`memory-bank/*`、`dist/**`
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过；223 项、219 通过 / 0 失败 / 4 skipped；build 通过。新增 12 条抽取用例，fixture 由 `test/fixtures/documents.ts` 现场构造，不提交二进制样本。
+  - **对真实产出物交叉验证**（开发期，非提交内容）：`.xls` 用 Python `xlwt` 生成真实 BIFF8 文件读通；CFB fixture 用独立实现 `olefile` 反向校验；中文 PDF 用 `reportlab` 以 `STSong-Light` + `UniGB-UCS2-H` 预定义 CMap 生成，抽取结果与 `pdftotext` 逐字一致。
+  - **打包后实测**：`bash scripts/package-desktop.sh 0.1.20` 后，用打包出的 Electron 运行时从 `app.asar` 内加载 `dist/documents/extract.js`，pdf/docx/xls/doc/ppt/gbk-txt 六种全部正确抽出中文——这是最大的打包风险（pdfjs 及其 169 个 cmap、16 个字体能否从 asar 读到），已证实可用。
+  - 独立 SEA CLI 二进制体积仍为 140M（未变），确认 esbuild 没有把 pdfjs 打进去；该形态下 PDF 会抛明确的降级错误，其余格式不受影响。
+  - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。
+- 当前状态：完成并验证；`dist/` 已同步。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-09-08 — 二进制内容导致桌面端被永久锁死
 
 - 阶段目标：修掉用户截图里的 `kernel state.sessions.<id>.messages[2].text must be a bounded string`。

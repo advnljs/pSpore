@@ -10,6 +10,7 @@ import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { SearchService } from "../../src/memory/search-service.js";
 import { ShellService } from "../../src/shell/shell-service.js";
 import { createCoreTools } from "../../src/tools/core-tools.js";
+import { buildZip } from "../fixtures/documents.js";
 
 const roots: string[] = [];
 
@@ -47,9 +48,20 @@ describe("core tools", () => {
     await assert.rejects(execute(byName("read"), { path: file, expectedSha256: "0".repeat(64) }), /Read conflict/);
     // A .docx is a ZIP; decoding it as UTF-8 used to hand the model pages of
     // mojibake whose NUL bytes then made every client reject the snapshot.
-    const binary = join(root, "notes.docx");
-    await writeFile(binary, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x21, 0x00]));
+    const binary = join(root, "notes.bin");
+    await writeFile(binary, Buffer.from([0x00, 0x01, 0x02, 0x03, 0xff, 0xfe, 0x7f, 0x10]));
+    const docx = join(root, "会议纪要.docx");
+    await writeFile(docx, buildZip([
+      { name: "word/document.xml", content: "<w:document><w:body><w:p><w:r><w:t>会议纪要正文</w:t></w:r></w:p></w:body></w:document>" },
+    ]));
     await assert.rejects(execute(byName("read"), { path: binary }), /Not a UTF-8 text file/);
+    // What read sends the caller to instead, on the same file.
+    const extracted = await execute(byName("document"), { path: docx });
+    assert.match(text(extracted), /format: docx/);
+    assert.match(text(extracted), /会议纪要正文/);
+    const paged = await execute(byName("document"), { path: docx, offset: 2, limit: 2 });
+    assert.match(text(paged), /characters: 3-4 of/);
+    await assert.rejects(execute(byName("document"), { path: binary }), /无法识别的二进制格式/);
     await assert.rejects(execute(byName("edit"), { path: file, expectedSha256: "missing", content: "wrong" }), /conflict/);
     await execute(byName("edit"), { path: file, expectedSha256: originalHash, content: "alpha\ngamma\n" });
     assert.equal(await readFile(file, "utf8"), "alpha\ngamma\n");

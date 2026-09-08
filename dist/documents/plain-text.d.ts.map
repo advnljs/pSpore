@@ -1,0 +1,1 @@
+{"version":3,"file":"plain-text.d.ts","sourceRoot":"","sources":["../../src/documents/plain-text.ts"],"names":[],"mappings":"AAAA;;;;;;;GAOG;AAEH,MAAM,WAAW,WAAW;IAC1B,IAAI,EAAE,MAAM,CAAC;IACb,6EAA6E;IAC7E,QAAQ,EAAE,MAAM,CAAC;CAClB;AAKD,wBAAgB,UAAU,CAAC,MAAM,EAAE,MAAM,GAAG,WAAW,CAYtD;AAwBD;;;;;GAKG;AACH,wBAAgB,aAAa,CAAC,MAAM,EAAE,MAAM,GAAG,OAAO,CAErD"}

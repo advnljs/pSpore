@@ -1,7 +1,7 @@
 ---
 name: aegis-search
 description: Search the user's local documents (PDF, Word, Excel, plain text) by full text. Use when the user asks to find a file, find a document, or find which document mentions something, and when answering needs content from their own files rather than the model's own knowledge.
-version: 0.2.1
+version: 0.2.2
 ---
 
 # 本机文档全文搜索
@@ -54,6 +54,6 @@ bin/aegis-search status --json
 - 只检索已被索引的目录。若用户提到的目录明显不在结果里，用 `status --json`
   确认索引可用，并提示用户在 pSpore 中把该目录加入索引范围。
 - 检索是只读的；本 skill 不修改任何用户文件。
-- 返回结果里的路径是本机绝对路径。纯文本文件（`txt`、`md` 等）可以直接 `read`；
-  `pdf`、`docx`、`xlsx` 是二进制容器，`read` 会拒绝它们，需要先用 shell 命令抽取文本。
-  多数情况下 `snippet` 已经够回答问题，不必再去读原文件。读取前仍需遵守既有权限策略。
+- 返回结果里的路径是本机绝对路径。多数情况下 `snippet` 已经够回答问题，不必再去读原文件；
+  确实需要正文时，纯文本用 `read`，`pdf`/`docx`/`xlsx` 等用 `document` 工具（见 doc-extract skill），
+  不要对二进制文档用 `read`。读取前仍需遵守既有权限策略。

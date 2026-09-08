@@ -4,6 +4,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { DEFAULT_MAX_DOCUMENT_BYTES, extractDocument, UnsupportedDocumentError, } from "../documents/extract.js";
 import { ShellService } from "../shell/shell-service.js";
 import { atomicWriteFile } from "../storage/atomic.js";
 const readParameters = Type.Object({
@@ -30,6 +31,21 @@ const searchParameters = Type.Object({
         Type.Literal("project"),
     ]), { minItems: 1, maxItems: 4 })),
 }, { additionalProperties: false });
+/**
+ * Character offsets rather than lines: an extracted document has no stable line
+ * numbering to page by, and a spreadsheet or slide deck has no lines at all.
+ */
+/**
+ * Text returned by one `document` call when the caller does not say otherwise.
+ * Large enough to summarize most single documents in one turn, small enough not
+ * to spend the whole context window on a file nobody has read yet.
+ */
+const DEFAULT_DOCUMENT_CHUNK = 30_000;
+const documentParameters = Type.Object({
+    path: Type.String({ minLength: 1 }),
+    offset: Type.Optional(Type.Integer({ minimum: 0 })),
+    limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200_000 })),
+}, { additionalProperties: false });
 const shellParameters = Type.Object({
     command: Type.String({ minLength: 1, maxLength: 131_072 }),
     cwd: Type.Optional(Type.String({ minLength: 1 })),
@@ -37,6 +53,7 @@ const shellParameters = Type.Object({
 }, { additionalProperties: false });
 export function createCoreTools(options) {
     const maxReadBytes = options.maxReadBytes ?? 1_048_576;
+    const maxDocumentBytes = options.maxDocumentBytes ?? DEFAULT_MAX_DOCUMENT_BYTES;
     const maxSearchOutputBytes = options.maxSearchOutputBytes ?? 256 * 1024;
     const read = defineTool({
         name: "read",
@@ -57,10 +74,10 @@ export function createCoreTools(options) {
             const text = content.toString("utf8");
             // A NUL means these bytes were never the UTF-8 text this tool documents.
             // Decoding a container format — a .docx is a ZIP — yields pages of mojibake
-            // that tell the model nothing and cost it context, so say what the file is
-            // instead of handing back its wreckage.
+            // that tell the model nothing and cost it context, so hand the caller to
+            // the tool that can actually read it.
             if (text.includes("\u0000")) {
-                throw new Error(`Not a UTF-8 text file: ${path}. Extract its text with a shell command first.`);
+                throw new Error(`Not a UTF-8 text file: ${path}. Use the document tool, which reads Word, Excel, PowerPoint and PDF.`);
             }
             const lines = text.split("\n");
             const offset = params.offset ?? 1;
@@ -79,6 +96,72 @@ export function createCoreTools(options) {
                     },
                 ],
                 details: { path, sha256, bytes: content.byteLength, offset, returnedLines: selected.length },
+            };
+        },
+    });
+    /**
+     * The counterpart to `read` for everything that is not already text. `read`
+     * refuses a binary file on purpose, and without this the only way to answer a
+     * question about the user's own Word, Excel, PowerPoint or PDF documents would
+     * be to guess at their contents.
+     */
+    const document = defineTool({
+        name: "document",
+        label: "Document",
+        description: "Extract plain text from a document: Word (.docx/.doc), Excel (.xlsx/.xls), PowerPoint (.pptx/.ppt), "
+            + "PDF, or a text file in any common encoding. The format is detected from the file's own bytes, so "
+            + "an unusual or missing extension is fine. Use this instead of read for anything that is not plain text.",
+        promptSnippet: "Extract text from Word, Excel, PowerPoint, PDF and other documents",
+        promptGuidelines: [
+            "Use document, not read, for .docx/.doc/.xlsx/.xls/.pptx/.ppt/.pdf and for any file read refuses as binary.",
+            "A long document comes back in one bounded chunk; pass offset to continue from where the last one stopped.",
+        ],
+        parameters: documentParameters,
+        executionMode: "parallel",
+        execute: async (_toolCallId, params, signal) => {
+            throwIfAborted(signal);
+            const path = absolutePath(params.path, options.workspaceRoot);
+            const offset = params.offset ?? 0;
+            const limit = params.limit ?? DEFAULT_DOCUMENT_CHUNK;
+            let extracted;
+            try {
+                // The whole document is extracted and then sliced: none of these formats
+                // can be decoded from the middle, and the total length is what tells the
+                // caller whether there is more to ask for.
+                extracted = await extractDocument(path, { maxBytes: maxDocumentBytes, limit: Number.MAX_SAFE_INTEGER });
+            }
+            catch (error) {
+                // An unreadable format is a fact about the file, not a failure to report
+                // as an internal error, so it is passed through as written.
+                if (error instanceof UnsupportedDocumentError)
+                    throw new Error(error.message);
+                throw error;
+            }
+            throwIfAborted(signal);
+            const total = extracted.text.length;
+            const chunk = extracted.text.slice(offset, offset + limit);
+            const header = [
+                `path: ${path}`,
+                `format: ${extracted.format} (${extracted.formatLabel})`,
+                ...(extracted.encoding === undefined ? [] : [`encoding: ${extracted.encoding}`]),
+                ...(extracted.sections.length > 0 ? [`sections: ${extracted.sections.length}`] : []),
+                `characters: ${offset + 1}-${offset + chunk.length} of ${total}`,
+                ...(offset + chunk.length < total
+                    ? [`more: pass offset=${offset + chunk.length} to continue`]
+                    : []),
+            ].join("\n");
+            return {
+                content: [{ type: "text", text: `${header}\n\n${chunk}` }],
+                details: {
+                    path,
+                    format: extracted.format,
+                    bytes: extracted.bytes,
+                    characters: chunk.length,
+                    totalCharacters: total,
+                    offset,
+                    ...(extracted.sections.length > 0 ? { sections: extracted.sections.map((section) => section.name) } : {}),
+                    ...(extracted.encoding === undefined ? {} : { encoding: extracted.encoding }),
+                },
             };
         },
     });
@@ -203,7 +286,7 @@ export function createCoreTools(options) {
             }
         },
     });
-    return [read, edit, search, shell];
+    return [read, document, edit, search, shell];
 }
 async function runRipgrep(options, signal) {
     throwIfAborted(signal);
