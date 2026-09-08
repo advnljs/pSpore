@@ -25,7 +25,9 @@
   - `npm run build`：通过。
   - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。新增断言实测结果——会话栏 `{rootRows:1, deleteControls:1, agentDeleteControls:0, hiddenUntilHover:true, armedLabel:"确认删除", rowsAfterFirstClick 未变}`；索引面板 `{phase:"unconfigured", phaseLabel:"缺少目录", counts:"本机索引已启用，但还没有选择要索引的目录", note:"设置：已启用 · 在设置 → 本机索引中添加目录后开始索引"}`。新增 `desktop-session-delete-armed.png` 作为破坏性控件的视觉证据，已人工复核。
   - 真实守护进程手测（临时 home + 假 aegis-search）：`enabled+无目录` → `unconfigured`；`enabled+有目录` → `idle 3/3`；`关闭` → `disabled`。CLI `session delete` 实测删除 catalog 记录与 JSONL、保留其他会话、重复删除返回 `Root session does not exist`、错误子命令给出用法。
-- 当前状态：两项改动完成并验证；`dist/` 已同步。
+- 发布：`v0.1.19`。CI `34176353928`、ARM64 preview `34176353925` 与 Release `34176598025` 全部成功，12 项资产已发布（<https://github.com/advnljs/pSpore/releases/tag/v0.1.19>）。
+  - 远端复验：x64 CLI 的 SHA-256 校验通过，`version` 报 `pSpore 0.1.19 (Pi 0.84.1, Node 24.20.0)`，`help` 含新的 `session delete ID`；x64 overlay 的 SHA-256 校验通过，`overlay-manifest.json` 为 `appVersion 0.1.19 / electron 43.3.0 / x64`，包内 `app.asar` 含 `session.delete`（52 处）与 `unconfigured`（19 处）。
+- 当前状态：两项改动完成、已验证并随 `v0.1.19` 发布；`dist/` 已同步。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-08-22 — GUI 重构与交互优化
