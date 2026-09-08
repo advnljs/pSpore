@@ -172,3 +172,16 @@
 - 上述格式都能抽出正文；中文（含 GB18030 文本与 CID 字体 PDF）不得出现乱码。
 - 格式判断不依赖扩展名。
 - 不支持的格式要明确报错并给出可执行建议，不得返回乱码或空结果而不说明。
+
+## 2026-09-08 用户明确要求（第四轮）
+
+1. 需要真实模型的端到端测试统一用 `deepseek-v4-flash`（provider `deepseek`），凭据已就位。
+
+细节与约束：
+
+- 真实用户 home `~/.pspore/config.json` 已配置为 `{"provider": "deepseek", "model": "deepseek-v4-flash", "thinking": "high"}`，
+  Key 在 `~/.pspore/credentials/deepseek.api-key`（`0600`）。
+- 需要在临时 home 里做端到端测试时，配同一个 provider/model，并把该 Key 文件复制过去，
+  不要另选模型、也不要为了跑通而改成假 provider——此前用 `custom-openai/fake-model` 会被
+  Pi 运行时以 `Configured model is unavailable` 拒绝，创建不了 session。
+- **绝不把 Key 内容打印到日志、终端输出或提交进仓库**；只引用文件路径。

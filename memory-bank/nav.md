@@ -109,6 +109,7 @@
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
 - 会话：GUI 左栏 `＋` 新建、会话行右侧 `✕`→`确认删除` 两步删除；TUI `/new [TITLE]`、`/select ID`、`/send-now N`、`/delete [ID]`；CLI `sessions`、`session new [TITLE]`、`session delete ID`、`prompt --session ID TEXT`。删除会同时移除 session-catalog 记录与 `state/sessions/` 下的 Pi JSONL。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。
+- 端到端测试模型：统一用 `deepseek` / `deepseek-v4-flash`，Key 在 `~/.pspore/credentials/deepseek.api-key`。临时 home 做真实会话测试时复制该 Key 并配同样的 provider/model；用假 provider 会被 Pi 以 `Configured model is unavailable` 拒绝。见 `specs.md`。
 - 文档抽取：`document` 工具（`src/documents/extract.ts`）支持 docx/xlsx/pptx、doc/xls/ppt、pdf 与纯文本（UTF-8/UTF-16/GB18030）；格式按文件头字节判断，不看扩展名。PDF 依赖 `pdfjs-dist`，桌面版与 npm 安装可用，独立 SEA CLI 解析不到会明确报错降级（其余格式不受影响）。WPS 私有 `.wps`/`.et`/`.dps` 不支持，会提示另存为 OOXML。
 - 本机索引：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`，写入 `config.indexing`，需 `service restart` 生效；默认关闭且目录为空。`indexing.status.phase` 区分 `disabled`（未启用）/`unconfigured`（已启用但没选目录）/`unavailable`（缺索引程序），`status.enabled` 直接反映 `config.indexing.enabled`，GUI 右侧面板据此不再把已启用的索引显示成未启用。
 - 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP] [TRIGGER]`；CLI `config compact on|off [RESERVE] [KEEP] [TRIGGER]`。`TRIGGER` 是直接 active-context token 长度，默认 100000；保存于 `config.context.autoCompaction`，服务重启后应用。
