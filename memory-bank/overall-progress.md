@@ -16,7 +16,9 @@
   - `npm run check`：typecheck 通过；211 项、207 通过 / 0 失败 / 4 skipped；build 通过。
   - 新增三条回归用例，并**实测反向验证**：把 `limits.ts` 的清理改回原样后，三条全部失败——其中 daemon 端到端那条是 5 秒超时失败，正是"桌面端永远连不上"的原状。恢复修改后全部通过。
   - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。
-- 当前状态：修复完成并验证；`dist/` 已同步。
+- 发布：`v0.1.20`。CI `34178346302`、ARM64 preview `34178346305` 与 Release `34178563608` 全部成功，12 项资产已发布（<https://github.com/advnljs/pSpore/releases/tag/v0.1.20>）。
+  - 远端复验：x64 overlay 的 SHA-256 校验通过，`overlay-manifest.json` 为 `appVersion 0.1.20 / electron 43.3.0 / x64`。从包内 `app.asar` 解出 `dist/protocol/limits.js`、`dist/desktop/validation.js` 与 `dist/kernel/state.js`，用**发行版自己的代码**跑截图那份快照：结果是 accept，NUL 已变成 `\uFFFD`（尾部为 `\n\nPK��binary`）。`dist/tools/core-tools.js` 含 `Not a UTF-8 text file` 守卫，`app.asar.unpacked` 里的 aegis-search skill 为 `0.2.1`。
+- 当前状态：修复完成、已验证并随 `v0.1.20` 发布；`dist/` 已同步。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 会话删除与索引状态一致性
