@@ -24,7 +24,9 @@
   - **打包后实测**：`bash scripts/package-desktop.sh 0.1.20` 后，用打包出的 Electron 运行时从 `app.asar` 内加载 `dist/documents/extract.js`，pdf/docx/xls/doc/ppt/gbk-txt 六种全部正确抽出中文——这是最大的打包风险（pdfjs 及其 169 个 cmap、16 个字体能否从 asar 读到），已证实可用。
   - 独立 SEA CLI 二进制体积仍为 140M（未变），确认 esbuild 没有把 pdfjs 打进去；该形态下 PDF 会抛明确的降级错误，其余格式不受影响。
   - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。
-- 当前状态：完成并验证；`dist/` 已同步。
+- 发布：`v0.1.21`。CI `34182242711`、ARM64 preview `34182242698` 与 Release `34182501782` 全部成功，12 项资产已发布（<https://github.com/advnljs/pSpore/releases/tag/v0.1.21>）。
+  - 远端复验：下载 x64 全量包，SHA-256 校验通过；用**发行包自带的 Electron 运行时**从其 `app.asar` 内加载抽取模块，9 个样本全部正确——中文 CID 字体 PDF、纯 ASCII PDF、docx、xlsx、pptx、doc、xls、ppt、GB18030 文本。包内确认 `doc-extract` skill 已随发行版携带，pdfjs 的 169 个 cmap 齐全。
+- 当前状态：完成、已验证并随 `v0.1.21` 发布；`dist/` 已同步。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 二进制内容导致桌面端被永久锁死
