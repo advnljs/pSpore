@@ -22,7 +22,7 @@
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
-| `src/protocol/limits.ts` | 客户端/守护进程双侧出站上限、`boundPublishedValue` 裁剪与 `publishedTextTruncation` 截断标记解析（标记格式的唯一定义处）|
+| `src/protocol/limits.ts` | 客户端/守护进程双侧出站上限、`boundPublishedValue` 裁剪、NUL→`\uFFFD` 净化与 `publishedTextTruncation` 截断标记解析（标记格式的唯一定义处）|
 | `src/shell/shell-service.ts` | Linux login shell、pipe/PTY、artifact 与 secret 脱敏 |
 | `src/daemon/daemon.ts` | Daemon 组装、ready/draining/stopped 与资源清理 |
 | `src/daemon/supervisor.ts` | Electron smoke 隔离使用的临时 Daemon owned/external 生命周期管理 |

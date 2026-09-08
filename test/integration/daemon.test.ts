@@ -519,6 +519,55 @@ describe("daemon vertical slice", () => {
     assert.match(await readFile(marker, "utf8"), /stop:daemon shutdown/);
   });
 
+  test("stays reachable for the desktop client when a session holds bytes that were never text", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime();
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("binary-daemon"),
+    });
+    const seed = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "binary-seed" });
+    await seed.connect();
+    await seed.command<Accepted>("session.prompt", { text: "summarize the docx", mode: "prompt" }, { sessionId: "main" });
+    await seed.close();
+    // Reading a .docx — a ZIP — decodes to text carrying NUL bytes. The client
+    // refuses any string holding one, and it refuses the whole snapshot, which
+    // arrives again on every reconnect: the desktop never recovered on its own.
+    const nul = String.fromCharCode(0);
+    runtime.seedMessage("main", "tool", `path: /home/user/notes.docx\n\nPK${nul}${nul}binary`, "entry-binary");
+    // The seeded message only reaches the authoritative snapshot once an event
+    // re-renders the session view, and the snapshot is what the hello carries.
+    runtime.emit("main", "transcript.item.finished", false, { item: finishedItem("main", "done") });
+    await waitFor(() => daemon.kernel.snapshot().sessions["main"]?.messages.at(-1)?.text.includes(nul) === true, 5_000);
+
+    const bridge = new DaemonBridge({
+      socketPath: daemon.paths.socket,
+      stagingRoot: join(home, "workspace", "staging"),
+      versions: { pspore: "0.1.20", pi: "0.84.1", electron: "43.3.0", node: process.versions.node },
+      reconnectDelay: () => 20,
+    });
+    cleanups.push(async () => {
+      await bridge.stop();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    bridge.start();
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
+    assert.equal(bridge.bootstrap().connection.attempt, 0);
+    // The authoritative snapshot the desktop holds is the proof: it got through
+    // validation, and the refused character was replaced rather than dropped.
+    const published = bridge.bootstrap().snapshot?.sessions["main"]?.messages.at(-1)?.text ?? "";
+    assert.equal(published.includes(nul), false);
+    assert.match(published, /PK\uFFFD\uFFFDbinary$/);
+
+    // A reconnect replays the same snapshot, which is where the lock-out showed.
+    await bridge.stop();
+    bridge.start();
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected", 5_000);
+    assert.equal(bridge.bootstrap().connection.phase, "connected");
+  });
+
   test("stays reachable for the desktop client when a session holds an oversized message", async () => {
     const home = await configuredHome();
     const runtime = new FakeRuntime();

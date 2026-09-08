@@ -45,6 +45,11 @@ describe("core tools", () => {
     const originalHash = createHash("sha256").update("alpha\nbeta\n").digest("hex");
     assert.match(text(read), new RegExp(originalHash));
     await assert.rejects(execute(byName("read"), { path: file, expectedSha256: "0".repeat(64) }), /Read conflict/);
+    // A .docx is a ZIP; decoding it as UTF-8 used to hand the model pages of
+    // mojibake whose NUL bytes then made every client reject the snapshot.
+    const binary = join(root, "notes.docx");
+    await writeFile(binary, Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x00, 0x00, 0x21, 0x00]));
+    await assert.rejects(execute(byName("read"), { path: binary }), /Not a UTF-8 text file/);
     await assert.rejects(execute(byName("edit"), { path: file, expectedSha256: "missing", content: "wrong" }), /conflict/);
     await execute(byName("edit"), { path: file, expectedSha256: originalHash, content: "alpha\ngamma\n" });
     assert.equal(await readFile(file, "utf8"), "alpha\ngamma\n");

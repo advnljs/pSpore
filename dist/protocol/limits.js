@@ -60,14 +60,27 @@ export function measurePublishedValue(value, bounds = PUBLISHED_VALUE_BOUNDS) {
     const bounded = bound(value, bounds, 0, { remaining: bounds.maxTotalChars });
     return { value: bounded.value, cost: bounded.cost };
 }
+/**
+ * The one character clients refuse outright. It reaches a transcript whenever a
+ * tool hands back bytes that were never UTF-8 text — reading a `.docx`, which is
+ * a ZIP, is enough — and a single one of them inside the authoritative snapshot
+ * fails validation on every reconnect, which locks a client out for good. It is
+ * replaced rather than dropped so the reader can see something was there.
+ */
+const NUL = "\u0000";
+const NUL_PATTERN = /\u0000/g;
+const NUL_REPLACEMENT = "\uFFFD";
 /** Bounds a single string the same way `boundPublishedValue` bounds nested ones. */
 export function boundPublishedText(value, maxChars = MAX_PUBLISHED_STRING_CHARS) {
-    if (value.length <= maxChars)
-        return value;
+    // Same length either way, so this cannot push a string back over the ceiling,
+    // and an untouched string keeps its identity for the structure sharing above.
+    const safe = value.includes(NUL) ? value.replace(NUL_PATTERN, NUL_REPLACEMENT) : value;
+    if (safe.length <= maxChars)
+        return safe;
     // The marker is part of the budget, and its own length depends only on values
     // the caller already knows, so the result is exactly `maxChars` characters.
-    const marker = truncationMarker(maxChars, value.length);
-    return `${value.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
+    const marker = truncationMarker(maxChars, safe.length);
+    return `${safe.slice(0, Math.max(0, maxChars - marker.length))}${marker}`;
 }
 function truncationMarker(kept, total) {
     return `…[truncated to ${kept} of ${total} characters]`;

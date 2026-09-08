@@ -1,5 +1,24 @@
 # Overall Progress
 
+## 2026-09-08 — 二进制内容导致桌面端被永久锁死
+
+- 阶段目标：修掉用户截图里的 `kernel state.sessions.<id>.messages[2].text must be a bounded string`。
+- 根因：守护进程的 `boundPublishedText` 只裁长度，从不清理 `\u0000`；而客户端的 `boundedString` 对任何含 NUL 的字符串一律拒绝，且拒的是**整份权威快照**。用户让模型总结 `.docx`，`read` 工具把这个 ZIP 容器按 UTF-8 解码，NUL 进入 transcript → 进入快照 → 每次重连都重放同一份被拒的快照，桌面端再也连不上。已用脚本精确复现出与截图逐字一致的报错。
+- 完成内容：
+  - `boundPublishedText` 把 NUL 替换成 `\uFFFD`（替换而非删除，读者能看出这里原本有东西；长度不变，不会把字符串顶回上限之上；未命中时保持原引用，不破坏上层的结构共享）。这是唯一的发布收口——hello 快照、事件广播、命令响应都走 `boundPublishedValue`，因此一处修好覆盖全部通道，且对已经写进 JSONL 的历史会话同样生效。
+  - `read` 工具遇到含 NUL 的文件直接报 `Not a UTF-8 text file`，不再把二进制容器的乱码塞进上下文——这既是本次 NUL 的来源，本身也是缺陷（模型拿到几百行 mojibake 什么也总结不出来）。
+  - `bundled-skills/aegis-search/SKILL.md` 相应更正并升到 `0.2.1`：检索结果里的 `pdf/docx/xlsx` 不能直接 `read`，多数问题用 `snippet` 就能回答。
+- 修改文件：
+  - `src/protocol/limits.ts`、`src/tools/core-tools.ts`、`bundled-skills/aegis-search/SKILL.md`
+  - `test/unit/protocol-limits.test.ts`、`test/integration/core-tools.test.ts`、`test/integration/daemon.test.ts`
+  - `package.json` / `package-lock.json` / `src/version.ts`、`dist/**`
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过；211 项、207 通过 / 0 失败 / 4 skipped；build 通过。
+  - 新增三条回归用例，并**实测反向验证**：把 `limits.ts` 的清理改回原样后，三条全部失败——其中 daemon 端到端那条是 5 秒超时失败，正是"桌面端永远连不上"的原状。恢复修改后全部通过。
+  - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。
+- 当前状态：修复完成并验证；`dist/` 已同步。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-09-08 — 会话删除与索引状态一致性
 
 - 阶段目标：按用户要求补上会话删除能力，并修掉"设置面板已勾选并生效的本机索引，右侧面板仍显示未配置"的矛盾。

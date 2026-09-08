@@ -55,6 +55,13 @@ export function createCoreTools(options) {
             }
             throwIfAborted(signal);
             const text = content.toString("utf8");
+            // A NUL means these bytes were never the UTF-8 text this tool documents.
+            // Decoding a container format — a .docx is a ZIP — yields pages of mojibake
+            // that tell the model nothing and cost it context, so say what the file is
+            // instead of handing back its wreckage.
+            if (text.includes("\u0000")) {
+                throw new Error(`Not a UTF-8 text file: ${path}. Extract its text with a shell command first.`);
+            }
             const lines = text.split("\n");
             const offset = params.offset ?? 1;
             const limit = params.limit ?? 400;

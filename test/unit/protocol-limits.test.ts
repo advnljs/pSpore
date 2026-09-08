@@ -12,7 +12,8 @@ import {
   MAX_PUBLISHED_VALUE_CHARS,
   publishedTextTruncation,
 } from "../../src/protocol/limits.js";
-import { assertSafeProtocolValue } from "../../src/desktop/validation.js";
+import { assertSafeProtocolValue, validateKernelState } from "../../src/desktop/validation.js";
+import { initialKernelState, type KernelState } from "../../src/kernel/state.js";
 
 describe("published protocol bounds", () => {
   test("keeps every published value inside what a client will accept", () => {
@@ -34,6 +35,38 @@ describe("published protocol bounds", () => {
     assert.equal(bounded.messages.length, MAX_PUBLISHED_COLLECTION_ENTRIES);
     // Transcripts are append-only, so the newest entries are the ones to keep.
     assert.equal(bounded.messages.at(-1)?.text, `m${MAX_PROTOCOL_COLLECTION_ENTRIES * 2 - 1}`);
+  });
+
+  test("strips the one character a client refuses, so a binary read cannot lock it out", () => {
+    // Reading a .docx — a ZIP — decodes to text carrying NUL bytes. Those ride
+    // into the authoritative snapshot, which a client re-validates on every
+    // reconnect, so one of them used to lock the desktop out for good.
+    const toolOutput = `path: /home/user/notes.docx\nsha256: abc\n\nPK${NUL}${NUL}binary`;
+    const snapshot = kernelStateWithToolOutput(toolOutput);
+    assert.throws(
+      () => validateKernelState(snapshot),
+      /sessions\.session-1\.messages\[2]\.text must be a bounded string/,
+    );
+
+    const bounded = boundPublishedValue(snapshot);
+    assert.deepEqual(validateKernelState(bounded), bounded);
+    const published = bounded.sessions["session-1"]?.messages[2]?.text ?? "";
+    assert.equal(published.includes(NUL), false);
+    // Replaced rather than dropped, so the reader can see something was there,
+    // and the length is unchanged so nothing is pushed back over a ceiling.
+    assert.match(published, /PK\uFFFD\uFFFDbinary$/);
+    assert.equal(published.length, toolOutput.length);
+  });
+
+  test("still reports what it cut when a long string also carried a refused character", () => {
+    const original = `${NUL}${"y".repeat(MAX_PUBLISHED_STRING_CHARS + 500)}`;
+    const bounded = boundPublishedText(original);
+    assert.equal(bounded.includes(NUL), false);
+    assert.equal(bounded.length, MAX_PUBLISHED_STRING_CHARS);
+    assert.deepEqual(publishedTextTruncation(bounded), {
+      kept: MAX_PUBLISHED_STRING_CHARS,
+      total: original.length,
+    });
   });
 
   test("shares structure when nothing exceeds a bound", () => {
@@ -61,6 +94,34 @@ describe("published protocol bounds", () => {
     assert.match(JSON.stringify(bounded), /truncated: value nested too deeply/);
   });
 });
+
+const NUL = "\u0000";
+
+/** A snapshot shaped like the one the desktop rejected, with the tool output last. */
+function kernelStateWithToolOutput(toolOutput: string): KernelState {
+  return {
+    ...initialKernelState(),
+    sessions: {
+      "session-1": {
+        sessionId: "session-1",
+        upstreamSessionId: "upstream-1",
+        cwd: "/home/user",
+        status: "running",
+        model: { provider: "local", model: "test" },
+        thinking: "off",
+        messages: [
+          { role: "user", text: "summarize this" },
+          { role: "assistant", text: "reading the file" },
+          { role: "tool", text: toolOutput },
+        ],
+        messageCount: 3,
+        messageOffset: 0,
+        queue: { steering: [], followUp: [] },
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, total: 2, costUsd: 0 },
+      },
+    },
+  };
+}
 
 test("spends a whole-value budget on the newest transcript entries", () => {
   const text = "y".repeat(MAX_PUBLISHED_STRING_CHARS);
