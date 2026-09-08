@@ -228,6 +228,25 @@ export class PsporeTuiApp {
         this.#store.setNotice(`New session ${session.sessionId}`);
         return;
       }
+      if (input === "/delete" || input.startsWith("/delete ")) {
+        const requested = input.slice(7).trim();
+        const sessionId = requested || this.#store.snapshot().selectedSessionId;
+        if (this.#selectedAgent() && !requested) {
+          throw new Error("Only a root session can be deleted; use /agent-cancel for a child agent");
+        }
+        // Deleting also removes the transcript, so the id is echoed back rather
+        // than silently acting on whatever happened to be selected.
+        const deleted = await this.#command("session.delete", {}, sessionId) as {
+          sessionId: string;
+          title?: string;
+          transcriptRemoved: boolean;
+        };
+        this.#store.setNotice(
+          `Deleted session ${deleted.sessionId}${deleted.title ? ` (${deleted.title})` : ""}`
+          + `${deleted.transcriptRemoved ? " and its transcript" : ""}`,
+        );
+        return;
+      }
       if (input === "/abort") {
         const selectedSessionId = this.#store.snapshot().selectedSessionId;
         const child = this.#selectedAgent();

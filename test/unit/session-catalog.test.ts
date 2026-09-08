@@ -68,6 +68,40 @@ test("fails closed on unknown catalog fields", async () => {
   assert.match(await readFile(fixture.options.path, "utf8"), /"extra"/);
 });
 
+test("removing a session drops its record and deletes only the transcript it owns", async () => {
+  const fixture = await catalogFixture();
+  const sessionFile = join(fixture.workspaceSessions, "doomed.jsonl");
+  const survivor = join(fixture.workspaceSessions, "kept.jsonl");
+  // Opened before the transcripts exist: a catalog opened over a directory of
+  // loose JSONL files adopts the newest one as legacy `main`, which would add a
+  // record this test never created.
+  const catalog = await SessionCatalog.open(fixture.options);
+  await writeFile(sessionFile, "{}\n", { mode: 0o600 });
+  await writeFile(survivor, "{}\n", { mode: 0o600 });
+  await catalog.add({ id: "doomed", sessionFile, cwd: fixture.cwd });
+  await catalog.add({ id: "kept", sessionFile: survivor, cwd: fixture.cwd });
+
+  const removed = await catalog.remove("doomed");
+  assert.equal(removed?.record.id, "doomed");
+  assert.equal(removed?.transcriptRemoved, true);
+  assert.equal(catalog.get("doomed"), undefined);
+  await assert.rejects(stat(sessionFile), /ENOENT/);
+  assert.equal((await stat(survivor)).isFile(), true);
+  // The deletion is durable, not just in memory.
+  assert.deepEqual((await SessionCatalog.open(fixture.options)).list().map((record) => record.id), ["kept"]);
+  assert.equal(await catalog.remove("doomed"), undefined);
+});
+
+test("removing a session whose transcript is already gone still drops the record", async () => {
+  const fixture = await catalogFixture();
+  const sessionFile = join(fixture.workspaceSessions, "no-transcript.jsonl");
+  const catalog = await SessionCatalog.open(fixture.options);
+  await catalog.add({ id: "no-transcript", sessionFile, cwd: fixture.cwd });
+  const removed = await catalog.remove("no-transcript");
+  assert.equal(removed?.record.id, "no-transcript");
+  assert.equal(catalog.get("no-transcript"), undefined);
+});
+
 async function catalogFixture(): Promise<{
   root: string;
   cwd: string;

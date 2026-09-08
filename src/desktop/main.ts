@@ -81,6 +81,26 @@ interface SmokeReport {
     directQueueVisibleBeforeToolCompletion: boolean;
     followUpQueueVisible: boolean;
   };
+  sessionRail: {
+    totalRows: number;
+    rootRows: number;
+    /** Delete controls: one per root row, and none on a child agent row. */
+    deleteControls: number;
+    agentDeleteControls: number;
+    hiddenUntilHover: boolean;
+    armedLabel: string;
+    armedAfterFirstClick: boolean;
+    /** A first click must only arm the control, so the row is still there. */
+    rowsAfterFirstClick: number;
+    /** Still armed when the evidence screenshot was taken. */
+    armedAtCapture: boolean;
+  };
+  indexingPanel: {
+    phase: string;
+    phaseLabel: string;
+    counts: string;
+    note: string;
+  };
   responsive: {
     medium: ResponsiveLayoutProbe;
     compact: ResponsiveLayoutProbe;
@@ -307,6 +327,16 @@ function installIpc(
     assertTrustedSender(event, target.webContents);
     const update = decodeDesktopIndexingSettingsUpdate(candidate);
     const settings = await indexingSettings.save(update);
+    // "Saved" is not "indexing": a switched-on indexer with no directory, or one
+    // whose release shipped no binary, does nothing. Saying so here keeps this
+    // message from contradicting the status panel.
+    const caveat = !settings.enabled
+      ? ""
+      : settings.directories.length === 0
+        ? " 尚未选择索引目录，索引不会运行。"
+        : settings.indexerAvailable
+          ? ""
+          : " 本次发行版未包含索引程序，索引不会运行。";
     // The daemon reads config.indexing once at startup, so a saved change only
     // takes effect after it restarts; the client is told which happened.
     if (systemService) {
@@ -314,9 +344,9 @@ function installIpc(
       await systemService.restart();
       daemonBridge.start();
       await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 10_000);
-      return { settings, applied: true, message: "索引设置已保存并应用，后台服务已重启。" };
+      return { settings, applied: true, message: `索引设置已保存并应用，后台服务已重启。${caveat}` };
     }
-    return { settings, applied: false, message: "索引设置已保存；重启服务后生效。" };
+    return { settings, applied: false, message: `索引设置已保存；重启服务后生效。${caveat}` };
   });
   ipcMain.handle(DESKTOP_INDEXING_PICK_CHANNEL, async (event) => {
     assertTrustedSender(event, target.webContents);
@@ -500,6 +530,47 @@ async function runSmoke(
       followUpQueueVisible: Boolean(document.querySelector('#message-queue [data-queue-mode="follow-up"]'))
     };
   })()`);
+  const sessionRail: SmokeReport["sessionRail"] = await target.webContents.executeJavaScript(`(() => {
+    const rows = Array.from(document.querySelectorAll('#session-list .session-row'));
+    const rootRows = rows.filter((row) => Number(row.querySelector('.session-item')?.dataset.depth ?? '0') === 0);
+    const agentRows = rows.filter((row) => Number(row.querySelector('.session-item')?.dataset.depth ?? '0') > 0);
+    const first = rootRows[0]?.querySelector('.session-delete');
+    const hiddenUntilHover = Boolean(first) && Number(getComputedStyle(first).opacity) === 0;
+    const probe = {
+      totalRows: rows.length,
+      rootRows: rootRows.length,
+      deleteControls: rootRows.filter((row) => row.querySelector('.session-delete')).length,
+      agentDeleteControls: agentRows.filter((row) => row.querySelector('.session-delete')).length,
+      hiddenUntilHover
+    };
+    // Deleting a session destroys its transcript, so one click may only arm the
+    // control: the row it belongs to has to survive it.
+    first?.click();
+    return {
+      ...probe,
+      armedLabel: document.querySelector('#session-list .session-delete.armed')?.textContent ?? '',
+      armedAfterFirstClick: Boolean(document.querySelector('#session-list .session-row.arming')),
+      rowsAfterFirstClick: document.querySelectorAll('#session-list .session-row').length,
+      armedAtCapture: false
+    };
+  })()`);
+  const indexingPanel: SmokeReport["indexingPanel"] = await target.webContents.executeJavaScript(`(() => ({
+    phase: document.querySelector('#indexing-panel')?.dataset.phase ?? '',
+    phaseLabel: document.querySelector('#indexing-phase')?.textContent ?? '',
+    counts: document.querySelector('#indexing-counts')?.textContent ?? '',
+    note: document.querySelector('#indexing-note')?.textContent ?? ''
+  }))()`);
+  // Evidence for the one destructive control in the rail: the armed state is
+  // captured on its own, because the main capture is taken after it reverts.
+  const railRect: { x: number; y: number; width: number; height: number } = await target.webContents.executeJavaScript(`(() => {
+    const rect = document.querySelector('#session-list')?.getBoundingClientRect();
+    return rect ? { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(Math.min(rect.height, 220)) } : { x: 0, y: 0, width: 320, height: 220 };
+  })()`);
+  const armedRailImage = await target.webContents.capturePage(railRect);
+  await writeFile(join(outputDirectory, "desktop-session-delete-armed.png"), armedRailImage.toPNG(), { mode: 0o600 });
+  sessionRail.armedAtCapture = await target.webContents.executeJavaScript(
+    "Boolean(document.querySelector('#session-list .session-row.arming'))",
+  );
   const mainImage = await target.webContents.capturePage();
   await writeFile(join(outputDirectory, "desktop-main-dark-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
   if (fixture) {
@@ -724,6 +795,8 @@ async function runSmoke(
     themes: { dark: darkTheme, light: lightTheme },
     typography,
     mainVisual,
+    sessionRail,
+    indexingPanel,
     responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
     settings: settingsProbe,
     ...(fileDrop ? { fileDrop } : {}),
@@ -849,6 +922,24 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     }
     if (!report.mainVisual.directQueueVisibleBeforeToolCompletion) failures.push("direct-send queue was hidden until tool completion");
     if (!report.mainVisual.followUpQueueVisible) failures.push("follow-up queue is not visible alongside direct-send messages");
+    if (report.sessionRail.rootRows < 1) failures.push("session rail rendered no root session row");
+    if (report.sessionRail.deleteControls !== report.sessionRail.rootRows) {
+      failures.push("not every root session row offers a delete control");
+    }
+    // Child agents are cancelled through their own controls; deleting one would
+    // orphan the transcript its root session still owns.
+    if (report.sessionRail.agentDeleteControls !== 0) failures.push("a child agent row offered a session delete control");
+    if (!report.sessionRail.hiddenUntilHover) failures.push("session delete control is visible before the row is hovered");
+    if (!report.sessionRail.armedAfterFirstClick) failures.push("session delete control did not arm on its first click");
+    if (!report.sessionRail.armedLabel.includes("确认")) failures.push("armed session delete control does not ask for confirmation");
+    if (!report.sessionRail.armedAtCapture) failures.push("armed session delete control reverted before it could be captured");
+    if (report.sessionRail.rowsAfterFirstClick !== report.sessionRail.totalRows) {
+      failures.push("a single click on the delete control changed the session rail");
+    }
+    // The status panel must agree with the settings panel that switched it on.
+    if (report.indexingPanel.phase !== "unconfigured") failures.push("indexing panel did not render the unconfigured phase");
+    if (report.indexingPanel.phaseLabel.includes("未启用")) failures.push("indexing panel reported an enabled indexer as switched off");
+    if (!report.indexingPanel.note.includes("已启用")) failures.push("indexing panel did not report the configured enable state");
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
     if (!report.probe.document.backgroundInert) failures.push("approval modal did not make the background inert");
     if (report.probe.document.focusLabel !== "拒绝") failures.push("approval modal did not receive deterministic focus");

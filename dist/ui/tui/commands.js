@@ -3,6 +3,7 @@ export const TUI_HELP_LINES = [
     "  text                         Send to selected target",
     "  /new [TITLE]                 Create a persistent session",
     "  /select ID                   Switch session and history",
+    "  /delete [ID]                 删除会话及其聊天记录（默认当前会话）",
     "  /send-now N                  直接发送消息（否则继续排队）",
     "  /abort  /compact",
     "  /work [STEP_ID]              Work history or step details",

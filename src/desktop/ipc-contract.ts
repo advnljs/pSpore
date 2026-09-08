@@ -79,6 +79,7 @@ export type DesktopCommand =
   | { action: "abort"; sessionId: string }
   | { action: "compact"; sessionId: string }
   | { action: "session.create"; title?: string }
+  | { action: "session.delete"; sessionId: string }
   | { action: "session.transcript"; sessionId: string; from?: number; limit?: number }
   | { action: "session.message"; sessionId: string; id?: string; index?: number; offset?: number; limit?: number }
   | { action: "queue.send-now"; sessionId: string; index: number }
@@ -168,6 +169,7 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
       };
     case "abort":
     case "compact":
+    case "session.delete":
       exactKeys(input, ["action", "sessionId"], action);
       return { action, sessionId: identifier(input["sessionId"], `${action}.sessionId`) };
     case "session.create": {
@@ -305,6 +307,8 @@ export function toProtocolInvocation(
       return { type: "session.compact", payload: {}, sessionId: command.sessionId };
     case "session.create":
       return { type: "session.create", payload: command.title === undefined ? {} : { title: command.title } };
+    case "session.delete":
+      return { type: "session.delete", payload: {}, sessionId: command.sessionId };
     case "session.transcript":
       return {
         type: "session.transcript",

@@ -122,6 +122,11 @@ export class AgentApplication {
                     return this.#view(sessionId);
                 });
             }
+            case "session.delete": {
+                exactPayload(command.payload, [], command.type);
+                const sessionId = requiredSessionId(command);
+                return this.#serializeSession(sessionId, async () => this.#deleteRootSession(sessionId));
+            }
             case "session.prompt": {
                 const payload = exactPayload(command.payload, ["text", "mode"], command.type);
                 const text = nonEmptyString(payload["text"], "payload.text");
@@ -512,6 +517,41 @@ export class AgentApplication {
             await this.#runtime.dispose(sessionId).catch(() => undefined);
             throw error;
         }
+    }
+    /**
+     * Removes a root session for good: any run is stopped, the runtime session is
+     * disposed, the catalog entry is dropped and the transcript is deleted.
+     *
+     * A record that exists only in the catalog is deleted the same way, so a
+     * client can clear history the daemon never restored — and so a session whose
+     * restore failed can still be cleaned up. Child agents belonging to the
+     * session are cancelled first, because their transcripts would otherwise keep
+     * writing into a session that no longer exists.
+     */
+    async #deleteRootSession(sessionId) {
+        const attached = this.#sessions.has(sessionId);
+        if (attached)
+            this.#assertRootSession(sessionId);
+        else if (!this.#sessionCatalog.get(sessionId)) {
+            throw new CommandError("session_not_found", `Root session does not exist: ${sessionId}`);
+        }
+        if (attached) {
+            const reason = `root session ${sessionId} deleted`;
+            await this.#approvals.cancelSession(sessionId);
+            await this.#agents?.cancelChildren(this.#agents.parentIdForSession(sessionId), reason).catch(() => undefined);
+            // A running session has to stop before its runtime can be torn down; the
+            // abort is best-effort because an already-idle session rejects it.
+            await this.#runtime.abort(sessionId, reason).catch(() => undefined);
+            await this.#disposeSession(sessionId);
+            this.#agents?.unregisterRoot(sessionId);
+        }
+        const removed = await this.#sessionCatalog.remove(sessionId);
+        return {
+            deleted: true,
+            sessionId,
+            ...(removed?.record.title === undefined ? {} : { title: removed.record.title }),
+            transcriptRemoved: removed?.transcriptRemoved ?? false,
+        };
     }
     async #resumeRootSession(record) {
         if (this.#sessions.has(record.id))

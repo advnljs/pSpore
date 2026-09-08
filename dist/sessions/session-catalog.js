@@ -1,4 +1,4 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
+import { readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWriteJson } from "../storage/atomic.js";
 import { resolveSessionFile } from "./session-file.js";
@@ -55,6 +55,34 @@ export class SessionCatalog {
             next.set(id, record);
         });
         return structuredClone(record);
+    }
+    /**
+     * Forgets a root session and deletes the transcript it owns.
+     *
+     * The stored path is re-resolved against the sessions root before anything is
+     * unlinked, so a catalog entry that points outside the root loses its record
+     * without the filesystem being touched. Deleting is the point of the command,
+     * so a transcript that is already gone is not an error.
+     */
+    async remove(id) {
+        const existing = this.#records.get(id);
+        if (!existing)
+            return undefined;
+        const record = structuredClone(existing);
+        await this.#mutate((records) => {
+            records.delete(id);
+        });
+        let transcriptRemoved = false;
+        try {
+            const path = await this.#sessionFile(record.sessionFile);
+            await rm(path, { force: true });
+            transcriptRemoved = true;
+        }
+        catch {
+            // The record is gone either way; an unreachable or out-of-root transcript
+            // is left on disk rather than resolved through an unchecked path.
+        }
+        return { record, transcriptRemoved };
     }
     async touch(id, options = {}) {
         const existing = this.#records.get(id);

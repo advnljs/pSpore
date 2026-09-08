@@ -1,5 +1,33 @@
 # Overall Progress
 
+## 2026-09-08 — 会话删除与索引状态一致性
+
+- 阶段目标：按用户要求补上会话删除能力，并修掉"设置面板已勾选并生效的本机索引，右侧面板仍显示未配置"的矛盾。
+- 完成内容：
+  - **会话删除**：新增 `session.delete` 协议命令。先取消该会话的审批与子 agent、abort 运行中的会话，再 dispose runtime、删除 `session-catalog.json` 记录并删除 `state/sessions/` 下对应的 Pi JSONL；只存在于 catalog（未 attach）的记录同样可删，因此恢复失败的会话也能清理。
+    - `SessionCatalog.remove()` 承担删除边界：JSONL 路径在 unlink 前重新用 `resolveSessionFile` 对 sessions root 做一次解析，指向 root 之外的记录只丢条目、不碰文件系统。
+    - 三个客户端都接上：GUI 会话行右侧新增 `✕` → `确认删除` 两步内联确认（5 秒后自动解除，子 agent 行不提供删除）；TUI `/delete [ID]`；CLI `session delete ID`。
+    - 客户端选中项无需额外处理：删除广播的 `session.closed` 经既有 `selectAvailable` 自动切到其他会话。
+  - **索引状态**：`IndexingStatus` 增加 `enabled` 字段并把 `disabled` 拆成三个 phase——`disabled`（真的关掉）、`unconfigured`（已启用但没选目录）、`unavailable`（缺索引程序）。此前三种情况都上报 `disabled`，右侧面板一律显示"未启用"，与刚勾选完的设置面板直接矛盾。
+    - GUI 右侧面板：新增"缺少目录"标签、按 phase 给出具体原因文案，并固定加一行"设置：已启用/未启用"直接回放配置开关。
+    - 设置面板与保存回执：勾选但没选目录、或发行版缺索引程序时，`saveIndexing` 的回执与面板说明都会明说"索引不会运行"，不再只报"已保存并应用"。
+- 修改文件：
+  - `src/domain/indexing.ts`、`src/indexing/index-service.ts`
+  - `src/sessions/session-catalog.ts`、`src/application/agent-application.ts`
+  - `src/desktop/ipc-contract.ts`、`src/desktop/main.ts`、`src/desktop/smoke-fixture.ts`
+  - `src/desktop/renderer/renderer.ts`、`src/desktop/renderer/styles.css`
+  - `src/ui/tui/tui-app.ts`、`src/ui/tui/commands.ts`、`src/cli/main.ts`
+  - `test/unit/index-service.test.ts`、`test/unit/session-catalog.test.ts`、`test/unit/desktop-ipc-validation.test.ts`、`test/integration/daemon.test.ts`
+  - `README.md`、`memory-bank/*`、`dist/**`（构建产物同步）
+- 验证方式与结果：
+  - `npm run typecheck`：通过。
+  - `npm test`：208 项，204 通过 / 0 失败 / 4 skipped。新增用例覆盖 catalog 删除边界（只删自己的 JSONL、缺文件也删记录、幂等）、daemon 端到端删除（live state + catalog + JSONL 全部消失，重启后不恢复，其余会话不受影响）、IPC decode/映射、以及索引三态。
+  - `npm run build`：通过。
+  - `npm run test:electron`（Xvfb，主基准 1920×1080）：通过。新增断言实测结果——会话栏 `{rootRows:1, deleteControls:1, agentDeleteControls:0, hiddenUntilHover:true, armedLabel:"确认删除", rowsAfterFirstClick 未变}`；索引面板 `{phase:"unconfigured", phaseLabel:"缺少目录", counts:"本机索引已启用，但还没有选择要索引的目录", note:"设置：已启用 · 在设置 → 本机索引中添加目录后开始索引"}`。新增 `desktop-session-delete-armed.png` 作为破坏性控件的视觉证据，已人工复核。
+  - 真实守护进程手测（临时 home + 假 aegis-search）：`enabled+无目录` → `unconfigured`；`enabled+有目录` → `idle 3/3`；`关闭` → `disabled`。CLI `session delete` 实测删除 catalog 记录与 JSONL、保留其他会话、重复删除返回 `Root session does not exist`、错误子命令给出用法。
+- 当前状态：两项改动完成并验证；`dist/` 已同步。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-08-22 — GUI 重构与交互优化
 
 - 阶段目标：按用户要求重构桌面 GUI——Enter 发送/Ctrl+Enter 换行、白蓝配色浅色默认、精致深色模式、GSAP 动效。

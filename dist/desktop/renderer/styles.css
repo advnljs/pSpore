@@ -358,6 +358,42 @@ kbd {
 
 .sessions-section { min-height: 0; flex: 1 1 auto; overflow: auto; padding: 10px; }
 .session-list { display: flex; flex-direction: column; gap: 3px; }
+.session-row { position: relative; }
+/* The delete control sits over the row's trailing edge: a button cannot be
+   nested inside the session button, and reserving a column for it would shrink
+   the title on every row for a control that is only occasionally used. */
+.session-delete {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--faint);
+  font: 600 11.5px/1 var(--font-mono);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 150ms var(--motion-out), color 150ms var(--motion-out), background-color 150ms var(--motion-out);
+}
+.session-row:hover .session-delete,
+.session-row:focus-within .session-delete,
+.session-delete.armed { opacity: 1; }
+.session-delete:hover { color: var(--rust); background: var(--surface-soft); }
+.session-delete:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: 1px; }
+.session-delete:disabled { cursor: not-allowed; opacity: 0; }
+.session-delete.armed {
+  border-color: var(--rust);
+  color: var(--rust);
+  background: var(--surface-soft);
+  letter-spacing: 0.04em;
+}
+/* The control overlays the trailing status mark, so the mark yields whenever
+   the control is showing rather than the two drawing on top of each other. */
+.session-row:hover .session-status-mark,
+.session-row:focus-within .session-status-mark,
+.session-row.arming .session-status-mark { visibility: hidden; }
 .session-item {
   --indent: calc(11px + var(--session-depth, 0) * 16px);
   position: relative;
@@ -664,7 +700,9 @@ select {
 .indexing-bar i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px; background: var(--accent); transition: width 220ms var(--motion-out); }
 .indexing-panel[data-phase="failed"] .indexing-bar i { background: var(--rust); }
 .indexing-panel[data-phase="idle"] .indexing-bar i { background: var(--live); }
-.indexing-panel[data-phase="disabled"] .indexing-bar, .indexing-panel[data-phase="unavailable"] .indexing-bar { opacity: 0.45; }
+.indexing-panel[data-phase="disabled"] .indexing-bar,
+.indexing-panel[data-phase="unconfigured"] .indexing-bar,
+.indexing-panel[data-phase="unavailable"] .indexing-bar { opacity: 0.45; }
 .indexing-counts { margin: 0; color: var(--text-soft); font-size: 12.5px; }
 .indexing-current { margin: 4px 0 0; color: var(--faint); font-size: 11.5px; font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .indexing-current:empty { display: none; }

@@ -1,6 +1,7 @@
 export function initialIndexingStatus() {
     return {
         version: 1,
+        enabled: false,
         phase: "disabled",
         directories: [],
         total: 0,

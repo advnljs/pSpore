@@ -269,6 +269,59 @@ describe("daemon vertical slice", () => {
     assert.match(await readFile(second.paths.sessionCatalog, "utf8"), new RegExp(created.sessionId));
   });
 
+  test("deletes a root session, its transcript and its catalog entry, and never restores it", async () => {
+    const home = await configuredHome();
+    const first = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async (context) => new FakeRuntime(true, context.paths.sessions),
+      idFactory: sequence("delete-first"),
+    });
+    const firstClient = new ProtocolClient({ socketPath: first.paths.socket, clientId: "delete-first-client" });
+    await firstClient.connect();
+    const doomed = await firstClient.command<SessionView>("session.create", { title: "Throwaway" });
+    const kept = await firstClient.command<SessionView>("session.create", { title: "Keeper" });
+    await firstClient.command("session.prompt", { text: "history to destroy", mode: "auto" }, { sessionId: doomed.sessionId });
+    await waitFor(() => first.kernel.snapshot().sessions[doomed.sessionId]?.messages.at(-1)?.text === "fake reply");
+    const transcript = first.kernel.snapshot().sessions[doomed.sessionId]?.sessionFile;
+    assert.ok(transcript);
+    await access(transcript);
+
+    const deleted = await firstClient.command<{ sessionId: string; title?: string; transcriptRemoved: boolean }>(
+      "session.delete",
+      {},
+      { sessionId: doomed.sessionId },
+    );
+    assert.equal(deleted.sessionId, doomed.sessionId);
+    assert.equal(deleted.title, "Throwaway");
+    assert.equal(deleted.transcriptRemoved, true);
+    // The session leaves live state, the catalog and the filesystem together.
+    assert.equal(first.kernel.snapshot().sessions[doomed.sessionId], undefined);
+    assert.ok(first.kernel.snapshot().sessions[kept.sessionId]);
+    await assert.rejects(access(transcript), /ENOENT/);
+    assert.doesNotMatch(await readFile(first.paths.sessionCatalog, "utf8"), new RegExp(doomed.sessionId));
+    await assert.rejects(
+      firstClient.command("session.delete", {}, { sessionId: doomed.sessionId }),
+      /session_not_found|does not exist/,
+    );
+    await firstClient.close();
+    await first.stop();
+
+    const second = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async (context) => new FakeRuntime(true, context.paths.sessions),
+      idFactory: sequence("delete-second"),
+    });
+    const secondClient = new ProtocolClient({ socketPath: second.paths.socket, clientId: "delete-second-client" });
+    cleanups.push(async () => {
+      await secondClient.close();
+      await second.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    const hello = await secondClient.connect();
+    assert.equal(hello.snapshot.sessions[doomed.sessionId], undefined);
+    assert.equal(hello.snapshot.sessions[kept.sessionId]?.rootSession?.title, "Keeper");
+  });
+
   test("automatically queues a normal send while running and can promote it for direct delivery", async () => {
     const home = await configuredHome();
     const runtime = new FakeRuntime(false);

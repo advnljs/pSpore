@@ -21,7 +21,8 @@
 
 - `CommandEnvelope<v1>` / `EventEnvelope<v1>`
 - snapshot/replay/ack/auth handshake
-- session create/auto-prompt/queue-send-now/abort/compact、approval、agent/job commands
+- session create/delete/auto-prompt/queue-send-now/abort/compact、approval、agent/job commands
+- `session.delete` 只接受根会话：先取消审批与子 agent、abort 运行中的会话，再 dispose runtime、删除 catalog 记录与 Pi JSONL；只在 catalog 里的记录（未 attach）同样可删。客户端靠已有的 `session.closed` 广播与 `selectAvailable` 自动切走选中项。
 - Electron renderer 固定 `bootstrap/dispatch/getSettings/saveSettings/getPathForFile/subscribe` preload API；`DesktopCommand` 在 main process 严格解码并映射到既有 UDS command。`getPathForFile` 不是 IPC command，只把用户真实拖入的 Chromium `File` 交给 Electron `webUtils` 取绝对路径，不读取内容或接受任意路径字符串。
 
 ## 内部依赖

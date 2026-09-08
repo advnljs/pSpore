@@ -111,7 +111,7 @@ test("a failing indexer is reported without stopping the schedule", async () => 
   }
 });
 
-test("indexing stays disabled until it is switched on and given directories", async () => {
+test("a switched-on indexer with no directories is reported as configured but unusable", async () => {
   const off = new IndexService({
     binaryPath: "/nonexistent",
     directories: ["/docs"],
@@ -122,8 +122,11 @@ test("indexing stays disabled until it is switched on and given directories", as
   });
   await off.start();
   assert.equal(off.status().phase, "disabled");
+  assert.equal(off.status().enabled, false);
   await off.stop();
 
+  // Reporting this as `disabled` made the status panel contradict the settings
+  // panel, which is where indexing was switched on in the first place.
   const noDirectories = new IndexService({
     binaryPath: "/nonexistent",
     directories: [],
@@ -133,8 +136,9 @@ test("indexing stays disabled until it is switched on and given directories", as
     onStatus: () => undefined,
   });
   await noDirectories.start();
-  assert.equal(noDirectories.status().phase, "disabled");
-  assert.match(noDirectories.status().message ?? "", /没有配置需要索引的目录/);
+  assert.equal(noDirectories.status().phase, "unconfigured");
+  assert.equal(noDirectories.status().enabled, true);
+  assert.match(noDirectories.status().message ?? "", /还没有选择要索引的目录/);
   await noDirectories.stop();
 });
 
@@ -151,6 +155,7 @@ test("a missing indexer binary is surfaced rather than retried forever", async (
   const status = service.status();
   await service.stop();
   assert.equal(status.phase, "unavailable");
+  assert.equal(status.enabled, true);
   assert.match(status.message ?? "", /未找到索引程序/);
 });
 

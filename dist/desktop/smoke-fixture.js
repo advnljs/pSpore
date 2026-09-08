@@ -246,6 +246,19 @@ export function createDesktopSmokeState(base, includeApproval) {
                 restartRequired: false,
             },
         },
+        // Switched on but with no directory chosen: the case where the status panel
+        // used to report an indexer the settings panel had just enabled as inactive.
+        indexing: {
+            version: 1,
+            enabled: true,
+            phase: "unconfigured",
+            directories: [],
+            total: 0,
+            processed: 0,
+            failed: 0,
+            skipped: 0,
+            message: "本机索引已启用，但还没有选择要索引的目录",
+        },
     };
 }
 function session(sessionId, upstreamSessionId, messages, status, usage) {

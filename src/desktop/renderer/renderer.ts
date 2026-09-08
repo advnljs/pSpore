@@ -16,6 +16,7 @@ import {
   selectedAgent as findSelectedAgent,
   shortId,
   terminalAgentStatus,
+  type SessionListItem,
 } from "../../ui/shared/presentation.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
 import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
@@ -78,9 +79,15 @@ let lastSessionStatus = "";
 let lastActivitySignature = "";
 let lastReferenceCount = 0;
 let indexingDirectories: string[] = [];
+/** Session whose delete control is armed, so a stray click cannot destroy history. */
+let armedSessionDeletion: string | undefined;
+let armSessionDeletionTimer: number | undefined;
 let renderFrame: number | undefined;
 let transcriptRenderFrame: number | undefined;
 let composerFileReferences: ComposerFileReference[] = [];
+
+/** How long a delete control stays armed before it reverts on its own. */
+const SESSION_DELETE_ARM_MS = 5_000;
 
 interface TranscriptRenderState {
   sessionId: string;
@@ -587,9 +594,23 @@ function populateIndexingSettings(indexing: DesktopIndexingSettings): void {
   elements.settingsIndexingExt.value = indexing.extensions.join(",");
   indexingDirectories = [...indexing.directories];
   renderIndexingDirectories();
-  elements.settingsIndexingNote.textContent = indexing.indexerAvailable
-    ? `索引程序：${indexing.indexerPath}`
-    : `本次发行版未包含索引程序（${indexing.indexerPath}），启用后会报告不可用。`;
+  elements.settingsIndexingNote.textContent = indexingSettingsNote(indexing);
+}
+
+/**
+ * Says in the settings panel itself why a ticked checkbox may still not index
+ * anything, so it agrees with what the status panel reports.
+ */
+function indexingSettingsNote(indexing: DesktopIndexingSettings): string {
+  const notes = [
+    indexing.indexerAvailable
+      ? `索引程序：${indexing.indexerPath}`
+      : `本次发行版未包含索引程序（${indexing.indexerPath}），启用后会报告不可用。`,
+  ];
+  if (indexing.enabled && indexing.directories.length === 0) {
+    notes.push("已启用，但还没有选择目录，索引不会运行。");
+  }
+  return notes.join(" ");
 }
 
 function renderIndexingDirectories(): void {
@@ -1045,15 +1066,11 @@ function renderHeader(snapshot: DesktopStoreSnapshot): void {
 
 function renderSessions(snapshot: DesktopStoreSnapshot): void {
   const sessions = presentSessions(snapshot.kernel, snapshot.selectedSessionId);
-  const nodes = sessions.map((session) => sessionButton(
-    session.id,
-    session.title,
-    session.status,
-    session.depth,
-    session.selected,
-    session.active,
-  ));
-  const sessionSignature = sessions.map((session) => `${session.id}:${session.status}:${session.selected}`).join("|");
+  const connected = snapshot.stableConnection.phase === "connected";
+  const nodes = sessions.map((session) => sessionRow(session, connected));
+  const sessionSignature = sessions
+    .map((session) => `${session.id}:${session.status}:${session.selected}:${session.id === armedSessionDeletion}`)
+    .join("|");
   elements.sessionList.replaceChildren(...nodes);
   if (sessionSignature !== lastSessionSignature) {
     if (lastSessionSignature) revealListItems(nodes, { distance: 6 });
@@ -1072,6 +1089,69 @@ function renderSessions(snapshot: DesktopStoreSnapshot): void {
   elements.railResources.textContent = `${metrics.activeResources}/${metrics.resources}`;
   elements.railApprovals.textContent = String(metrics.pendingApprovals);
   elements.railApprovals.classList.toggle("attention", metrics.pendingApprovals > 0);
+}
+
+/**
+ * One row of the session rail: the session button plus its delete control.
+ *
+ * The delete control cannot live inside the session button — a button may not
+ * nest another — so the row wraps both and the control is positioned over the
+ * button's trailing edge.
+ */
+function sessionRow(session: SessionListItem, connected: boolean): HTMLElement {
+  const row = element("div", `session-row${session.id === armedSessionDeletion ? " arming" : ""}`);
+  row.append(sessionButton(session.id, session.title, session.status, session.depth, session.selected, session.active));
+  // Child agents belong to their root session and are cancelled, not deleted;
+  // a placeholder row for a session the daemon does not hold has nothing to
+  // delete either.
+  if (session.kind === "main" && session.active) {
+    row.append(sessionDeleteButton(session, connected));
+  }
+  return row;
+}
+
+/**
+ * Deleting a session destroys its transcript, so the first click only arms the
+ * control and the second one confirms. An inline two-step control keeps the
+ * confirmation in the rail, where the row being deleted is still visible.
+ */
+function sessionDeleteButton(session: SessionListItem, connected: boolean): HTMLButtonElement {
+  const armed = session.id === armedSessionDeletion;
+  const button = element("button", `session-delete${armed ? " armed" : ""}`) as HTMLButtonElement;
+  button.type = "button";
+  button.disabled = !connected;
+  button.textContent = armed ? "确认删除" : "✕";
+  const label = session.id === "main" ? "main" : shortId(session.id);
+  button.title = armed ? `确认删除会话 ${label}（包括聊天记录）` : `删除会话 ${label}`;
+  button.setAttribute("aria-label", button.title);
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!armed) {
+      armSessionDeletion(session.id);
+      return;
+    }
+    disarmSessionDeletion();
+    void perform(`删除会话 ${label}`, { action: "session.delete", sessionId: session.id });
+  });
+  return button;
+}
+
+/** Arms one row at a time and disarms it again if the user walks away. */
+function armSessionDeletion(id: string): void {
+  if (armSessionDeletionTimer !== undefined) clearTimeout(armSessionDeletionTimer);
+  armedSessionDeletion = id;
+  armSessionDeletionTimer = window.setTimeout(() => {
+    armedSessionDeletion = undefined;
+    armSessionDeletionTimer = undefined;
+    render();
+  }, SESSION_DELETE_ARM_MS);
+  render();
+}
+
+function disarmSessionDeletion(): void {
+  if (armSessionDeletionTimer !== undefined) clearTimeout(armSessionDeletionTimer);
+  armSessionDeletionTimer = undefined;
+  armedSessionDeletion = undefined;
 }
 
 function sessionButton(id: string, title: string, status: string, depth: number, selected: boolean, active: boolean): HTMLButtonElement {
@@ -1509,11 +1589,19 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
 
 const INDEXING_PHASE_LABEL: Record<string, string> = {
   disabled: "未启用",
+  unconfigured: "缺少目录",
   unavailable: "不可用",
   idle: "空闲",
   scanning: "扫描中",
   indexing: "索引中",
   failed: "失败",
+};
+
+/** Why a switched-on indexer is not making progress, in the panel's own words. */
+const INDEXING_IDLE_REASON: Record<string, string> = {
+  disabled: "未启用本机索引",
+  unconfigured: "已启用，但还没有选择要索引的目录",
+  unavailable: "已启用，但本次发行版没有可用的索引程序",
 };
 
 /**
@@ -1533,8 +1621,9 @@ function renderIndexing(snapshot: DesktopStoreSnapshot): void {
   elements.indexingBarFill.style.width = `${percent}%`;
   elements.indexingBarFill.parentElement?.setAttribute("aria-valuenow", String(percent));
 
-  if (phase === "disabled" || phase === "unavailable") {
-    elements.indexingCounts.textContent = indexing?.message ?? "未启用本机索引";
+  const idleReason = INDEXING_IDLE_REASON[phase];
+  if (idleReason !== undefined) {
+    elements.indexingCounts.textContent = indexing?.message ?? idleReason;
   } else if (total > 0) {
     elements.indexingCounts.textContent =
       `${processed} / ${total} 个文件 · 跳过 ${indexing?.skipped ?? 0} · 失败 ${indexing?.failed ?? 0}`;
@@ -1546,6 +1635,10 @@ function renderIndexing(snapshot: DesktopStoreSnapshot): void {
 
   const directories = indexing?.directories ?? [];
   const notes: string[] = [];
+  // The settings panel is the only place indexing is switched on, so the status
+  // panel repeats that switch rather than letting the phase stand in for it.
+  notes.push(indexing?.enabled ? "设置：已启用" : "设置：未启用");
+  if (phase === "unconfigured") notes.push("在设置 → 本机索引中添加目录后开始索引");
   if (phase === "failed" && indexing?.message) notes.push(indexing.message);
   else if (directories.length > 0) notes.push(`索引目录：${directories.join("、")}`);
   if (phase === "idle" && indexing?.nextRunAt) notes.push(`下次检查 ${clockTime(indexing.nextRunAt)}`);

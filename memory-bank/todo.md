@@ -82,4 +82,8 @@
 | P3 | TUI 没有"载入全文"入口 | Pending | 价值低：TUI 本身按终端宽度截行 | 若要做，可复用 `src/ui/shared/full-message.ts` 与 `session.message`，加一条 `/full N` 命令把原文送进 panel |
 | P2 | 每个非瞬时事件都会渲染 200 条尾窗，非结算事件却会丢掉它 | Pending | 不是回归：代价与会话长度无关，只是常数级白做 | `AgentApplication.#onRuntimeEvent` 无条件调用 `#view()`，reducer 再对非结算事件 `withoutTranscript()`。可在 adapter 里按 branch entry id 缓存已渲染的 `RuntimeMessage`（entry 持久化后不可变），或让 kernel 只在事件真的改动 transcript 时刷新尾窗 |
 | P3 | hello 的 8 MiB 预算在多个大会话间按插入顺序分配 | Pending | 单值预算是防止 hello 超过 64 MiB 逻辑消息上限 | 可改为按会话平分预算，或只给选中会话完整 transcript、其余给摘要 |
+| P1 | 会话删除 | Done | 无 | `session.delete` 命令 + `SessionCatalog.remove()`；GUI 两步内联确认、TUI `/delete [ID]`、CLI `session delete ID`。删除会连同 Pi JSONL 一起清掉，unlink 前对 sessions root 重新解析路径 |
+| P1 | 设置面板已启用的索引在右侧面板显示为未启用 | Done | 无 | 根因是 `IndexService` 把「关掉」「已启用但没选目录」「缺索引程序」都上报成 `disabled`。已拆出 `unconfigured` phase 并给 `IndexingStatus` 加 `enabled` 字段，面板同时展示配置开关与具体原因；保存回执也会说明索引不会运行 |
+| P3 | 删除会话没有撤销入口 | Pending | 破坏性操作已用两步确认兜住 | 若要做，可在删除前把 JSONL 移到 `state/sessions/.trash/<id>-<ts>.jsonl` 并加保留期清理，而不是直接 unlink |
+| P3 | TUI 删除会话没有二次确认 | Pending | TUI 命令本身是显式输入，误触概率低于 GUI 点击 | 若要做，可让 `/delete` 先回显会话标题并要求 `/delete ID confirm` |
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |

@@ -39,7 +39,7 @@ preload 仅暴露：
 - `getPathForFile(file)`：仅调用 Electron `webUtils.getPathForFile` 解析用户从操作系统拖入的 `File`；不接受路径字符串、不读取文件或目录。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
 
-支持根 session create/auto-prompt/queue-send-now/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。所有 session 动作携带 renderer 当前选中的严格 sessionId；resource IPC 只接受单层 staging name，renderer 不能提交任意绝对路径。
+支持根 session create/delete/auto-prompt/queue-send-now/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。所有 session 动作携带 renderer 当前选中的严格 sessionId；resource IPC 只接受单层 staging name，renderer 不能提交任意绝对路径。
 
 ## 内部依赖
 

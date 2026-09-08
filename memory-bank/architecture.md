@@ -117,7 +117,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **bundled skills**：随发行版携带的 skill 目录（`bundled-skills/`，构建时复制到 `dist/bundled-skills/`）。它们**不走** staging 的 inspect/install 信任流程——与运行它们的二进制来自同一个包，信任级别本就相同。守护进程启动时把每个 skill 链接到 `workspace/skills/<name>`，并把该路径一并交给 Pi 的 `additionalSkillPaths`。
 - **链接与版本**：默认建立 symlink，指向发行版内的真实目录，因此 overlay 就地升级后链接自动指向新版本。若 workspace 中已存在：symlink 指向别的安装路径就重新指向；真实目录带 `.pspore-bundled.json` 标记则按 SemVer 比对，只有发行版更新时才替换；没有标记的目录视为用户自己的内容，**永不覆盖**。
 - **asar 边界**：Electron 包里模块位于 `app.asar` 内，其中的条目不是真实文件，无法被 symlink 指向也无法执行。因此 `bundled-skills` 通过 `asarUnpack` 落到 `app.asar.unpacked/`，`bundledSkillsRoots()` 会把路径中的 `.asar/` 改写为 `.asar.unpacked/` 并优先选用。
-- **持续索引**：`config.indexing`（enabled/directories/intervalMinutes/extensions）驱动 `IndexService`，它按间隔调用 bundled skill 里的 `aegis-search index --json`，解析进度并通过 `indexing.status` 领域事件进入 Kernel 权威状态，GUI 检查器"自动化"页只读展示。索引是增量的（CLI 依据 mtime/size 指纹跳过未变化文件），与 Aegis Searcher 桌面版共用同一份索引目录。默认关闭且目录为空——未经用户指定就索引整个 home 目录既慢又越权。
+- **持续索引**：`config.indexing`（enabled/directories/intervalMinutes/extensions）驱动 `IndexService`，它按间隔调用 bundled skill 里的 `aegis-search index --json`，解析进度并通过 `indexing.status` 领域事件进入 Kernel 权威状态，GUI 检查器"自动化"页只读展示。`phase` 把"未启用"、"已启用但没配置目录"（`unconfigured`）与"缺少索引程序"（`unavailable`）分开，并附带 `enabled` 字段直接回放 `config.indexing.enabled`，否则设置面板勾选后状态面板仍报未启用。索引是增量的（CLI 依据 mtime/size 指纹跳过未变化文件），与 Aegis Searcher 桌面版共用同一份索引目录。默认关闭且目录为空——未经用户指定就索引整个 home 目录既慢又越权。
 
 ## 2026-09-07 变更：出站数据量成为协议的一等约束
 

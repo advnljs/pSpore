@@ -90,6 +90,7 @@ p-spore doctor                     # check Node, config, model, shell, ripgrep, 
 p-spore status                     # daemon and session status
 p-spore sessions                   # list persistent root sessions
 p-spore session new "Research"     # create a persistent root session
+p-spore session delete ID          # delete a root session and its transcript
 p-spore prompt --session ID "..."  # send to a selected root session
 p-spore tui                        # reconnecting terminal client
 p-spore prompt "summarize today's notes"

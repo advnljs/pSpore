@@ -73,17 +73,23 @@ export class IndexService {
       this.#emit({ ...initialIndexingStatus(), phase: "disabled", directories: [...this.#options.directories] });
       return;
     }
+    // Every path below is reached with indexing switched on, so `enabled` stays
+    // true and the phase says why a switched-on indexer is not making progress.
+    // Reporting all three as `disabled` made the settings panel and the status
+    // panel contradict each other.
     if (this.#options.directories.length === 0) {
       this.#emit({
         ...initialIndexingStatus(),
-        phase: "disabled",
-        message: "没有配置需要索引的目录",
+        enabled: true,
+        phase: "unconfigured",
+        message: "本机索引已启用，但还没有选择要索引的目录",
       });
       return;
     }
     if (!(await this.#binaryAvailable())) {
       this.#emit({
         ...initialIndexingStatus(),
+        enabled: true,
         phase: "unavailable",
         directories: [...this.#options.directories],
         message: `未找到索引程序: ${this.#options.binaryPath}`,
@@ -93,6 +99,7 @@ export class IndexService {
 
     this.#emit({
       ...initialIndexingStatus(),
+      enabled: true,
       phase: "idle",
       directories: [...this.#options.directories],
     });

@@ -35,6 +35,7 @@ export function decodeDesktopCommand(value) {
             };
         case "abort":
         case "compact":
+        case "session.delete":
             exactKeys(input, ["action", "sessionId"], action);
             return { action, sessionId: identifier(input["sessionId"], `${action}.sessionId`) };
         case "session.create": {
@@ -170,6 +171,8 @@ export function toProtocolInvocation(command, paths) {
             return { type: "session.compact", payload: {}, sessionId: command.sessionId };
         case "session.create":
             return { type: "session.create", payload: command.title === undefined ? {} : { title: command.title } };
+        case "session.delete":
+            return { type: "session.delete", payload: {}, sessionId: command.sessionId };
         case "session.transcript":
             return {
                 type: "session.transcript",

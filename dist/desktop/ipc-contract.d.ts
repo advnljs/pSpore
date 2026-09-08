@@ -84,6 +84,9 @@ export type DesktopCommand = {
     action: "session.create";
     title?: string;
 } | {
+    action: "session.delete";
+    sessionId: string;
+} | {
     action: "session.transcript";
     sessionId: string;
     from?: number;

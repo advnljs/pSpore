@@ -35,6 +35,11 @@ test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
     action: "session.create",
     title: "Research",
   });
+  assert.deepEqual(decodeDesktopCommand({ action: "session.delete", sessionId: "session-1" }), {
+    action: "session.delete",
+    sessionId: "session-1",
+  });
+  assert.throws(() => decodeDesktopCommand({ action: "session.delete" }), /sessionId/);
   assert.deepEqual(decodeDesktopCommand({ action: "queue.send-now", sessionId: "session-1", index: 2 }), {
     action: "queue.send-now",
     sessionId: "session-1",
@@ -169,6 +174,11 @@ test("desktop command mapping fixes session, resource root, and child ceiling", 
   assert.deepEqual(toProtocolInvocation({ action: "queue.send-now", sessionId: "session-1", index: 2 }, paths), {
     type: "session.queue.send-now",
     payload: { index: 2 },
+    sessionId: "session-1",
+  });
+  assert.deepEqual(toProtocolInvocation({ action: "session.delete", sessionId: "session-1" }, paths), {
+    type: "session.delete",
+    payload: {},
     sessionId: "session-1",
   });
   const spawn = toProtocolInvocation({ action: "agent.spawn", objective: "bounded work", parentId: "session-1" }, paths);

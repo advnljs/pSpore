@@ -9,7 +9,11 @@
  * separate module the renderer never imports.
  */
 export type IndexingPhase =
+  /** Switched off in `config.indexing.enabled`. */
   | "disabled"
+  /** Switched on, but no directory has been chosen, so no pass can run. */
+  | "unconfigured"
+  /** Switched on and configured, but the release shipped no indexer binary. */
   | "unavailable"
   | "idle"
   | "scanning"
@@ -18,6 +22,13 @@ export type IndexingPhase =
 
 export interface IndexingStatus {
   version: 1;
+  /**
+   * What `config.indexing.enabled` says, independent of whether a pass can
+   * actually run. Without it a client cannot tell the settings panel's "on"
+   * apart from the several reasons a switched-on indexer stays idle, which is
+   * how a configured indexer came to be reported as unconfigured.
+   */
+  enabled: boolean;
   phase: IndexingPhase;
   directories: readonly string[];
   total: number;
@@ -34,6 +45,7 @@ export interface IndexingStatus {
 export function initialIndexingStatus(): IndexingStatus {
   return {
     version: 1,
+    enabled: false,
     phase: "disabled",
     directories: [],
     total: 0,
