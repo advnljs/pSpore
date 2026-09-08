@@ -11,7 +11,7 @@
 | `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |
 | `docs/adr/0001-runtime-and-pi-baseline.md` | Node 24、Pi/Electron 锁定与 Phase 0 兼容决策 |
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
-| `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择 |
+| `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择。`files` 里的排除规则是发行包体积的唯一控制点：source map、`@napi-rs/canvas`、非 Linux clipboard 原生库、pdfjs 无用部分、gsap 副本 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查；`main` 上额外的 `release` job 在 `package.json` 版本尚无 tag 时自动创建 annotated tag 并派发 Release workflow |
 | `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |

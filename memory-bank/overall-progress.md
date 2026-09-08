@@ -1,5 +1,25 @@
 # Overall Progress
 
+## 2026-09-08 — 发行包瘦身：overlay 72.3 → 38.2 MB
+
+- 阶段目标：用户反馈 overlay 超过 50 MB。定位真实构成并回收其中不该进包的部分。
+- 实测构成（v0.1.21 overlay 共 72.2 MB，压缩后）：`app.asar` 32.4 MB、aegis-search 及其依赖库 20.2 MB、`@napi-rs/canvas` 13.7 MB、clipboard 各平台原生库 5.5 MB。`app.asar` 内部按 gzip 估算：source map 11.3 MB、其余依赖代码 11.3 MB、pdfjs 用不到的部分 2.6 MB、其他厂商 SDK 2.2 MB、pdfjs 必需部分 2.1 MB、gsap 副本 1.1 MB、自有 dist 代码 0.3 MB。
+- 完成内容（全部在 `electron-builder.yml` 的 `files` 排除规则里，不动业务代码）：
+  - **source map**：未压缩 65 MB，其中 64 MB 来自依赖、自有代码只占 1 MB。生产环境没有任何东西读它。
+  - **`@napi-rs/canvas`**：pdfjs 的 optionalDependency，34 MB 预编译 Skia。抽取只调 `getTextContent()`，实测移除后中文 PDF 照常抽出，只多两条 rendering polyfill 警告。
+  - **clipboard 非 Linux 平台原生库**：darwin/win32/riscv64。两个 Linux 架构都保留——arm64 包在独立 runner 上产出，本机验证不了，为省 0.6 MB 冒险不划算。
+  - **pdfjs 用不到的部分**：非 legacy 的重复构建、浏览器查看器、wasm、图像解码器、sandbox、min 版。逐文件试出必需集只有 `legacy/build/pdf.mjs`、`legacy/build/pdf.worker.mjs`（去掉会报 `Setting up fake worker failed`，且必须是非 min 版）、`cmaps/`、`standard_fonts/`。
+  - **gsap**：`motion.ts` 只有 `import type`，编译后擦除；运行时加载的是 `copy-desktop-assets.mjs` vendor 进 dist 的那份。同时把它从 `dependencies` 移到 `devDependencies`，`npm install -g p-spore` 也不再白下 6 MB。
+  - 顺带修掉 Electron smoke 的一个既有竞态：渲染器把审批弹层标成 visible 后，焦点在**下一帧**才移到「拒绝」按钮，而 smoke 等的是前者、断言的是后者。机器负载高时 rAF 迟到就会假失败。改为直接等待被断言的条件本身。
+- 修改文件：`electron-builder.yml`、`package.json` / `package-lock.json`、`src/desktop/main.ts`、`src/version.ts`、`memory-bank/*`、`dist/**`
+- 验证方式与结果：
+  - overlay `72,295,803` → `38,201,393` 字节（**-47%**），比引入 PDF 之前的 52.1 MB 还小 14 MB；全量包 177.6 → 163.7 MB。
+  - 逐项确认排除生效且必需文件仍在：asar 250.1 → 126.1 MB，node_modules 194.9 → 72.0 MB，pdfjs 34.4 → 6.5 MB；`pdf.mjs`/`pdf.worker.mjs`/`cmaps`/`standard_fonts`/两个 Linux clipboard 库/`dist` 内 vendor 版 gsap 全部在位。
+  - **打包后实测**：用打包出的 Electron 运行时从 asar 内抽取，中文 CID 字体 PDF、docx、doc、ppt、GB18030 文本全部正确；打包版 GUI 完整 smoke 通过（connected、1920×1080、双主题、`focusLabel='拒绝'`、IPC 白名单拒绝生效）；`aegis-search` 二进制可执行。
+  - `npm run check`：223 项全通过（本次本机成功拉到 aegis-search 二进制，此前 skip 的 4 条排序用例也真实跑了）；`npm run test:electron` 通过。
+- 当前状态：完成并验证；`dist/` 已同步。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-09-08 — 通用文档正文抽取
 
 - 阶段目标：让 pSpore 能读用户自己的文档（pdf / ppt·pptx / doc·docx / xls·xlsx / 各类文本），补上"总结 .docx"这条一直走不通的路。

@@ -726,6 +726,10 @@ async function runSmoke(
       cursors: { ...base.cursors, "desktop-smoke": 20 },
     });
     await waitForRenderer(target, "document.documentElement.dataset.approval === 'visible'", 5_000);
+    // The overlay is marked visible a frame before focus moves into it, so
+    // waiting on visibility alone races the assertion below on a loaded machine.
+    // Wait for the thing actually being checked instead.
+    await waitForRenderer(target, "document.activeElement?.textContent?.trim() === '拒绝'", 5_000);
     await settlePaint();
     const approvalImage = await target.webContents.capturePage();
     await writeFile(join(outputDirectory, "desktop-approval-1920x1080.png"), approvalImage.toPNG(), { mode: 0o600 });

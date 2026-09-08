@@ -88,6 +88,9 @@
 | P2 | 新 GUI 连旧 daemon 时仍可能被旧快照锁死 | Pending | 实际风险低：overlay 升级同时替换 GUI 与 daemon，且桌面端会重启服务，版本错配只是瞬时的 | 若要彻底消除，可让客户端校验器对 NUL 做净化而不是拒帧；但校验器是渲染器与守护进程之间的信任边界，改成"修正数据"要单独权衡 |
 | P2 | pSpore 没有文档正文抽取能力 | Pending | 用户真正想做的是"总结 .docx"，现在只会得到一句可执行的报错 | `aegis-search` 只给 `snippet`，没有导出单个文件全文的子命令。可考虑给它加一个 extract 子命令，或在 pSpore 侧加一个受限的文档转文本工具 |
 | P1 | 通用文档正文抽取 | Done | 无 | `src/documents/` + `document` 工具 + `doc-extract` 内置 skill，覆盖 docx/xlsx/pptx、doc/xls/ppt、pdf、纯文本（含 GB18030）。打包后从 app.asar 内实测六种格式全通 |
+| P1 | 发行包体积回收 | Done | 无 | `electron-builder.yml` 排除 source map、`@napi-rs/canvas`、非 Linux clipboard 原生库、pdfjs 无用部分与 gsap 副本；gsap 改为 devDependency。overlay 72.3 → 38.2 MB |
+| P2 | aegis-search 的 libicudata.so.60 单文件 26.9 MB | Pending | 上游产物，不在本仓库；打包脚本已做过一轮 prune（59→51 MB） | 压缩后仍占 overlay 的 10.7 MB。要瘦身需在 advnljs/aegis-searcher 侧裁剪 ICU locale 数据集或改链接系统 ICU |
+| P3 | 没有发行包体积的回归护栏 | Pending | 目前靠人工发现 | 可在 `scripts/package-desktop.sh` 里对 overlay 大小加一个上限断言（例如超过 45 MB 就失败），避免下次依赖变更悄悄把包撑大 |
 | P2 | 扫描件 PDF 没有文字层 | Pending | 需要 OCR，本轮不做 | 抽取结果为空时 skill 已要求如实说明是扫描件。若要支持，需引入 OCR 引擎与中文模型，体积和离线可用性都要单独评估 |
 | P3 | 独立 SEA CLI 不支持 PDF | Pending | 影响面小：守护进程实际跑在 Electron 运行时下，npm 全局安装也能解析到 pdfjs | esbuild 静态分析不到动态 import，所以 pdfjs 未打进二进制（也因此没有体积回归）。若要支持，需在 SEA 里附带 pdfjs 及其 cmaps/standard_fonts 数据文件 |
 | P3 | WPS 私有 `.wps`/`.et`/`.dps` 不支持 | Pending | 用户已明确"麻烦就先不支持" | 命中时报错并提示另存为 OOXML。注意 WPS 存的标准格式文件已经能读，因为识别走魔数而非扩展名 |

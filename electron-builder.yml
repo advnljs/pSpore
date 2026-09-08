@@ -5,6 +5,30 @@ directories:
 files:
   - dist/**/*
   - package.json
+  # Everything below is present in node_modules for a build or a platform this
+  # release is not. It reached users because electron-builder copies production
+  # dependencies wholesale, not because anything loads it.
+  #
+  # Source maps: 64 MB of them, all but 1 MB from dependencies. Nothing reads a
+  # source map in a shipped application.
+  - "!**/*.map"
+  # pdf.js's optional renderer — 34 MB of prebuilt Skia. Text extraction never
+  # rasterizes a page, and pdf.js only warns that rendering is unavailable.
+  - "!node_modules/@napi-rs/**/*"
+  # Native clipboard helpers for platforms this Linux build cannot run on. The
+  # two Linux ones are both kept: the arm64 package is produced on its own
+  # runner, and getting this wrong would leave that build without a clipboard.
+  - "!node_modules/@mariozechner/clipboard-{darwin,win32}-*/**/*"
+  - "!node_modules/@mariozechner/clipboard-linux-riscv64-gnu/**/*"
+  # pdf.js ships a browser viewer, a second non-legacy build and wasm image
+  # decoders. What extraction needs is the legacy build, its worker, and the
+  # CMap and font data that make a CJK PDF readable.
+  - "!node_modules/pdfjs-dist/{build,web,wasm,image_decoders,iccs}/**/*"
+  - "!node_modules/pdfjs-dist/legacy/build/pdf.sandbox*"
+  - "!node_modules/pdfjs-dist/legacy/build/*.min.mjs"
+  # GSAP is imported for its types only; the renderer loads the copy that
+  # `scripts/copy-desktop-assets.mjs` vendors into dist at build time.
+  - "!node_modules/gsap/**/*"
 extraMetadata:
   main: dist/desktop/main.js
 asar: true
