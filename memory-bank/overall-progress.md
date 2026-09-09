@@ -29,7 +29,11 @@
   - `npm run check`：typecheck 通过；223 项全通过；build 通过。
   - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。同断点缩放实测 `{beforeWidth:1220, afterWidth:1066, beforeScrollHeight:181884, afterScrollHeight:182054, panelsUnchanged:true}`。
   - workflow 改造由 `test/unit/version.test.ts` 断言覆盖：release 路径不得出现任何 `upload-artifact`/`download-artifact`，必须是"建草稿 → 上传 → 校验 → undraft"，且预览路径仍走制品、永不 `gh release create`。
-- 当前状态：完成并验证；`dist/` 已同步。发布版本号定为 `0.1.25`。
+- 发布与远端复验（`v0.1.25`，Release run `34321497458`）：
+  - Release 非 draft、非 prerelease，**12 项资产**，两架构各 6 项且标签齐全；overlay 为 38.2 MB / 37.9 MB（x64 / arm64），仍在 50 MB 以内。
+  - 下载 `pspore-desktop-0.1.25-linux-x64-overlay.zip` 实测：`sha256sum --check` 通过；`overlay-manifest.json` 为 `appVersion 0.1.25` / `electron 43.3.0` / `x64`；包内 `app.asar` 含 `PSPORE_VERSION = "0.1.25"` 与本轮全部新代码（`scheduleResizeReflow`、`run-activity`、`tools.list`、`session.delete`、`listTime`）。
+  - **本次发布占用的 Actions 制品存储为 0**：仓库现存 10 个制品全部已过期、未过期用量 0 字节，且发布 run 未产生任何制品。草稿路径达成设计目标。
+- 当前状态：完成、已发布、已远端复验；`dist/` 已同步。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 会话列表排序与时间、内置工具可见、运行状态指示
