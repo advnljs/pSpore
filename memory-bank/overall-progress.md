@@ -10,13 +10,17 @@
   - 真因不是"账面滞后"。GitHub Free 私有仓库 Actions 存储额度 500 MB，而 9-08 清理后仍有 844 MB（aegis-searcher 436 + pSpore 408），所以 24 小时后重跑照样被拒。已把两个仓库的未过期制品全部清空（15 个 / 844 MB → 0）。
   - `release.yml`：`validate-release` 先建**草稿** Release；x64 与 ARM64 各自把 6 个资产带标签直传草稿；`publish-release` 从草稿下载、逐个核对 SHA-256 与架构，再 `gh release edit --draft=false` 转正。制品存储占用降为 0，而"两架构都验证通过才对外可见"的性质由草稿保留。
   - `package-arm64.yml`：新增 `release_tag` 输入。有它就传草稿，没有就保持原来的预览件行为（`main` 推送的预览不受影响）。
+- **预览件不再能否决 ARM64 的结论**：`v0.1.23` 首次推送后，CI 停在"Wait for the native ARM64 build"，而 ARM64 run 是在**最后一步** `Upload ARM64 CI packages` 挂的——`Artifact storage quota has been hit`。构建、`npm run check`、Electron smoke 全部已经通过，只是一个给人下载用的便利件传不上去，整个 run 就判失败，于是 tag 打不出来、版发不了。
+  - 这条路径正是上面刻意没动的**预览**路径（`main` 推送，`release_tag == ''`），发布路径已经不碰制品了。
+  - 修法：给该步骤加 `continue-on-error: true`——run 的结论应该由构建和 smoke 决定，不该由一个便利上传决定；同时把预览件保留期从 14 天缩到 2 天（单个约 400 MB，一周攒下来必然再次撞满 500 MB 额度）。
+  - 注意：清理后 API 查到的未过期制品是 **0 字节 / 10 个（均已过期）**，但配额仍在拒绝上传——GitHub 的用量按 6~12 小时重算，账面确实滞后。这次不再依赖它恢复。
   - 资产标签在**上传时**带上：`gh release edit` 无法附加标签，而在 publish 阶段为了加标签重传 800 MB 会把刚省下的流量又还回去。
 - 修改文件：`src/desktop/renderer/renderer.ts`、`src/desktop/main.ts`、`.github/workflows/{release,package-arm64}.yml`、`test/unit/version.test.ts`、`memory-bank/*`、`dist/**`
 - 验证方式与结果：
   - `npm run check`：typecheck 通过；223 项全通过；build 通过。
   - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。同断点缩放实测 `{beforeWidth:1220, afterWidth:1066, beforeScrollHeight:181884, afterScrollHeight:182054, panelsUnchanged:true}`。
   - workflow 改造由 `test/unit/version.test.ts` 断言覆盖：release 路径不得出现任何 `upload-artifact`/`download-artifact`，必须是"建草稿 → 上传 → 校验 → undraft"，且预览路径仍走制品、永不 `gh release create`。
-- 当前状态：完成并验证；`dist/` 已同步。发布本身待 tag 触发。
+- 当前状态：完成并验证；`dist/` 已同步。`v0.1.23` 待 CI 转绿后打 tag 发布（`v0.1.22` 的 tag 存在但从未发出 Release，已被 `0.1.23` 取代）。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 会话列表排序与时间、内置工具可见、运行状态指示

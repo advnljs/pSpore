@@ -65,8 +65,14 @@ test("release publishes a draft only after both architectures verify, without bu
   assert.match(workflow, /gh release upload "\$\{GITHUB_REF_NAME\}"/);
   assert.match(arm, /gh release upload "\$TAG"/);
   assert.match(arm, /if: inputs\.release_tag != ''/);
-  // The preview path still uses an artifact; only the release path changed.
-  assert.match(arm, /if: inputs\.release_tag == ''\n        uses: actions\/upload-artifact/);
+  // The preview path still uses an artifact; only the release path changed. That
+  // upload is non-fatal on purpose: a full artifact store once failed an ARM64
+  // run whose build and smoke had both passed, and that failure blocked the
+  // release waiting on it.
+  assert.match(
+    arm,
+    /if: inputs\.release_tag == ''\n        continue-on-error: true\n        uses: actions\/upload-artifact/,
+  );
 
   assert.match(workflow, /pspore-desktop-\$\{VERSION\}-linux-\$\{ARCH\}-overlay\.zip/);
   assert.match(workflow, /x86_64 - Full desktop package/);

@@ -252,8 +252,13 @@ jobs:
             "pspore-${VERSION}-linux-arm64.sha256#ARM64 / Kylin V10 - CLI SHA-256" \
             --clobber
 
+      # A preview download for whoever wants this commit's ARM64 build. The run's
+      # verdict is the build and the smoke above, not this convenience upload, so
+      # a full artifact store must not fail a build that actually passed — which
+      # is exactly what blocked releasing once the 500 MB quota filled.
       - name: Upload ARM64 CI packages
         if: inputs.release_tag == ''
+        continue-on-error: true
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name || format('pspore-{0}-linux-arm64-glibc-2.31', steps.package.outputs.version) }}
@@ -265,5 +270,5 @@ jobs:
             release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip
             release-dist/pspore-desktop-${{ steps.package.outputs.version }}-linux-arm64-overlay.zip.sha256
           if-no-files-found: error
-          retention-days: ${{ inputs.retention_days || 14 }}
+          retention-days: ${{ inputs.retention_days || 2 }}
           compression-level: 0
