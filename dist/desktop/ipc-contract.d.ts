@@ -141,6 +141,8 @@ export type DesktopCommand = {
 } | {
     action: "mcp.tools";
 } | {
+    action: "tools.list";
+} | {
     action: "mcp.discover";
     serverId: string;
 } | {

@@ -96,6 +96,7 @@ export type DesktopCommand =
   | { action: "agent.cancel"; agentId: string }
   | { action: "mcp.servers" }
   | { action: "mcp.tools" }
+  | { action: "tools.list" }
   | { action: "mcp.discover"; serverId: string }
   | { action: "mcp.ping"; serverId: string }
   | { action: "resources.list" }
@@ -214,6 +215,7 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
         sessionId: identifier(input["sessionId"], "queue.send-now.sessionId"),
         index: nonNegativeInteger(input["index"], "queue.send-now.index", 10_000),
       };
+    case "tools.list":
     case "jobs.list":
     case "runs.list":
     case "notifications.list":
@@ -336,6 +338,7 @@ export function toProtocolInvocation(
         type: "approval.resolve",
         payload: { approvalId: command.approvalId, approved: command.approved, scope: command.scope },
       };
+    case "tools.list":
     case "jobs.list":
     case "runs.list":
     case "notifications.list":

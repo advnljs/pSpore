@@ -65,7 +65,9 @@ export function createDesktopSmokeState(base: KernelState | null, includeApprova
     { role: "user", text: "审阅扩展加载边界，并把证据发回主会话。" },
     { role: "assistant", text: "正在检查 manifest、内容摘要与 capability grant。已验证 staging 内容在信任前不会执行。" },
   ];
-  const main = session("main", "upstream-main", mainMessages, "idle", {
+  // Running, because the fixture drives a tool call and a streaming reply: an
+  // idle session would never show the run activity line the smoke checks.
+  const main = session("main", "upstream-main", mainMessages, "running", {
     input: 18_420,
     output: 3_180,
     cacheRead: 12_900,
@@ -95,7 +97,23 @@ export function createDesktopSmokeState(base: KernelState | null, includeApprova
       instanceId: seed.daemon.instanceId ?? "desktop-smoke-daemon",
       startedAt: seed.daemon.startedAt ?? "2026-08-10T08:00:00.000Z",
     },
-    sessions: { ...seed.sessions, main, [child.sessionId]: child },
+    // Root metadata is what the rail orders by and shows the time from, so the
+    // fixture carries it: two sessions created hours apart, newest last here so
+    // the ordering has to be done rather than inherited from insertion order.
+    sessions: {
+      ...seed.sessions,
+      main: {
+        ...main,
+        rootSession: { title: "发布前检查", createdAt: "2026-08-10T06:12:00.000Z", updatedAt: NOW },
+      },
+      "session-later": {
+        ...session("session-later", "upstream-later", [{ role: "user", text: "刚开的会话" }], "idle", {
+          input: 12, output: 8, cacheRead: 0, cacheWrite: 0, total: 20, costUsd: 0,
+        }),
+        rootSession: { title: "索引配置复核", createdAt: "2026-08-10T08:25:00.000Z", updatedAt: NOW },
+      },
+      [child.sessionId]: child,
+    },
     approvals: includeApproval
       ? {
           "approval-desktop-smoke": {

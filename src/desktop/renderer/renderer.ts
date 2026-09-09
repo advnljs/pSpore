@@ -12,6 +12,7 @@ import {
   formatBytes,
   formatTokens,
   kernelMetrics,
+  listTime,
   presentSessions,
   selectedAgent as findSelectedAgent,
   shortId,
@@ -65,6 +66,8 @@ let initialized = false;
 let versions: DesktopVersions | undefined;
 let jobs: JobDefinition[] = [];
 let resources: ResourceCatalogEntry[] = [];
+/** The fixed tools this build ships, as reported by the daemon. */
+let builtinTools: { name: string; label?: string; description?: string }[] = [];
 let inspection: StagedResourceInspection | undefined;
 let activeApprovalId: string | undefined;
 let renderSequence = 0;
@@ -88,6 +91,16 @@ let composerFileReferences: ComposerFileReference[] = [];
 
 /** How long a delete control stays armed before it reverts on its own. */
 const SESSION_DELETE_ARM_MS = 5_000;
+
+/**
+ * The run phase currently on screen and when it began.
+ *
+ * Elapsed time is measured here rather than taken from the daemon because what
+ * the reader is asking is "how long has this been showing me nothing", which is
+ * a question about their own screen.
+ */
+let activityPhase: { key: string; since: number } | undefined;
+let activityTicker: number | undefined;
 
 interface TranscriptRenderState {
   sessionId: string;
@@ -161,6 +174,10 @@ const elements = {
   sessionCount: byId<HTMLElement>("session-count"),
   newSession: byId<HTMLButtonElement>("new-session-button"),
   sessionList: byId<HTMLElement>("session-list"),
+  runActivity: byId<HTMLElement>("run-activity"),
+  runActivityMark: byId<HTMLElement>("run-activity-mark"),
+  runActivityLabel: byId<HTMLElement>("run-activity-label"),
+  runActivityElapsed: byId<HTMLElement>("run-activity-elapsed"),
   indexingPanel: byId<HTMLElement>("indexing-panel"),
   indexingPhase: byId<HTMLElement>("indexing-phase"),
   indexingBarFill: byId<HTMLElement>("indexing-bar-fill"),
@@ -314,7 +331,10 @@ function bindStaticActions(): void {
     selectInspectorTab("resources");
     setPanelState("inspector", true);
   });
-  window.addEventListener("resize", () => syncResponsivePanels(false));
+  window.addEventListener("resize", () => {
+    syncResponsivePanels(false);
+    scheduleResizeReflow();
+  });
   elements.themeToggle.addEventListener("click", () => {
     const theme: Theme = document.documentElement.dataset["theme"] === "light" ? "dark" : "light";
     applyTheme(theme);
@@ -522,6 +542,38 @@ function renderComposerFileReferences(): void {
   elements.composerReferences.hidden = nodes.length === 0;
   if (added) popChips(nodes);
 }
+
+/**
+ * Re-lays the transcript out after the window changed size.
+ *
+ * The transcript is a variable-height virtual list, and every height in its index
+ * was measured at the previous width. A resize invalidates all of them at once:
+ * messages rewrap, so the spacers keep reserving space for a layout that no
+ * longer exists and the conversation stops tracking the window. Nothing else
+ * re-rendered on resize either — `syncResponsivePanels` returns early while the
+ * breakpoint is unchanged, so dragging a window within one band redrew nothing.
+ *
+ * Debounced because a drag emits a resize per frame, and re-measuring the whole
+ * transcript on each one would fight the drag.
+ */
+let resizeReflowTimer: number | undefined;
+function scheduleResizeReflow(): void {
+  if (resizeReflowTimer !== undefined) window.clearTimeout(resizeReflowTimer);
+  resizeReflowTimer = window.setTimeout(() => {
+    resizeReflowTimer = undefined;
+    // Dropping the index rather than re-measuring what is on screen: the items
+    // outside the viewport rewrapped too, and their stale heights are what put
+    // the scroll extent wrong. `messageSource` is cleared with it because the
+    // render only re-syncs the index when the messages themselves changed, and a
+    // fresh index that is never synced holds no items at all.
+    transcriptState.heights = new VirtualHeightIndex(180);
+    transcriptState.messageSource = undefined;
+    render();
+  }, RESIZE_REFLOW_MS);
+}
+
+/** Long enough that a drag settles first, short enough to feel immediate. */
+const RESIZE_REFLOW_MS = 120;
 
 function syncResponsivePanels(force: boolean): void {
   // Only a full desktop viewport has room for all three columns; narrower windows keep the conversation dominant.
@@ -913,7 +965,12 @@ async function refreshSideData(): Promise<void> {
     window.pspore.dispatch({ action: "resources.list" }),
     window.pspore.dispatch({ action: "agents.list" }),
     window.pspore.dispatch({ action: "mcp.servers" }),
+    window.pspore.dispatch({ action: "tools.list" }),
   ]);
+  const toolResult = results[4];
+  if (toolResult?.status === "fulfilled" && Array.isArray(toolResult.value)) {
+    builtinTools = toolResult.value.filter(isBuiltinTool);
+  }
   const jobResult = results[0];
   const resourceResult = results[1];
   if (jobResult?.status === "fulfilled" && Array.isArray(jobResult.value)) {
@@ -933,6 +990,7 @@ function render(): void {
   renderSessions(snapshot);
   renderConversation(snapshot);
   renderActivities(snapshot.activities);
+  renderRunActivity(snapshot);
   renderIndexing(snapshot);
   renderJobs(snapshot);
   renderIntegrations(snapshot);
@@ -1100,7 +1158,15 @@ function renderSessions(snapshot: DesktopStoreSnapshot): void {
  */
 function sessionRow(session: SessionListItem, connected: boolean): HTMLElement {
   const row = element("div", `session-row${session.id === armedSessionDeletion ? " arming" : ""}`);
-  row.append(sessionButton(session.id, session.title, session.status, session.depth, session.selected, session.active));
+  row.append(sessionButton(
+    session.id,
+    session.title,
+    session.status,
+    session.depth,
+    session.selected,
+    session.active,
+    session.createdAt,
+  ));
   // Child agents belong to their root session and are cancelled, not deleted;
   // a placeholder row for a session the daemon does not hold has nothing to
   // delete either.
@@ -1154,7 +1220,15 @@ function disarmSessionDeletion(): void {
   armedSessionDeletion = undefined;
 }
 
-function sessionButton(id: string, title: string, status: string, depth: number, selected: boolean, active: boolean): HTMLButtonElement {
+function sessionButton(
+  id: string,
+  title: string,
+  status: string,
+  depth: number,
+  selected: boolean,
+  active: boolean,
+  createdAt?: string,
+): HTMLButtonElement {
   const button = element("button", `session-item ${status}${selected ? " selected" : ""}`) as HTMLButtonElement;
   button.type = "button";
   button.disabled = !active;
@@ -1167,6 +1241,14 @@ function sessionButton(id: string, title: string, status: string, depth: number,
   const small = element("small");
   small.textContent = title;
   copy.append(strong, small);
+  // The creation time sits beside the id, which is what the list is ordered by,
+  // so the ordering is legible instead of something the reader has to infer.
+  if (createdAt !== undefined) {
+    const when = element("time", "session-time");
+    when.textContent = listTime(createdAt);
+    when.setAttribute("datetime", createdAt);
+    strong.append(when);
+  }
   const statusMark = element("span", "session-status-mark");
   statusMark.textContent = status;
   button.append(element("i", "node-dot"), copy, statusMark);
@@ -1587,6 +1669,92 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
   }
 }
 
+/**
+ * What the agent is doing right now, so a run that produces no text for a while
+ * is visibly working rather than indistinguishable from a hang.
+ *
+ * The phases are separated because they fail differently: a tool that never
+ * returns is a stuck command, a model that never answers is a stalled request,
+ * and an unanswered approval is waiting on the reader. Each gets its own mark
+ * and its own elapsed clock.
+ */
+function renderRunActivity(snapshot: DesktopStoreSnapshot): void {
+  const phase = currentRunPhase(snapshot);
+  if (!phase) {
+    activityPhase = undefined;
+    stopActivityTicker();
+    elements.runActivity.hidden = true;
+    return;
+  }
+  if (activityPhase?.key !== phase.key) activityPhase = { key: phase.key, since: Date.now() };
+  elements.runActivity.hidden = false;
+  elements.runActivity.dataset["phase"] = phase.kind;
+  elements.runActivityMark.dataset["phase"] = phase.kind;
+  elements.runActivityLabel.textContent = phase.label;
+  const seconds = Math.floor((Date.now() - (activityPhase?.since ?? Date.now())) / 1000);
+  // Silence for a second or two is normal; a count that only appears after that
+  // keeps the line calm while still answering "how long" when it matters.
+  elements.runActivityElapsed.textContent = seconds >= 2 ? `已 ${formatElapsed(seconds)}` : "";
+  startActivityTicker();
+}
+
+interface RunPhase {
+  /** Identity of the phase; a change restarts the elapsed clock. */
+  key: string;
+  kind: "approval" | "tool" | "streaming" | "thinking" | "waiting";
+  label: string;
+}
+
+function currentRunPhase(snapshot: DesktopStoreSnapshot): RunPhase | undefined {
+  const sessionId = snapshot.selectedSessionId;
+  // An approval blocks the run until the reader acts, so it outranks everything
+  // else: nothing will move until it is answered.
+  const approval = Object.values(snapshot.kernel.approvals)
+    .find((request) => request.sessionId === sessionId);
+  if (approval) {
+    return { key: `approval:${approval.id}`, kind: "approval", label: `等待你批准 ${approval.capability}` };
+  }
+
+  const session = snapshot.kernel.sessions[sessionId];
+  const child = selectedAgent(snapshot);
+  const running = (session?.status ?? child?.status) === "running";
+  if (!running) return undefined;
+
+  const tool = snapshot.activities
+    .filter((activity) => activity.status === "running" && (activity.sessionId ?? sessionId) === sessionId)
+    .at(-1);
+  if (tool) return { key: `tool:${tool.id}`, kind: "tool", label: `执行 ${tool.toolName ?? tool.label}` };
+
+  if (snapshot.streamingText[sessionId]) return { key: `stream:${sessionId}`, kind: "streaming", label: "生成回复中" };
+  if (snapshot.streamingThinking[sessionId]) return { key: `think:${sessionId}`, kind: "thinking", label: "思考中" };
+  return { key: `wait:${sessionId}`, kind: "waiting", label: "等待模型响应" };
+}
+
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) return `${seconds} 秒`;
+  const minutes = Math.floor(seconds / 60);
+  return seconds % 60 === 0 ? `${minutes} 分` : `${minutes} 分 ${seconds % 60} 秒`;
+}
+
+/** The elapsed count has to advance without new frames, so it drives itself. */
+function startActivityTicker(): void {
+  if (activityTicker !== undefined) return;
+  activityTicker = window.setInterval(() => {
+    if (elements.runActivity.hidden || !activityPhase) {
+      stopActivityTicker();
+      return;
+    }
+    const seconds = Math.floor((Date.now() - activityPhase.since) / 1000);
+    elements.runActivityElapsed.textContent = seconds >= 2 ? `已 ${formatElapsed(seconds)}` : "";
+  }, 1_000);
+}
+
+function stopActivityTicker(): void {
+  if (activityTicker === undefined) return;
+  window.clearInterval(activityTicker);
+  activityTicker = undefined;
+}
+
 const INDEXING_PHASE_LABEL: Record<string, string> = {
   disabled: "未启用",
   unconfigured: "缺少目录",
@@ -1675,9 +1843,29 @@ function renderJobs(snapshot: DesktopStoreSnapshot): void {
   elements.runList.replaceChildren(...(runNodes.length ? runNodes : [emptyList("暂无运行记录")]));
 }
 
+function isBuiltinTool(value: unknown): value is { name: string; label?: string; description?: string } {
+  return typeof value === "object" && value !== null && typeof (value as { name?: unknown }).name === "string";
+}
+
 function renderIntegrations(snapshot: DesktopStoreSnapshot): void {
   const connected = snapshot.stableConnection.phase === "connected";
   const nodes: HTMLElement[] = [];
+  // The fixed tools come first: they are what the agent can always do, and
+  // without them the panel only ever answered "what has been added".
+  if (builtinTools.length > 0) {
+    const tools = element("div", "tool-chips");
+    tools.setAttribute("role", "list");
+    for (const tool of builtinTools) {
+      const chip = element("span", "tool-chip");
+      chip.setAttribute("role", "listitem");
+      chip.textContent = tool.name;
+      if (tool.description) chip.title = `${tool.label ?? tool.name} — ${tool.description}`;
+      tools.append(chip);
+    }
+    const item = denseItem(`内置工具 · ${builtinTools.length}`, "每个会话都具备", "ready");
+    item.append(tools);
+    nodes.push(item);
+  }
   for (const health of Object.values(snapshot.kernel.mcpServers)) {
     const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
     const actions = element("div", "item-actions");
@@ -1749,15 +1937,18 @@ function renderApproval(snapshot: DesktopStoreSnapshot): void {
   elements.approvalReasons.textContent = request.riskReasons.join("；") || "策略要求确认";
   elements.approvalCommand.hidden = !request.display.command;
   elements.approvalCommand.textContent = request.display.command ?? "";
-  const actions: HTMLButtonElement[] = [];
-  const denialScope = request.allowedScopes[0] ?? "once";
-  actions.push(approvalButton("拒绝", "danger-ghost-button", request, false, denialScope));
-  for (const scope of request.allowedScopes) {
-    const label = scope === "once" ? "仅此一次" : scope === "session" ? "本会话允许" : "此任务允许";
-    actions.push(approvalButton(label, scope === "once" ? "primary-button" : "secondary-button", request, true, scope));
-  }
-  elements.approvalActions.replaceChildren(...actions);
+  // The buttons are rebuilt only for a different request. Replacing them on every
+  // render destroys whichever one holds focus, which silently moved focus back to
+  // the document whenever anything else re-rendered while the modal was open.
   if (activeApprovalId !== request.id) {
+    const actions: HTMLButtonElement[] = [];
+    const denialScope = request.allowedScopes[0] ?? "once";
+    actions.push(approvalButton("拒绝", "danger-ghost-button", request, false, denialScope));
+    for (const scope of request.allowedScopes) {
+      const label = scope === "once" ? "仅此一次" : scope === "session" ? "本会话允许" : "此任务允许";
+      actions.push(approvalButton(label, scope === "once" ? "primary-button" : "secondary-button", request, true, scope));
+    }
+    elements.approvalActions.replaceChildren(...actions);
     activeApprovalId = request.id;
     if (firstPaint) showOverlayMotion(elements.approvalOverlay, elements.approvalDialog);
     requestAnimationFrame(() => actions[0]?.focus());

@@ -81,6 +81,7 @@ export function decodeDesktopCommand(value) {
                 sessionId: identifier(input["sessionId"], "queue.send-now.sessionId"),
                 index: nonNegativeInteger(input["index"], "queue.send-now.index", 10_000),
             };
+        case "tools.list":
         case "jobs.list":
         case "runs.list":
         case "notifications.list":
@@ -200,6 +201,7 @@ export function toProtocolInvocation(command, paths) {
                 type: "approval.resolve",
                 payload: { approvalId: command.approvalId, approved: command.approved, scope: command.scope },
             };
+        case "tools.list":
         case "jobs.list":
         case "runs.list":
         case "notifications.list":

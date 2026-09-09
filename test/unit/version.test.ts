@@ -40,7 +40,10 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(workflow, /npm run test:electron/);
   assert.match(workflow, /scripts\/package-desktop\.sh "\$VERSION" arm64/);
   assert.match(workflow, /actions\/upload-artifact@v\d+/);
-  assert.doesNotMatch(workflow, /gh release (?:create|upload)/);
+  // A preview build must never touch a release. It may upload assets, but only
+  // when the release workflow hands it a tag, and it never creates one itself.
+  assert.doesNotMatch(workflow, /gh release create/);
+  assert.match(workflow, /if: inputs\.release_tag != ''\n(?:.*\n)*?.*gh release upload/);
   assert.match(smokeHarness, /PSPORE_ELECTRON_NO_SANDBOX/);
   assert.match(smokeHarness, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS/);
   assert.match(smokeHarness, /"--no-sandbox"/);
@@ -48,16 +51,32 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   assert.match(smokeHarness, /external output:/);
 });
 
-test("release waits for verified x64 and ARM64 artifacts before publishing", async () => {
+test("release publishes a draft only after both architectures verify, without build artifacts", async () => {
   const workflow = await readFile(new URL("../../.github/workflows/release.yml", import.meta.url), "utf8");
+  const arm = await readFile(new URL("../../.github/workflows/package-arm64.yml", import.meta.url), "utf8");
 
   assert.match(workflow, /uses: \.\/\.github\/workflows\/package-arm64\.yml/);
   assert.match(workflow, /expected_version: \$\{\{ needs\.validate-release\.outputs\.version \}\}/);
-  assert.match(workflow, /name: release-assets-arm64/);
-  assert.match(workflow, /actions\/download-artifact@v8/);
+  // Assets go straight onto a draft. Actions storage is a metered 500 MB, and
+  // routing a release of this size through it filled the quota and then failed
+  // every later release until the artifacts were purged by hand.
+  assert.doesNotMatch(workflow, /upload-artifact|download-artifact|release-assets-/);
+  assert.match(workflow, /gh release create "\$\{GITHUB_REF_NAME\}" --draft/);
+  assert.match(workflow, /gh release upload "\$\{GITHUB_REF_NAME\}"/);
+  assert.match(arm, /gh release upload "\$TAG"/);
+  assert.match(arm, /if: inputs\.release_tag != ''/);
+  // The preview path still uses an artifact; only the release path changed.
+  assert.match(arm, /if: inputs\.release_tag == ''\n        uses: actions\/upload-artifact/);
+
   assert.match(workflow, /pspore-desktop-\$\{VERSION\}-linux-\$\{ARCH\}-overlay\.zip/);
-  assert.match(workflow, /#\$\{CATEGORY\} - Full desktop package/);
+  assert.match(workflow, /x86_64 - Full desktop package/);
+  // Each architecture labels its own assets at upload time, because `gh release
+  // edit` cannot attach labels and re-uploading 800 MB just to add them would
+  // put the traffic back that this change removed.
+  assert.match(arm, /ARM64 \/ Kylin V10 - Full desktop package/);
   assert.match(workflow, /### ARM64 \/ Kylin V10/);
   assert.match(workflow, /### x86_64/);
-  assert.match(workflow, /needs:[\s\S]*package-x64[\s\S]*package-arm64[\s\S]*gh release create/);
+  // Nothing is visible until every checksum has been checked against the bytes
+  // that will publish, which is what undrafting then makes public.
+  assert.match(workflow, /needs:[\s\S]*package-x64[\s\S]*package-arm64[\s\S]*sha256sum --check[\s\S]*gh release edit "\$TAG"[\s\S]*--draft=false/);
 });

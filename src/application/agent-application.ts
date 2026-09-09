@@ -27,6 +27,13 @@ import { MAX_PUBLISHED_STRING_CHARS } from "../protocol/limits.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
 import type { RootSessionRecord, SessionCatalog } from "../sessions/session-catalog.js";
 
+/** What a client is told about one fixed tool. */
+export interface BuiltinToolSummary {
+  name: string;
+  label?: string;
+  description?: string;
+}
+
 export interface AgentApplicationOptions {
   runtime: AgentRuntimePort;
   kernel: KernelLoop;
@@ -35,6 +42,12 @@ export interface AgentApplicationOptions {
   sessionCatalog: SessionCatalog;
   sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
   modelConfigured: boolean;
+  /**
+   * The fixed tools every session is given. Supplied as a list rather than read
+   * off a session, because a client asks what this build can do before it has
+   * created one.
+   */
+  builtinTools: readonly { name: string; label?: string; description?: string }[];
   onShutdownRequested?: () => void;
   clock?: () => Date;
   idFactory?: () => string;
@@ -129,6 +142,7 @@ export class AgentApplication implements AgentSessionHost {
   readonly #sessionCatalog: SessionCatalog;
   readonly #sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
   readonly #modelConfigured: boolean;
+  readonly #builtinTools: readonly BuiltinToolSummary[];
   readonly #onShutdownRequested: (() => void) | undefined;
   readonly #clock: () => Date;
   readonly #idFactory: () => string;
@@ -150,6 +164,11 @@ export class AgentApplication implements AgentSessionHost {
     this.#sessionCatalog = options.sessionCatalog;
     this.#sessionTemplate = options.sessionTemplate;
     this.#modelConfigured = options.modelConfigured;
+    this.#builtinTools = options.builtinTools.map((tool) => ({
+      name: tool.name,
+      ...(tool.label === undefined ? {} : { label: tool.label }),
+      ...(tool.description === undefined ? {} : { description: tool.description }),
+    }));
     this.#onShutdownRequested = options.onShutdownRequested;
     this.#clock = options.clock ?? (() => new Date());
     this.#idFactory = options.idFactory ?? randomUUID;
@@ -328,6 +347,11 @@ export class AgentApplication implements AgentSessionHost {
       case "mcp.servers":
         exactPayload(command.payload, [], command.type);
         return this.#requireMcp().listServers();
+      case "tools.list":
+        exactPayload(command.payload, [], command.type);
+        // Fixed tools, not MCP ones: these are what this build ships with, and
+        // they exist whether or not any server has been discovered.
+        return this.#builtinTools.map((tool) => ({ ...tool }));
       case "mcp.tools":
         exactPayload(command.payload, [], command.type);
         return this.#requireMcp().listTools();

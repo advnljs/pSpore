@@ -13,6 +13,14 @@ on:
         required: false
         type: string
         default: ""
+      release_tag:
+        description: >-
+          Upload the packages onto this release's assets instead of into a build
+          artifact. Set by the release workflow; a preview build leaves it empty
+          and keeps using an artifact.
+        required: false
+        type: string
+        default: ""
       retention_days:
         description: Number of days to retain the uploaded packages
         required: false
@@ -37,7 +45,7 @@ on:
       - "tsconfig.build.json"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: package-linux-arm64-${{ github.ref }}
@@ -224,7 +232,28 @@ jobs:
             sha256sum --check "pspore-desktop-${VERSION}-linux-arm64-overlay.zip.sha256"
           )
 
+      - name: Upload ARM64 assets to the draft release
+        if: inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.package.outputs.version }}
+          TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          cd release-dist
+          # Straight onto the draft: Actions storage is a metered 500 MB, and a
+          # release of this size used to fill it and block every later release.
+          gh release upload "$TAG" \
+            "pspore-desktop-${VERSION}-linux-arm64.zip#ARM64 / Kylin V10 - Full desktop package" \
+            "pspore-desktop-${VERSION}-linux-arm64.zip.sha256#ARM64 / Kylin V10 - Full desktop SHA-256" \
+            "pspore-desktop-${VERSION}-linux-arm64-overlay.zip#ARM64 / Kylin V10 - Overlay upgrade" \
+            "pspore-desktop-${VERSION}-linux-arm64-overlay.zip.sha256#ARM64 / Kylin V10 - Overlay SHA-256" \
+            "pspore-${VERSION}-linux-arm64#ARM64 / Kylin V10 - Standalone CLI" \
+            "pspore-${VERSION}-linux-arm64.sha256#ARM64 / Kylin V10 - CLI SHA-256" \
+            --clobber
+
       - name: Upload ARM64 CI packages
+        if: inputs.release_tag == ''
         uses: actions/upload-artifact@v7
         with:
           name: ${{ inputs.artifact_name || format('pspore-{0}-linux-arm64-glibc-2.31', steps.package.outputs.version) }}

@@ -10,6 +10,8 @@ export interface SessionListItem {
   selected: boolean;
   active: boolean;
   kind: "main" | "agent";
+  /** When the session was created, for display and ordering; absent for a placeholder. */
+  createdAt?: string;
 }
 
 export interface KernelMetrics {
@@ -32,12 +34,18 @@ export type ConversationIntent =
 export function presentSessions(kernel: KernelState, selectedSessionId: string): SessionListItem[] {
   const agents = Object.values(kernel.agents).sort((left, right) => left.createdAt.localeCompare(right.createdAt));
   const agentSessionIds = new Set(agents.map((agent) => agent.sessionId));
+  // Newest first: the rail is where you go back to what you were just doing, and
+  // a list that grows downward buries it. `main` is not pinned to the top for the
+  // same reason — it is the oldest session in any home that has others.
   const roots: Array<[string, KernelState["sessions"][string] | undefined]> = Object.entries(kernel.sessions)
     .filter(([id, session]) => session.rootSession || (!agentSessionIds.has(id) && !id.startsWith("agent:") && !id.startsWith("run:")))
     .sort(([leftId, left], [rightId, right]) => {
-      if (leftId === "main") return -1;
-      if (rightId === "main") return 1;
-      return (left.rootSession?.createdAt ?? "").localeCompare(right.rootSession?.createdAt ?? "") || leftId.localeCompare(rightId);
+      // A session with no catalog record has no creation time; it sorts last
+      // rather than jumping to the top of a descending order.
+      const leftAt = left?.rootSession?.createdAt ?? "";
+      const rightAt = right?.rootSession?.createdAt ?? "";
+      if (leftAt !== rightAt) return leftAt === "" ? 1 : rightAt === "" ? -1 : rightAt.localeCompare(leftAt);
+      return leftId.localeCompare(rightId);
     });
   if (roots.length === 0) roots.push(["main", undefined]);
 
@@ -53,6 +61,7 @@ export function presentSessions(kernel: KernelState, selectedSessionId: string):
       selected: selectedSessionId === id,
       active: Boolean(session) || selectedSessionId === id,
       kind: "main",
+      ...(session?.rootSession?.createdAt === undefined ? {} : { createdAt: session.rootSession.createdAt }),
     });
     for (const agent of agents.filter((candidate) => candidate.rootId === id)) {
       result.push(agentListItem(agent, kernel, selectedSessionId));
@@ -150,6 +159,22 @@ export function formatBytes(value: number): string {
   if (value >= 1_048_576) return `${(value / 1_048_576).toFixed(1)} MB`;
   if (value >= 1_024) return `${(value / 1_024).toFixed(1)} KB`;
   return `${value} B`;
+}
+
+/**
+ * A timestamp for a list row, where the column is narrow and the reader mostly
+ * wants to know "how recent". Today shows the time, this year the date, and
+ * anything older the year as well, so no two rows are ambiguous.
+ */
+export function listTime(value: string, now: Date = new Date()): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return "";
+  const sameDay = date.getFullYear() === now.getFullYear()
+    && date.getMonth() === now.getMonth()
+    && date.getDate() === now.getDate();
+  if (sameDay) return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const day = `${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+  return date.getFullYear() === now.getFullYear() ? day : `${date.getFullYear()}-${day}`;
 }
 
 export function clockTime(value: string): string {

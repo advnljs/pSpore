@@ -9,6 +9,12 @@ import type { ApprovalService } from "../policy/approval-service.js";
 import type { ResourceCatalogEntry, ResourceKind, StagedResourceInspection } from "../plugins/types.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
 import type { SessionCatalog } from "../sessions/session-catalog.js";
+/** What a client is told about one fixed tool. */
+export interface BuiltinToolSummary {
+    name: string;
+    label?: string;
+    description?: string;
+}
 export interface AgentApplicationOptions {
     runtime: AgentRuntimePort;
     kernel: KernelLoop;
@@ -17,6 +23,16 @@ export interface AgentApplicationOptions {
     sessionCatalog: SessionCatalog;
     sessionTemplate: Omit<AgentSessionSpec, "sessionId">;
     modelConfigured: boolean;
+    /**
+     * The fixed tools every session is given. Supplied as a list rather than read
+     * off a session, because a client asks what this build can do before it has
+     * created one.
+     */
+    builtinTools: readonly {
+        name: string;
+        label?: string;
+        description?: string;
+    }[];
     onShutdownRequested?: () => void;
     clock?: () => Date;
     idFactory?: () => string;

@@ -41,6 +41,7 @@ export class AgentApplication {
     #sessionCatalog;
     #sessionTemplate;
     #modelConfigured;
+    #builtinTools;
     #onShutdownRequested;
     #clock;
     #idFactory;
@@ -61,6 +62,11 @@ export class AgentApplication {
         this.#sessionCatalog = options.sessionCatalog;
         this.#sessionTemplate = options.sessionTemplate;
         this.#modelConfigured = options.modelConfigured;
+        this.#builtinTools = options.builtinTools.map((tool) => ({
+            name: tool.name,
+            ...(tool.label === undefined ? {} : { label: tool.label }),
+            ...(tool.description === undefined ? {} : { description: tool.description }),
+        }));
         this.#onShutdownRequested = options.onShutdownRequested;
         this.#clock = options.clock ?? (() => new Date());
         this.#idFactory = options.idFactory ?? randomUUID;
@@ -236,6 +242,11 @@ export class AgentApplication {
             case "mcp.servers":
                 exactPayload(command.payload, [], command.type);
                 return this.#requireMcp().listServers();
+            case "tools.list":
+                exactPayload(command.payload, [], command.type);
+                // Fixed tools, not MCP ones: these are what this build ships with, and
+                // they exist whether or not any server has been discovered.
+                return this.#builtinTools.map((tool) => ({ ...tool }));
             case "mcp.tools":
                 exactPayload(command.payload, [], command.type);
                 return this.#requireMcp().listTools();

@@ -9,6 +9,8 @@ export interface SessionListItem {
     selected: boolean;
     active: boolean;
     kind: "main" | "agent";
+    /** When the session was created, for display and ordering; absent for a placeholder. */
+    createdAt?: string;
 }
 export interface KernelMetrics {
     sessions: number;
@@ -42,5 +44,11 @@ export declare function terminalAgentStatus(value: string): boolean;
 export declare function shortId(value: string): string;
 export declare function formatTokens(value: number): string;
 export declare function formatBytes(value: number): string;
+/**
+ * A timestamp for a list row, where the column is narrow and the reader mostly
+ * wants to know "how recent". Today shows the time, this year the date, and
+ * anything older the year as well, so no two rows are ambiguous.
+ */
+export declare function listTime(value: string, now?: Date): string;
 export declare function clockTime(value: string): string;
 //# sourceMappingURL=presentation.d.ts.map

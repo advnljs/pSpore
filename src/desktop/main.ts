@@ -82,6 +82,10 @@ interface SmokeReport {
     followUpQueueVisible: boolean;
   };
   sessionRail: {
+    /** Root rows in render order, so the newest-first ordering is checked. */
+    rootOrder: string[];
+    /** Times rendered beside each root row. */
+    times: string[];
     totalRows: number;
     rootRows: number;
     /** Delete controls: one per root row, and none on a child agent row. */
@@ -95,11 +99,35 @@ interface SmokeReport {
     /** Still armed when the evidence screenshot was taken. */
     armedAtCapture: boolean;
   };
+  runActivity: {
+    /** Phase shown while a tool is running and no text is streaming. */
+    toolPhase: string;
+    toolLabel: string;
+    /** Phase once text starts arriving, so the two are distinguishable. */
+    streamingPhase: string;
+    /** Absent while nothing is running, so an idle session shows no clutter. */
+    hiddenWhenIdle: boolean;
+  };
+  integrations: {
+    /** Fixed tool names rendered in the integrations tab. */
+    builtinTools: string[];
+    /** Installed skills shown alongside them. */
+    skills: string[];
+  };
   indexingPanel: {
     phase: string;
     phaseLabel: string;
     counts: string;
     note: string;
+  };
+  /** A resize inside one breakpoint must still reflow the conversation. */
+  inBandResize: {
+    beforeWidth: number;
+    afterWidth: number;
+    beforeScrollHeight: number;
+    afterScrollHeight: number;
+    /** Panels must not move: this is the case the breakpoints never covered. */
+    panelsUnchanged: boolean;
   };
   responsive: {
     medium: ResponsiveLayoutProbe;
@@ -453,16 +481,38 @@ async function runSmoke(
     reconnectVerified = true;
   }
 
+  const runActivity: SmokeReport["runActivity"] = {
+    toolPhase: "unmeasured",
+    toolLabel: "",
+    streamingPhase: "unmeasured",
+    hiddenWhenIdle: false,
+  };
+  let fixtureState: ReturnType<typeof createDesktopSmokeState> | undefined;
   let directQueueVisibleBeforeToolCompletion = false;
+  // Nothing is running yet, so the activity line must be absent. Checked here
+  // rather than by faking a settle later: the real daemon's session is idle.
+  runActivity.hiddenWhenIdle = await target.webContents.executeJavaScript(
+    "document.querySelector('#run-activity')?.hidden === true",
+  );
   if (fixture) {
     const base = daemonBridge.bootstrap();
     const cursors = { ...base.cursors, "desktop-smoke": 10 };
-    sendFrame(target, { version: 1, kind: "snapshot", snapshot: createDesktopSmokeState(base.snapshot, false), cursors });
-    sendFrame(target, smokeEvent(11, "tool.started", { sessionId: "main", toolName: "shell", command: "npm run check" }));
+    fixtureState = createDesktopSmokeState(base.snapshot, false);
+    sendFrame(target, { version: 1, kind: "snapshot", snapshot: fixtureState, cursors });
+    sendFrame(target, smokeEvent(11, "tool.started", { sessionId: "main", toolCallId: "smoke-tool-1", toolName: "shell", command: "npm run check" }));
     await waitForRenderer(target, "Boolean(document.querySelector('#message-queue [data-queue-mode=direct]'))", 5_000);
     directQueueVisibleBeforeToolCompletion = true;
+    // A tool is running and nothing is streaming yet: the state that used to
+    // leave the conversation looking dead.
+    runActivity.toolPhase = await target.webContents.executeJavaScript(
+      "document.querySelector('#run-activity')?.dataset.phase ?? 'hidden'",
+    );
+    runActivity.toolLabel = await target.webContents.executeJavaScript(
+      "document.querySelector('#run-activity-label')?.textContent ?? ''",
+    );
     sendFrame(target, smokeEvent(12, "tool.completed", {
       sessionId: "main",
+      toolCallId: "smoke-tool-1",
       toolName: "shell",
       status: "succeeded",
       output: Array.from({ length: 80 }, (_, index) => `verification line ${index + 1}: pass`).join("\n"),
@@ -492,7 +542,12 @@ async function runSmoke(
   }
 
   await waitForRenderer(target, "Number(document.documentElement.dataset.renderSequence || '0') > 0", 5_000);
-  if (fixture) await waitForRenderer(target, "Boolean(document.querySelector('.message.streaming'))", 5_000);
+  if (fixture) {
+    await waitForRenderer(target, "Boolean(document.querySelector('.message.streaming'))", 5_000);
+    runActivity.streamingPhase = await target.webContents.executeJavaScript(
+      "document.querySelector('#run-activity')?.dataset.phase ?? 'hidden'",
+    );
+  }
   await setRendererTheme(target, "dark");
   let fileDrop: SmokeReport["fileDrop"];
   let fileDropSize: { width: number; height: number } | undefined;
@@ -537,6 +592,8 @@ async function runSmoke(
     const first = rootRows[0]?.querySelector('.session-delete');
     const hiddenUntilHover = Boolean(first) && Number(getComputedStyle(first).opacity) === 0;
     const probe = {
+      rootOrder: rootRows.map((row) => row.querySelector('.session-item strong')?.firstChild?.textContent?.trim() ?? ''),
+      times: rootRows.map((row) => row.querySelector('.session-time')?.textContent ?? ''),
       totalRows: rows.length,
       rootRows: rootRows.length,
       deleteControls: rootRows.filter((row) => row.querySelector('.session-delete')).length,
@@ -552,6 +609,15 @@ async function runSmoke(
       armedAfterFirstClick: Boolean(document.querySelector('#session-list .session-row.arming')),
       rowsAfterFirstClick: document.querySelectorAll('#session-list .session-row').length,
       armedAtCapture: false
+    };
+  })()`);
+  // Read the panel without activating its tab: clicking one moves focus, and the
+  // approval modal's focus is asserted later from wherever it was left.
+  const integrations: SmokeReport["integrations"] = await target.webContents.executeJavaScript(`(() => {
+    const rows = Array.from(document.querySelectorAll('#integration-list > *'));
+    return {
+      builtinTools: Array.from(document.querySelectorAll('#integration-list .tool-chip')).map((chip) => chip.textContent ?? ''),
+      skills: rows.map((row) => row.textContent ?? '').filter((text) => text.includes('Skill ·')).map((text) => text.trim().slice(0, 40))
     };
   })()`);
   const indexingPanel: SmokeReport["indexingPanel"] = await target.webContents.executeJavaScript(`(() => ({
@@ -571,6 +637,39 @@ async function runSmoke(
   sessionRail.armedAtCapture = await target.webContents.executeJavaScript(
     "Boolean(document.querySelector('#session-list .session-row.arming'))",
   );
+  // Narrow the window without crossing a breakpoint. Nothing used to re-render
+  // here, so the transcript kept the heights it measured at the old width.
+  const beforeResize: { width: number; scrollHeight: number; panels: string } = await target.webContents.executeJavaScript(`(() => ({
+    width: document.querySelector('#transcript')?.clientWidth ?? 0,
+    scrollHeight: document.querySelector('#transcript')?.scrollHeight ?? 0,
+    panels: \`\${document.documentElement.dataset.navigation}/\${document.documentElement.dataset.inspector}\`
+  }))()`);
+  target.setContentSize(1_700, 1_080);
+  await settlePaint();
+  await waitForRenderer(target, `(document.querySelector('#transcript')?.scrollHeight ?? 0) !== ${beforeResize.scrollHeight}`, 5_000)
+    .catch(() => undefined);
+  const afterResize: { width: number; scrollHeight: number; panels: string } = await target.webContents.executeJavaScript(`(() => ({
+    width: document.querySelector('#transcript')?.clientWidth ?? 0,
+    scrollHeight: document.querySelector('#transcript')?.scrollHeight ?? 0,
+    panels: \`\${document.documentElement.dataset.navigation}/\${document.documentElement.dataset.inspector}\`
+  }))()`);
+  const inBandResize: SmokeReport["inBandResize"] = {
+    beforeWidth: beforeResize.width,
+    afterWidth: afterResize.width,
+    beforeScrollHeight: beforeResize.scrollHeight,
+    afterScrollHeight: afterResize.scrollHeight,
+    panelsUnchanged: beforeResize.panels === afterResize.panels,
+  };
+  target.setContentSize(1_920, 1_080);
+  // The reflow is debounced, so it must be allowed to land before anything else
+  // touches the transcript; otherwise it resets the scroll mid-assertion.
+  await waitForRenderer(
+    target,
+    `(document.querySelector('#transcript')?.scrollHeight ?? 0) === ${beforeResize.scrollHeight}`,
+    5_000,
+  ).catch(() => undefined);
+  await settlePaint();
+
   const mainImage = await target.webContents.capturePage();
   await writeFile(join(outputDirectory, "desktop-main-dark-1920x1080.png"), mainImage.toPNG(), { mode: 0o600 });
   if (fixture) {
@@ -799,6 +898,9 @@ async function runSmoke(
     themes: { dark: darkTheme, light: lightTheme },
     typography,
     mainVisual,
+    inBandResize,
+    integrations,
+    runActivity,
     sessionRail,
     indexingPanel,
     responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
@@ -926,7 +1028,42 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     }
     if (!report.mainVisual.directQueueVisibleBeforeToolCompletion) failures.push("direct-send queue was hidden until tool completion");
     if (!report.mainVisual.followUpQueueVisible) failures.push("follow-up queue is not visible alongside direct-send messages");
+    // A run that produces no text still has to look alive, and the tool phase has
+    // to be distinguishable from the streaming one.
+    if (report.runActivity.toolPhase !== "tool") {
+      failures.push(`run activity did not show the tool phase: ${report.runActivity.toolPhase}`);
+    }
+    if (!report.runActivity.toolLabel.includes("shell")) {
+      failures.push(`run activity did not name the running tool: ${report.runActivity.toolLabel}`);
+    }
+    if (report.runActivity.streamingPhase === report.runActivity.toolPhase) {
+      failures.push("run activity does not distinguish streaming from a running tool");
+    }
+    if (!report.runActivity.hiddenWhenIdle) failures.push("run activity was visible while nothing was running");
+    // The panel has to answer "what can this agent do", not only "what was added".
+    for (const expected of ["read", "document", "edit", "search", "shell"]) {
+      if (!report.integrations.builtinTools.includes(expected)) {
+        failures.push(`integrations tab is missing the ${expected} tool`);
+      }
+    }
+    if (report.integrations.skills.length === 0) failures.push("integrations tab lists no installed skill");
+    // Panels stay put inside a band; the transcript still has to re-lay out.
+    if (!report.inBandResize.panelsUnchanged) failures.push("in-band resize crossed a breakpoint, so it tests nothing");
+    if (report.inBandResize.afterWidth >= report.inBandResize.beforeWidth) {
+      failures.push(`in-band resize did not narrow the conversation: ${report.inBandResize.beforeWidth} -> ${report.inBandResize.afterWidth}`);
+    }
+    if (report.inBandResize.afterScrollHeight === report.inBandResize.beforeScrollHeight) {
+      failures.push("transcript kept its old measurements after the window was resized");
+    }
     if (report.sessionRail.rootRows < 1) failures.push("session rail rendered no root session row");
+    // Newest first: the fixture's later session was created after main, so it
+    // leads even though main is inserted first and used to be pinned there.
+    if (report.sessionRail.rootOrder.join(",") !== "session-later,main") {
+      failures.push(`session rail is not newest-first: ${report.sessionRail.rootOrder.join(", ")}`);
+    }
+    if (report.sessionRail.times.some((time) => time === "")) {
+      failures.push("a root session row rendered without its time");
+    }
     if (report.sessionRail.deleteControls !== report.sessionRail.rootRows) {
       failures.push("not every root session row offers a delete control");
     }

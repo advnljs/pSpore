@@ -13,7 +13,7 @@
 | `package.json` / `package-lock.json` | npm 工程、精确依赖、构建与验证命令 |
 | `electron-builder.yml` | Linux Electron unpacked dir 通用打包配置；具体 `x64|arm64` 由原生架构脚本参数选择。`files` 里的排除规则是发行包体积的唯一控制点：source map、`@napi-rs/canvas`、非 Linux clipboard 原生库、pdfjs 无用部分、gsap 副本 |
 | `.github/workflows/ci.yml` | PR/`main` 上的 typecheck、测试、build 与 `dist/` 同步检查；`main` 上额外的 `release` job 在 `package.json` 版本尚无 tag 时自动创建 annotated tag 并派发 Release workflow |
-| `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，编排原生 x64/ARM64 producer，校验 12 项资产并按架构添加 display label 后创建不可变 GitHub Release |
+| `.github/workflows/release.yml` | 从 origin 验证 annotated `v*` tag，先建**草稿** Release，x64/ARM64 各自带标签直传资产（不经过 Actions 制品存储——额度只有 500 MB，曾被撑满后阻塞所有发布），publish job 从草稿下载校验 12 项资产的 SHA-256 与架构后 `--draft=false` 转正 |
 | `.github/workflows/package-arm64.yml` | 可独立/复用的原生 ARM64 + Ubuntu 20.04/glibc 2.31 构建链；运行 PC smoke，向 `main` 上传预览 artifact 或向 Release 提供 ARM 资产 |
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `bundled-skills/` | 随发行版携带的 skills；启动时由守护进程链接进 `workspace/skills/<name>`，见 `src/plugins/bundled-skills.ts` |

@@ -1,5 +1,49 @@
 # Overall Progress
 
+## 2026-09-09 — 窗口缩放不重排、发布不再经过制品存储
+
+- 阶段目标：修掉"缩放窗口时内容不跟着变"，并根治发布被 GitHub Actions 制品配额卡死的问题。
+- **窗口缩放不重排（根因）**：转录区是变高虚拟列表，`transcriptState.heights` 里每一条高度都是按**当时的宽度**测出来的。而 resize 只调 `syncResponsivePanels`，它在断点未变时直接 early-return——**同一断点内拖动窗口，转录区既不重新测量也不重绘**，间隔条继续按旧布局撑着，内容看起来就不跟着窗口走。
+  - 修法：resize 后防抖 120ms，丢弃高度索引并重绘。同时清 `messageSource`——渲染只在消息变化时才 `heights.sync()`，一个从未 sync 的新索引里一条目都没有，`totalSize()` 归零会把转录区直接打空（实测 scrollHeight 181884 → 546，改对后为 182054）。
+  - 新增验收：在**同一断点内**缩放（1920→1700，面板不动），断言宽度确实变小、`panelsUnchanged`、且 `scrollHeight` 发生变化。这正是原有 smoke 完全没覆盖的情况——它只测跨断点的缩小。
+- **发布改为直传 Release（根治配额）**：
+  - 真因不是"账面滞后"。GitHub Free 私有仓库 Actions 存储额度 500 MB，而 9-08 清理后仍有 844 MB（aegis-searcher 436 + pSpore 408），所以 24 小时后重跑照样被拒。已把两个仓库的未过期制品全部清空（15 个 / 844 MB → 0）。
+  - `release.yml`：`validate-release` 先建**草稿** Release；x64 与 ARM64 各自把 6 个资产带标签直传草稿；`publish-release` 从草稿下载、逐个核对 SHA-256 与架构，再 `gh release edit --draft=false` 转正。制品存储占用降为 0，而"两架构都验证通过才对外可见"的性质由草稿保留。
+  - `package-arm64.yml`：新增 `release_tag` 输入。有它就传草稿，没有就保持原来的预览件行为（`main` 推送的预览不受影响）。
+  - 资产标签在**上传时**带上：`gh release edit` 无法附加标签，而在 publish 阶段为了加标签重传 800 MB 会把刚省下的流量又还回去。
+- 修改文件：`src/desktop/renderer/renderer.ts`、`src/desktop/main.ts`、`.github/workflows/{release,package-arm64}.yml`、`test/unit/version.test.ts`、`memory-bank/*`、`dist/**`
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过；223 项全通过；build 通过。
+  - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。同断点缩放实测 `{beforeWidth:1220, afterWidth:1066, beforeScrollHeight:181884, afterScrollHeight:182054, panelsUnchanged:true}`。
+  - workflow 改造由 `test/unit/version.test.ts` 断言覆盖：release 路径不得出现任何 `upload-artifact`/`download-artifact`，必须是"建草稿 → 上传 → 校验 → undraft"，且预览路径仍走制品、永不 `gh release create`。
+- 当前状态：完成并验证；`dist/` 已同步。发布本身待 tag 触发。
+- 遗留问题：见 `todo.md`。
+
+## 2026-09-08 — 会话列表排序与时间、内置工具可见、运行状态指示
+
+- 阶段目标：用户提的五点——新会话排到上面、展示会话时间、队列消息"卡住"、集成页展示已安装 skills 与内置 tools、用不同 loading 区分卡住与等待工具。
+- 完成内容：
+  - **会话按创建时间倒序**：`presentSessions` 不再把 `main` 钉在顶部——在任何有多个会话的 home 里它都是最老的那个，钉顶等于让新建会话永远沉在下面。没有 catalog 记录（因而没有创建时间）的会话排在最后，而不是因为空字符串跳到倒序首位。
+  - **会话行显示时间**：新增 `listTime()`，按"离现在多远"选择精度——今天 `14:32`、今年 `08-10`、更早 `2025-08-10`，narrow 列里不会两行歧义。
+  - **内置工具进集成页**：新增 `tools.list` 命令。工具列表取自守护进程交给运行时的**同一份数组**（`daemon.ts` 的 `tools`），不另抄一份，避免展示与实际能力漂移。渲染为 chips（15 个短标识符，逐行排会把面板撑成一列近空行）。
+  - **运行状态指示器**：转录区下方新增一行，四种状态各自的标记与动画——等待批准（琥珀脉冲，**不动就永远不动**）、执行 `<工具名>`（横向滑动条，活儿在屏幕外）、生成回复中（稳定闪烁）、等待模型响应（旋转 spinner）。超过 2 秒才显示"已 N 秒/N 分"。`prefers-reduced-motion` 下停用动画。
+- **关于"队列消息卡住"的结论：不是队列 bug**。用 `deepseek-v4-flash` 真机实测——运行中 3.0s 插入、5.0s 第一轮结束即被排空、5.8s 答完；10 轮不同时序的竞态测试 0/10 滞留。查证 Pi：agent-loop 在回合结束会排空 follow-up 队列，队列消息真正开始时会发 `queue_update` 清掉界面显示，两条链路都通。曾怀疑自动压缩窗口（它挂在 `prompt()` 的 `.then()` 里、在 loop 排空之后），但 Pi 的 `compact()` 不置 `_isAgentRunActive`，那期间 `isStreaming` 为 false、消息走正常 prompt，假设不成立。用户补充"消息 pop 出来了但界面没动静"后定死了根因：`hasStreaming = Boolean(streaming || thinking)`，**没有文字就什么都不画**——等首 token 和整个工具执行期间转录区一片空白，看起来像死了。运行状态指示器即为其修复。
+- **顺带修掉的既有缺陷**：`renderApproval` 每次渲染都 `replaceChildren` 重建按钮，销毁掉持有焦点的那个，而重新聚焦只在请求 id 变化时才做——审批弹层开着时任何别处的重绘都会把焦点悄悄丢回 document。改为只在请求变化时重建。这解释了此前被当作"时序竞态"的 smoke 偶发失败。
+- 修改文件：
+  - `src/ui/shared/presentation.ts`（排序、`listTime`、`SessionListItem.createdAt`）
+  - `src/application/agent-application.ts`、`src/daemon/daemon.ts`（`tools.list` 与 `builtinTools`）
+  - `src/desktop/ipc-contract.ts`（`tools.list` 进白名单与映射）
+  - `src/desktop/renderer/{renderer.ts,index.html,styles.css}`
+  - `src/desktop/main.ts`、`src/desktop/smoke-fixture.ts`（新增断言与 fixture 修正）
+  - `dist/**`（构建产物同步）
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过；223 项全部通过 / 0 失败 / 0 skipped；build 通过。
+  - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。新增断言实测值——会话栏 `rootOrder=["session-later","main"]`、`times=["08-10","08-10"]`；运行状态 `toolPhase="tool"`、`toolLabel="执行 shell"`、`streamingPhase="streaming"`、`hiddenWhenIdle=true`；集成页列出全部 15 个内置工具与已安装 skill。人工复核截图确认指示器在转录区下方显示「生成回复中」、顶栏同步 RUNNING。
+  - 真实模型端到端：临时 home 配 `deepseek/deepseek-v4-flash`（经 CLI `config set` + `config key` 正规路径，手改 config.json 不会生成 `state/pi/models.json`，会导致 preflight 失败）。
+- 顺带修正的 smoke fixture 失真：工具事件缺 `toolCallId`，导致 started/completed 用 `event.id` 回落成不同 id、活动永远显示 running；主会话状态写死 `idle` 却同时在流式输出。
+- 当前状态：完成并验证；`dist/` 已同步。
+- 遗留问题：见 `todo.md`。
+
 ## 2026-09-08 — 发行包瘦身：overlay 72.3 → 38.2 MB
 
 - 阶段目标：用户反馈 overlay 超过 50 MB。定位真实构成并回收其中不该进包的部分。

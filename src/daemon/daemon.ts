@@ -291,6 +291,13 @@ export class PsporeDaemon {
         notifications,
         sessionCatalog,
         modelConfigured: config.model !== null,
+        // The same list the runtime is given, so what a client shows is what a
+        // session actually has rather than a copy that can drift.
+        builtinTools: tools.map((tool) => ({
+          name: tool.name,
+          ...(tool.label === undefined ? {} : { label: tool.label }),
+          ...(tool.description === undefined ? {} : { description: tool.description }),
+        })),
         sessionTemplate: {
           workspaceId: currentWorkspaceId,
           cwd: paths.workspace,
