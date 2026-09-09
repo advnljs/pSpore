@@ -19,13 +19,17 @@
   - 直接症状：新步骤第一行 `set -euo pipefail`，dash 不支持 `-o pipefail`。
   - 顺带查出的老问题：打包步骤里的 `if [[ -n "$EXPECTED_VERSION" && ... ]]` 在 dash 里是 `[[: not found`，返回非零 → `if` 判假 → 整个版本一致性校验**从写下那天起就没生效过**，而且 `set -e` 对 `if` 条件不生效，所以一直静默。
   - 修法：给该 job 加 `defaults: run: shell: bash`（容器里确有 bash——打包步骤本来就用 `bash scripts/package-desktop.sh` 跑通过）。`test/unit/version.test.ts` 增加断言锁住这一条。
-- **为什么改成 `0.1.24` 而不是重跑 `v0.1.23`**：本地 reusable workflow 按**调用方的 ref** 解析，`v0.1.23` 指向的提交里还是坏的那份 `package-arm64.yml`，重跑必然重蹈覆辙。移动或删除已推送的 tag 属于破坏性操作，所以直接进位。`v0.1.23` 留下一个含 6 个 x64 资产的**草稿** Release（未发布、对外不可见），与 `v0.1.22` 一样是废弃 tag。
+- **容器里没有 `gh`**：改成 bash 之后 `v0.1.24` 又在同一步挂了，但这次报的是真错误——`gh: command not found`，exit 127。`gh` 是 **runner 宿主机**预装的；x64 job 直接跑在 runner 上所以能用，ARM64 跑在容器里就没有。
+  - 修法：release 路径（`release_tag != ''`）在上传前装一份**版本钉死**的 `gh 2.100.0`（`linux_arm64` tarball，静态链接的 aarch64 ELF，与容器 glibc 2.31 无关；URL、包内路径 `gh_.../bin/gh`、架构均已本地实测核对）。预览路径不受影响，不多这一次下载。
+  - 同时给 `gh release upload` 加 `--repo "$GITHUB_REPOSITORY"`：checkout 出来的工作区属于 `pspore-builder`，而这一步以 root 运行，让 gh 走 git 去解析仓库有 dubious-ownership 的风险，直接指定就绕开整类问题。
+  - apt 安装列表加 `curl`（此前该 job 不需要它）。
+- **每修一次为什么就进一个补丁号**：本地 reusable workflow 按**调用方的 ref** 解析，`v0.1.23` / `v0.1.24` 指向的提交里都是当时那份坏的 `package-arm64.yml`，重跑必然重蹈覆辙；而移动或删除已推送的 tag 属于破坏性操作。所以 `0.1.23 → 0.1.24 → 0.1.25` 各对应一次修复。`v0.1.22`、`v0.1.23`、`v0.1.24` 都留下了废弃 tag，其中后两个各带一个含 6 个 x64 资产的**草稿** Release（未发布、对外不可见）。
 - 修改文件：`src/desktop/renderer/renderer.ts`、`src/desktop/main.ts`、`.github/workflows/{release,package-arm64}.yml`、`test/unit/version.test.ts`、`memory-bank/*`、`dist/**`
 - 验证方式与结果：
   - `npm run check`：typecheck 通过；223 项全通过；build 通过。
   - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。同断点缩放实测 `{beforeWidth:1220, afterWidth:1066, beforeScrollHeight:181884, afterScrollHeight:182054, panelsUnchanged:true}`。
   - workflow 改造由 `test/unit/version.test.ts` 断言覆盖：release 路径不得出现任何 `upload-artifact`/`download-artifact`，必须是"建草稿 → 上传 → 校验 → undraft"，且预览路径仍走制品、永不 `gh release create`。
-- 当前状态：完成并验证；`dist/` 已同步。发布版本号定为 `0.1.24`（`v0.1.22`、`v0.1.23` 两个 tag 均未发出 Release，已被取代）。
+- 当前状态：完成并验证；`dist/` 已同步。发布版本号定为 `0.1.25`。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 会话列表排序与时间、内置工具可见、运行状态指示

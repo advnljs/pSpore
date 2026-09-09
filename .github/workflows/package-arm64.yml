@@ -77,6 +77,7 @@ jobs:
             binutils \
             build-essential \
             ca-certificates \
+            curl \
             dbus-x11 \
             file \
             fonts-liberation \
@@ -239,6 +240,23 @@ jobs:
             sha256sum --check "pspore-desktop-${VERSION}-linux-arm64-overlay.zip.sha256"
           )
 
+      # `gh` is preinstalled on the runner, not inside the container this job
+      # builds in, so the release upload below found no such command. Pinned
+      # rather than tracking latest: a release must not change because an
+      # upstream tool moved.
+      - name: Install the GitHub CLI inside the container
+        if: inputs.release_tag != ''
+        env:
+          GH_CLI_VERSION: 2.100.0
+        run: |
+          TARBALL="gh_${GH_CLI_VERSION}_linux_arm64.tar.gz"
+          curl -fsSL --retry 3 \
+            "https://github.com/cli/cli/releases/download/v${GH_CLI_VERSION}/${TARBALL}" \
+            -o "/tmp/${TARBALL}"
+          tar -xzf "/tmp/${TARBALL}" -C /tmp
+          install -m 0755 "/tmp/gh_${GH_CLI_VERSION}_linux_arm64/bin/gh" /usr/local/bin/gh
+          gh --version
+
       - name: Upload ARM64 assets to the draft release
         if: inputs.release_tag != ''
         env:
@@ -250,7 +268,9 @@ jobs:
           cd release-dist
           # Straight onto the draft: Actions storage is a metered 500 MB, and a
           # release of this size used to fill it and block every later release.
-          gh release upload "$TAG" \
+          # `--repo` keeps gh from resolving the repository through git, whose
+          # ownership of this checkout differs from the user running this step.
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" \
             "pspore-desktop-${VERSION}-linux-arm64.zip#ARM64 / Kylin V10 - Full desktop package" \
             "pspore-desktop-${VERSION}-linux-arm64.zip.sha256#ARM64 / Kylin V10 - Full desktop SHA-256" \
             "pspore-desktop-${VERSION}-linux-arm64-overlay.zip#ARM64 / Kylin V10 - Overlay upgrade" \

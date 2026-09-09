@@ -48,6 +48,14 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
   // when the release workflow hands it a tag, and it never creates one itself.
   assert.doesNotMatch(workflow, /gh release create/);
   assert.match(workflow, /if: inputs\.release_tag != ''\n(?:.*\n)*?.*gh release upload/);
+  // The runner's `gh` is not on the container's PATH, so the upload has to
+  // bring its own, at a pinned version — a release must not change because an
+  // upstream tool moved.
+  assert.match(workflow, /GH_CLI_VERSION: \d+\.\d+\.\d+/);
+  assert.ok(
+    workflow.indexOf("install -m 0755") < workflow.indexOf("gh release upload"),
+    "the GitHub CLI must be installed before the step that uses it",
+  );
   assert.match(smokeHarness, /PSPORE_ELECTRON_NO_SANDBOX/);
   assert.match(smokeHarness, /PSPORE_ELECTRON_SMOKE_TIMEOUT_MS/);
   assert.match(smokeHarness, /"--no-sandbox"/);
