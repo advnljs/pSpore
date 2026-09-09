@@ -62,6 +62,13 @@ jobs:
       CI: "true"
       DEBIAN_FRONTEND: noninteractive
       CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    # Every other job in this repository runs straight on a runner and gets bash.
+    # This one runs in a container, where the runner falls back to `sh` (dash) —
+    # so `set -o pipefail` aborted the release upload, and the `[[ ]]` version
+    # guard below had been quietly failing open since the day it was written.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Install glibc 2.31 build and desktop runtime dependencies
         run: |

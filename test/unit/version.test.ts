@@ -31,6 +31,10 @@ test("ARM packaging runs natively against a glibc 2.31 baseline without touching
 
   assert.match(workflow, /runs-on: ubuntu-24\.04-arm/);
   assert.match(workflow, /image: ubuntu:20\.04/);
+  // In a container the runner picks `sh`, not bash. Both the version guard and
+  // the release upload in this job are written in bash, and under dash one
+  // failed open while the other aborted the release.
+  assert.match(workflow, /defaults:\n      run:\n        shell: bash/);
   assert.match(workflow, /getconf GNU_LIBC_VERSION\)" = "glibc 2\.31"/);
   assert.match(workflow, /node node_modules\/electron\/install\.js/);
   assert.match(workflow, /PSPORE_ELECTRON_NO_SANDBOX=1/);

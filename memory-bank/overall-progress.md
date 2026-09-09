@@ -15,12 +15,17 @@
   - 修法：给该步骤加 `continue-on-error: true`——run 的结论应该由构建和 smoke 决定，不该由一个便利上传决定；同时把预览件保留期从 14 天缩到 2 天（单个约 400 MB，一周攒下来必然再次撞满 500 MB 额度）。
   - 注意：清理后 API 查到的未过期制品是 **0 字节 / 10 个（均已过期）**，但配额仍在拒绝上传——GitHub 的用量按 6~12 小时重算，账面确实滞后。这次不再依赖它恢复。
   - 资产标签在**上传时**带上：`gh release edit` 无法附加标签，而在 publish 阶段为了加标签重传 800 MB 会把刚省下的流量又还回去。
+- **ARM64 job 一直在 dash 里跑 bash 脚本（长期潜伏）**：`v0.1.23` 的 Release run 里 x64 的 6 个资产已经进了草稿，ARM64 在 `Upload ARM64 assets to the draft release` 挂掉，`exit 2`。原因是该 job 跑在 `ubuntu:20.04` **容器**里，runner 给的默认 shell 是 `sh -e {0}`（dash），不是 bash——本仓库其他 job 都直接跑在 runner 上，所以只有它踩到。
+  - 直接症状：新步骤第一行 `set -euo pipefail`，dash 不支持 `-o pipefail`。
+  - 顺带查出的老问题：打包步骤里的 `if [[ -n "$EXPECTED_VERSION" && ... ]]` 在 dash 里是 `[[: not found`，返回非零 → `if` 判假 → 整个版本一致性校验**从写下那天起就没生效过**，而且 `set -e` 对 `if` 条件不生效，所以一直静默。
+  - 修法：给该 job 加 `defaults: run: shell: bash`（容器里确有 bash——打包步骤本来就用 `bash scripts/package-desktop.sh` 跑通过）。`test/unit/version.test.ts` 增加断言锁住这一条。
+- **为什么改成 `0.1.24` 而不是重跑 `v0.1.23`**：本地 reusable workflow 按**调用方的 ref** 解析，`v0.1.23` 指向的提交里还是坏的那份 `package-arm64.yml`，重跑必然重蹈覆辙。移动或删除已推送的 tag 属于破坏性操作，所以直接进位。`v0.1.23` 留下一个含 6 个 x64 资产的**草稿** Release（未发布、对外不可见），与 `v0.1.22` 一样是废弃 tag。
 - 修改文件：`src/desktop/renderer/renderer.ts`、`src/desktop/main.ts`、`.github/workflows/{release,package-arm64}.yml`、`test/unit/version.test.ts`、`memory-bank/*`、`dist/**`
 - 验证方式与结果：
   - `npm run check`：typecheck 通过；223 项全通过；build 通过。
   - `npm run test:electron`（Xvfb，**主基准 1920×1080**）：通过。同断点缩放实测 `{beforeWidth:1220, afterWidth:1066, beforeScrollHeight:181884, afterScrollHeight:182054, panelsUnchanged:true}`。
   - workflow 改造由 `test/unit/version.test.ts` 断言覆盖：release 路径不得出现任何 `upload-artifact`/`download-artifact`，必须是"建草稿 → 上传 → 校验 → undraft"，且预览路径仍走制品、永不 `gh release create`。
-- 当前状态：完成并验证；`dist/` 已同步。`v0.1.23` 待 CI 转绿后打 tag 发布（`v0.1.22` 的 tag 存在但从未发出 Release，已被 `0.1.23` 取代）。
+- 当前状态：完成并验证；`dist/` 已同步。发布版本号定为 `0.1.24`（`v0.1.22`、`v0.1.23` 两个 tag 均未发出 Release，已被取代）。
 - 遗留问题：见 `todo.md`。
 
 ## 2026-09-08 — 会话列表排序与时间、内置工具可见、运行状态指示
