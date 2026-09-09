@@ -33,6 +33,7 @@
   - Release 非 draft、非 prerelease，**12 项资产**，两架构各 6 项且标签齐全；overlay 为 38.2 MB / 37.9 MB（x64 / arm64），仍在 50 MB 以内。
   - 下载 `pspore-desktop-0.1.25-linux-x64-overlay.zip` 实测：`sha256sum --check` 通过；`overlay-manifest.json` 为 `appVersion 0.1.25` / `electron 43.3.0` / `x64`；包内 `app.asar` 含 `PSPORE_VERSION = "0.1.25"` 与本轮全部新代码（`scheduleResizeReflow`、`run-activity`、`tools.list`、`session.delete`、`listTime`）。
   - **本次发布占用的 Actions 制品存储为 0**：仓库现存 10 个制品全部已过期、未过期用量 0 字节，且发布 run 未产生任何制品。草稿路径达成设计目标。
+- 收尾清理：删除废弃 tag `v0.1.22`/`v0.1.23`/`v0.1.24`（三者指向的提交均已在 `main` 上，删 tag 不丢历史，已逐个 `merge-base --is-ancestor` 核对）与 `v0.1.23`/`v0.1.24` 两个草稿 Release（只含被 `0.1.25` 取代的 x64 资产）。远端现只剩 `v0.1.25` 及历史正式版本。
 - 当前状态：完成、已发布、已远端复验；`dist/` 已同步。
 - 遗留问题：见 `todo.md`。
 
