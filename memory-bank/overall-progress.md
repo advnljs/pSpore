@@ -1,5 +1,28 @@
 # Overall Progress
 
+## 2026-09-14 — 用户本地 skills 进入会话（`0.1.26`）
+
+- 阶段目标：用户问"查看你的skills"时 agent 只列出内置的 `aegis-search`、`doc-extract`，看不到用户早已放进 `~/.pspore/workspace/skills/ccb-mail/` 的邮件技能套件，只能靠 shell 翻目录"发现"。修好并发布新版。
+- 根因（两层）：
+  1. `ExtensionManager.skillPaths()` 只返回 staging 信任安装的 skill 与 bundled 链接，而 adapter 以 `noSkills: true` 关闭了 Pi 自带目录发现——用户直接放进 `workspace/skills/` 的目录**从未**交给 Pi。
+  2. 即使交给 Pi，Pi 的加载器遇到 frontmatter 不是合法 YAML（中文描述里未加引号的 `: `，实测 `description: 发送邮件: 支持附件` 即触发）或缺 `description` 时会**静默丢弃**，只留一条无人看到的 diagnostic。
+- 完成内容：
+  - 新增 `src/plugins/workspace-skills.ts`：按 Pi 的发现规则扫描（含 `SKILL.md` 的目录即 skill；否则向下最多 3 层；根目录 `.md` 需 frontmatter 带 description；跳过点目录、`node_modules`、bundled 链接与带 `.pspore-bundled.json` 的旧副本；realpath 防环；128 个 / 256 KiB 上限）。frontmatter 先用 Pi 导出的 `parseFrontmatter`，失败再逐行读取；缺描述时用首个标题 + 首段（CJK 换行不插空格）。读不了的给出原因（非 UTF-8、超限、`skill.md` 大小写、只有 `SKILL_*.md`、悬空链接）。
+  - `ExtensionManager.sessionSkills()` / `skillCatalog()`；adapter 新增 `createSkills`，经 Pi `skillsOverride` 注入，同名时 installed/bundled 优先（Pi 同款 collision diagnostic）。每次 session factory 都重新扫描，运行中新增的 skill 在新会话即可见。
+  - 新命令 `skills.catalog`：CLI `pspore skills` 改用它（help 文案同步）、TUI `/skills` 显示来源/状态/原因、GUI 集成页新增「Skills · N」chips 与「未加载 Skill」条目；desktop IPC 白名单加入该 action。旧 `skills.list` 不变。
+  - 安全补偿：policy 把 `edit` 写入 `<workspace>/skills/**` 标为风险（`ask_risky` 下需审批），读取与在该目录跑 shell 不受影响，维持"模型生成的 skill 不得自动加载"的设计约束。
+  - Electron smoke 在两个临时 home 预置一个 YAML 不合法的本地 skill 与一个只有子文档的目录，新增断言：两者分别出现在「Skills」与「未加载 Skill」中，且 skill 不被算作内置工具。
+  - 文档：README（英文）、`docs/project-overview.md`、`docs/detailed-design.md` §10.2、memory-bank 模块/架构/导航/需求/待办。
+  - 版本 `0.1.25 → 0.1.26`（PATCH）。
+- 修改文件：`src/plugins/{workspace-skills.ts(新),extension-manager.ts,types.ts}`、`src/pi/pi-runtime-adapter.ts`、`src/daemon/daemon.ts`、`src/application/agent-application.ts`、`src/policy/policy.ts`、`src/cli/main.ts`、`src/ui/tui/tui-app.ts`、`src/desktop/{ipc-contract.ts,main.ts}`、`src/desktop/renderer/renderer.ts`、`scripts/electron-smoke.mjs`、`src/version.ts`、`package.json`、`package-lock.json`（仅版本号）、`test/unit/{workspace-skills.test.ts(新),policy-approval.test.ts,desktop-ipc-validation.test.ts}`、`test/integration/{extension-manager,daemon}.test.ts`、`test/contract/pi-runtime-adapter.test.ts`、README/docs、`dist/**`。
+- 验证方式与结果：
+  - 针对性测试：workspace-skills 7 项、policy/IPC 12 项、extension-manager 5 项、adapter skill 契约 2 项（含 XML 转义、`disable-model-invocation`、同名冲突）、daemon `skills.catalog` 协议用例，全部通过。
+  - `npm run typecheck` 通过；`npm test` 234 项中 233 通过，唯一失败为 todo 中已记录的 MCP `-32001 Request timed out` 抖动用例（两轮分别落在 `daemon.test.ts` 与 `mcp-manager.test.ts`，在**未改动的 HEAD worktree 上同样失败**；实测 fixture `node --import tsx` 冷启动 2.04 s，已超过用例的 2 s 请求超时）；`npm run build` 通过。本地 `node_modules` 缺 lockfile 中已有的 `pdfjs-dist`，以 `npm install --no-save --ignore-scripts` 补回（lockfile 校验和不变），PDF 用例随后通过。
+  - 端到端（构建产物）：本机没有 DeepSeek 凭据（`~/.pspore/credentials/` 为空），改用真实 daemon + 真实 Pi adapter 指向本地 OpenAI 兼容 mock，抓取实际发出的系统提示词。修复后 `<available_skills>` 含 `aegis-search`、`doc-extract`、`ccb-mail`（YAML 不合法的描述原样保留）、`weekly-report`（无 frontmatter，描述"周报助手 — 根据本周会议纪要生成周报并发给部门负责人。"）；只有 `SKILL_DRAFT.md` 的 `half-done` 在 `pspore skills` 中为 `skipped` 并说明原因。**对照组**（未改动 HEAD 的 dist，同一场景）只发出 `aegis-search`、`doc-extract` 两个——与用户截图症状一致。
+  - GUI（主基准 `1920×1080`）：本机无 `xvfb-run`，经 X 转发显示运行 `npm run test:electron`，完整 smoke 因 2–3 s 时序等待超时失败（设置弹层关闭 / 重连遮罩），**未改动的 HEAD 在同一环境同样失败**，判定为环境问题；Chromium headless Ozone 后端直接 SIGSEGV，私有解包的 Xvfb 需要 `/usr/bin/xkbcomp` 无法使用。改为在 dist 临时插桩（随后 `npm run build` 覆盖，已确认无残留）截取集成页：「Skills · 3 · 新会话可用」列出 aegis-search / doc-extract / smoke-mail，「未加载 Skill · smoke-draft · 本地 · 已跳过」附原因与路径，换行正常无溢出。完整 smoke（含新断言）由 CI ARM64 job 在发版前执行。
+- 当前状态：代码、测试、文档与 memory-bank 已完成；待提交推送并由 CI 发布 `v0.1.26`。
+- 遗留问题：已存在会话不热加载运行中新增的 skill（新会话或服务重启后可见）；本机 MCP 用例超时与 Electron smoke 时序问题；均见 `todo.md`。
+
 ## 2026-09-09 — 窗口缩放不重排、发布不再经过制品存储
 
 - 阶段目标：修掉"缩放窗口时内容不跟着变"，并根治发布被 GitHub Actions 制品配额卡死的问题。

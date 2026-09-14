@@ -153,6 +153,8 @@ export type DesktopCommand = {
 } | {
     action: "skills.list";
 } | {
+    action: "skills.catalog";
+} | {
     action: "plugins.list";
 } | {
     action: "resources.inspect";

@@ -291,10 +291,18 @@ export class PsporeTuiApp {
                 ]);
                 return;
             }
-            if (input === "/resources" || input === "/skills" || input === "/plugins") {
-                const command = input === "/skills" ? "skills.list" : input === "/plugins" ? "plugins.list" : "resources.list";
+            if (input === "/skills") {
+                const skills = await this.#command("skills.catalog", {});
+                this.#store.setPanel("Skills", skills.length === 0 ? ["No skills found"] : skills.flatMap((skill) => [
+                    `• ${skill.name} · ${skill.source} · ${skill.status}`,
+                    ...(skill.message ? [`    ${skill.message}`] : []),
+                ]));
+                return;
+            }
+            if (input === "/resources" || input === "/plugins") {
+                const command = input === "/plugins" ? "plugins.list" : "resources.list";
                 const resources = await this.#command(command, {});
-                this.#store.setPanel(input === "/skills" ? "Skills" : input === "/plugins" ? "Host plugins" : "Trusted resources", resources.map((resource) => (`• ${resource.record.kind} · ${resource.record.name} · ${resource.health.status}`)));
+                this.#store.setPanel(input === "/plugins" ? "Host plugins" : "Trusted resources", resources.map((resource) => (`• ${resource.record.kind} · ${resource.record.name} · ${resource.health.status}`)));
                 return;
             }
             if (input.startsWith("/resource-inspect ")) {

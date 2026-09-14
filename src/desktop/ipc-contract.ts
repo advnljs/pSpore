@@ -101,6 +101,7 @@ export type DesktopCommand =
   | { action: "mcp.ping"; serverId: string }
   | { action: "resources.list" }
   | { action: "skills.list" }
+  | { action: "skills.catalog" }
   | { action: "plugins.list" }
   | { action: "resources.inspect"; stagingName: string }
   | { action: "resources.install"; stagingName: string; expectedDigest: string }
@@ -224,6 +225,7 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
     case "mcp.tools":
     case "resources.list":
     case "skills.list":
+    case "skills.catalog":
     case "plugins.list":
       exactKeys(input, ["action"], action);
       return { action };
@@ -347,6 +349,7 @@ export function toProtocolInvocation(
     case "mcp.tools":
     case "resources.list":
     case "skills.list":
+    case "skills.catalog":
     case "plugins.list":
       return { type: command.action, payload: {} };
     case "job.run":

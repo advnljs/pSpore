@@ -20,6 +20,9 @@ import type {
   ResourceCatalogEntry,
   ResourceHealthRecord,
   ResourceKind,
+  SessionSkill,
+  SkillCatalogEntry,
+  SkillSource,
   StagedResourceInspection,
   TrustedResourceRecord,
 } from "./types.js";
@@ -29,6 +32,7 @@ import {
   type BundledSkill,
   type BundledSkillLinkResult,
 } from "./bundled-skills.js";
+import { scanWorkspaceSkills, type WorkspaceSkillScan } from "./workspace-skills.js";
 
 export interface ExtensionManagerOptions {
   stagingRoot: string;
@@ -116,7 +120,7 @@ export class ExtensionManager {
       this.#bundled = await readBundledSkills(root);
       this.#bundledLinks = await linkBundledSkills(this.#bundled, this.#skillsRoot);
       for (const link of this.#bundledLinks) {
-        if (link.action === "failed" || link.action === "kept-user-copy") {
+        if (!isLinked(link)) {
           this.#onError?.(new Error(`Bundled skill ${link.name}: ${link.message ?? link.action}`));
         }
       }
@@ -258,9 +262,84 @@ export class ExtensionManager {
     // Bundled skills are surfaced from their workspace link, so Pi sees exactly
     // the directory the user can inspect.
     for (const link of this.#bundledLinks) {
-      if (link.action !== "failed" && link.action !== "kept-user-copy") paths.push(link.targetPath);
+      if (isLinked(link)) paths.push(link.targetPath);
     }
     return paths.sort();
+  }
+
+  /**
+   * Skills the user put under `workspace/skills/` without the staged install
+   * flow. Re-read on every call, so one added while the daemon runs reaches the
+   * next session instead of waiting for a restart.
+   */
+  async sessionSkills(): Promise<SessionSkill[]> {
+    return (await this.#scanWorkspaceSkills()).skills;
+  }
+
+  /**
+   * Every skill a new session would be offered, from all three sources, plus
+   * the ones found but not offered and why — the answer to "why can't the
+   * agent see my skill" without reading daemon logs.
+   */
+  async skillCatalog(): Promise<SkillCatalogEntry[]> {
+    const entries: SkillCatalogEntry[] = [];
+    for (const record of this.#store.resources.filter((candidate) => candidate.kind === "skill")) {
+      const health = this.#health.get(resourceKey(record.kind, record.name)) ?? this.#defaultHealth(record);
+      const active = record.trusted && health.status === "active";
+      entries.push({
+        name: record.name,
+        source: "installed",
+        status: active ? "active" : "skipped",
+        path: join(this.#installPath(record), record.entry),
+        ...(record.description === undefined ? {} : { description: record.description }),
+        ...(active ? {} : { message: health.message ?? (record.trusted ? `trusted resource is ${health.status}` : "trust is revoked") }),
+      });
+    }
+    const bundledByName = new Map(this.#bundled.map((skill) => [skill.name, skill]));
+    for (const link of this.#bundledLinks) {
+      const description = bundledByName.get(link.name)?.description;
+      entries.push({
+        name: link.name,
+        source: "bundled",
+        status: isLinked(link) ? "active" : "skipped",
+        path: join(link.targetPath, "SKILL.md"),
+        ...(description === undefined ? {} : { description }),
+        ...(isLinked(link)
+          ? {}
+          : {
+              message: link.action === "kept-user-copy"
+                ? `${link.targetPath} is your own directory, so it is read as a workspace skill instead`
+                : link.message ?? "could not be linked into the workspace",
+            }),
+      });
+    }
+    entries.push(...(await this.#scanWorkspaceSkills()).catalog);
+    const order: Record<SkillSource, number> = { installed: 0, bundled: 1, workspace: 2 };
+    return entries.sort((left, right) => order[left.source] - order[right.source] || left.name.localeCompare(right.name));
+  }
+
+  async #scanWorkspaceSkills(): Promise<WorkspaceSkillScan> {
+    const reserved = new Map<string, SkillSource>();
+    for (const record of this.#store.resources) {
+      if (record.kind !== "skill" || !record.trusted) continue;
+      // Only a skill sessions actually get can take a name away from the user's.
+      if (this.#health.get(resourceKey(record.kind, record.name))?.status === "active") reserved.set(record.name, "installed");
+    }
+    const managed = new Set<string>();
+    for (const link of this.#bundledLinks) {
+      // A user's own directory under a bundled name is theirs to load; every
+      // other outcome leaves pSpore's link (or its failed attempt) in that slot.
+      if (link.action === "kept-user-copy") continue;
+      managed.add(link.name);
+      if (isLinked(link) && !reserved.has(link.name)) reserved.set(link.name, "bundled");
+    }
+    try {
+      return await scanWorkspaceSkills(this.#skillsRoot, { managedNames: managed, reservedNames: reserved });
+    } catch (error) {
+      // A workspace that cannot be read costs the user's own skills, not the session.
+      this.#error(new Error(`Workspace skills could not be read: ${bounded(toError(error).message, 1_000)}`));
+      return { skills: [], catalog: [] };
+    }
   }
 
   async startHostPlugins(): Promise<void> {
@@ -608,6 +687,11 @@ function validatePluginHealth(value: HostPluginHealth, name: string): void {
 
 function compareRecords(left: TrustedResourceRecord, right: TrustedResourceRecord): number {
   return left.kind.localeCompare(right.kind) || left.name.localeCompare(right.name);
+}
+
+/** Whether a bundled skill ended up in the workspace as pSpore's own link or copy. */
+function isLinked(link: BundledSkillLinkResult): boolean {
+  return link.action !== "failed" && link.action !== "kept-user-copy";
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

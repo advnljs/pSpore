@@ -437,6 +437,18 @@ describe("daemon vertical slice", () => {
     const listed = await client.command<Array<{ record: { name: string } }>>("skills.list", {});
     assert.deepEqual(listed.map((entry) => entry.record.name), ["daemon-skill"]);
 
+    // A skill the user drops into the workspace appears in the catalog without a restart or an install.
+    const own = join(home, "workspace", "skills", "ccb-mail");
+    await mkdir(own, { recursive: true });
+    await writeFile(join(own, "SKILL.md"), "---\nname: ccb-mail\ndescription: Sends and reads mail.\n---\n");
+    const catalog = await client.command<Array<{ name: string; source: string; status: string; path: string }>>("skills.catalog", {});
+    assert.deepEqual(
+      catalog.filter((entry) => entry.source !== "bundled").map((entry) => [entry.source, entry.name, entry.status]),
+      [["installed", "daemon-skill", "active"], ["workspace", "ccb-mail", "active"]],
+    );
+    assert.equal(catalog.find((entry) => entry.name === "ccb-mail")?.path, join(own, "SKILL.md"));
+    await assert.rejects(client.command("skills.catalog", { unexpected: true }));
+
     await client.command("resources.disable", {
       kind: "skill",
       name: "daemon-skill",

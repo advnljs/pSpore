@@ -195,6 +195,7 @@ test("desktop command mapping fixes session, resource root, and child ceiling", 
     { action: "mcp.tools" },
     { action: "resources.list" },
     { action: "skills.list" },
+    { action: "skills.catalog" },
     { action: "plugins.list" },
   ];
   for (const command of commands) assert.deepEqual(toProtocolInvocation(command, paths).payload, {});

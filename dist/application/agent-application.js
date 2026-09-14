@@ -264,6 +264,11 @@ export class AgentApplication {
             case "skills.list":
                 exactPayload(command.payload, [], command.type);
                 return this.#requireResources().list().filter((entry) => entry.record.kind === "skill");
+            case "skills.catalog":
+                exactPayload(command.payload, [], command.type);
+                // Every skill a new session is offered, whatever its source, and the
+                // ones that were found but not offered with the reason.
+                return this.#requireResources().skillCatalog();
             case "plugins.list":
                 exactPayload(command.payload, [], command.type);
                 return this.#requireResources().list().filter((entry) => entry.record.kind === "host-plugin");

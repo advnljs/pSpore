@@ -7,6 +7,7 @@ import {
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
+  createSyntheticSourceInfo,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -15,6 +16,7 @@ import {
   type AgentSessionRuntime,
   type CreateAgentSessionRuntimeFactory,
   type InlineExtension,
+  type LoadSkillsResult,
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 
@@ -37,6 +39,7 @@ import type {
   TranscriptPage,
 } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
+import type { SessionSkill } from "../plugins/types.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
 
 type Clock = () => Date;
@@ -49,6 +52,12 @@ export interface PiRuntimeAdapterOptions {
   resolveModel?: (ref: ModelRef | undefined, runtime: ModelRuntime) => Model<string> | undefined;
   createTools?: (sessionId: SessionId) => readonly ToolDefinition[];
   createSkillPaths?: (sessionId: SessionId) => readonly string[] | Promise<readonly string[]>;
+  /**
+   * Skills already resolved outside Pi — the user's own workspace skills, which
+   * Pi's strict loader would drop for loose frontmatter. They join the path-based
+   * skills, which win any name collision.
+   */
+  createSkills?: (sessionId: SessionId) => readonly SessionSkill[] | Promise<readonly SessionSkill[]>;
   toolGate?: ToolGate;
   clock?: Clock;
   idFactory?: IdFactory;
@@ -88,6 +97,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #resolveModel: NonNullable<PiRuntimeAdapterOptions["resolveModel"]>;
   readonly #createTools: NonNullable<PiRuntimeAdapterOptions["createTools"]>;
   readonly #createSkillPaths: NonNullable<PiRuntimeAdapterOptions["createSkillPaths"]>;
+  readonly #createSkills: NonNullable<PiRuntimeAdapterOptions["createSkills"]>;
   readonly #toolGate: ToolGate | undefined;
   readonly #clock: Clock;
   readonly #idFactory: IdFactory;
@@ -103,6 +113,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       ((ref, runtime) => (ref ? (runtime.getModel(ref.provider, ref.model) as Model<string> | undefined) : undefined));
     this.#createTools = options.createTools ?? (() => []);
     this.#createSkillPaths = options.createSkillPaths ?? (() => []);
+    this.#createSkills = options.createSkills ?? (() => []);
     this.#toolGate = options.toolGate;
     this.#clock = options.clock ?? (() => new Date());
     this.#idFactory = options.idFactory ?? randomUUID;
@@ -445,6 +456,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       const policyExtension = this.#policyExtension(spec);
       const contextFiles = spec.contextFiles ? [...spec.contextFiles] : [];
       const skillPaths = [...await this.#createSkillPaths(spec.sessionId)].sort();
+      const resolvedSkills = [...await this.#createSkills(spec.sessionId)];
       const extensionFactories = policyExtension ? [policyExtension] : [];
       const services = await createAgentSessionServices({
         cwd,
@@ -468,6 +480,9 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
           noThemes: true,
           noContextFiles: true,
           ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
+          ...(resolvedSkills.length > 0
+            ? { skillsOverride: (base: LoadSkillsResult) => withResolvedSkills(base, resolvedSkills) }
+            : {}),
           ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
           ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
           ...(contextFiles.length > 0
@@ -750,6 +765,33 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       ...(sessionFile ? { sessionFile } : {}),
     };
   }
+}
+
+/**
+ * Adds skills resolved outside Pi to what Pi loaded from paths. A name Pi
+ * already has keeps its skill — the same first-wins rule Pi applies among its
+ * own paths — and the loser is reported the way Pi reports a collision.
+ */
+function withResolvedSkills(base: LoadSkillsResult, resolved: readonly SessionSkill[]): LoadSkillsResult {
+  const skills = [...base.skills];
+  const diagnostics = [...base.diagnostics];
+  for (const skill of resolved) {
+    const winner = skills.find((candidate) => candidate.name === skill.name);
+    if (winner) {
+      diagnostics.push({
+        type: "collision",
+        message: `name "${skill.name}" collision`,
+        path: skill.filePath,
+        collision: { resourceType: "skill", name: skill.name, winnerPath: winner.filePath, loserPath: skill.filePath },
+      });
+      continue;
+    }
+    skills.push({
+      ...skill,
+      sourceInfo: createSyntheticSourceInfo(skill.filePath, { source: "local", scope: "user", baseDir: skill.baseDir }),
+    });
+  }
+  return { skills, diagnostics };
 }
 
 function toBranchMessage(entry: BranchMessageEntry): RuntimeMessage {

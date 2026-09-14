@@ -6,7 +6,7 @@ import type { KernelLoop } from "../kernel/loop.js";
 import type { McpHealthRecord, McpToolDescriptor } from "../mcp/types.js";
 import type { NotificationService } from "../notifications/notification-service.js";
 import type { ApprovalService } from "../policy/approval-service.js";
-import type { ResourceCatalogEntry, ResourceKind, StagedResourceInspection } from "../plugins/types.js";
+import type { ResourceCatalogEntry, ResourceKind, SkillCatalogEntry, StagedResourceInspection } from "../plugins/types.js";
 import type { CommandEnvelope } from "../protocol/schema.js";
 import type { SessionCatalog } from "../sessions/session-catalog.js";
 /** What a client is told about one fixed tool. */
@@ -81,6 +81,7 @@ export interface ResourceControl {
     install(stagingPath: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
     disable(kind: ResourceKind, name: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
     list(): ResourceCatalogEntry[];
+    skillCatalog(): Promise<SkillCatalogEntry[]>;
 }
 export declare class AgentRunBudgetError extends Error {
     constructor(message: string);

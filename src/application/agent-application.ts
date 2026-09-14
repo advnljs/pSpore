@@ -20,6 +20,7 @@ import type { ApprovalService } from "../policy/approval-service.js";
 import type {
   ResourceCatalogEntry,
   ResourceKind,
+  SkillCatalogEntry,
   StagedResourceInspection,
 } from "../plugins/types.js";
 import { CommandError } from "../protocol/errors.js";
@@ -95,6 +96,7 @@ export interface ResourceControl {
   install(stagingPath: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
   disable(kind: ResourceKind, name: string, expectedDigest: string): Promise<ResourceCatalogEntry>;
   list(): ResourceCatalogEntry[];
+  skillCatalog(): Promise<SkillCatalogEntry[]>;
 }
 
 /**
@@ -369,6 +371,11 @@ export class AgentApplication implements AgentSessionHost {
       case "skills.list":
         exactPayload(command.payload, [], command.type);
         return this.#requireResources().list().filter((entry) => entry.record.kind === "skill");
+      case "skills.catalog":
+        exactPayload(command.payload, [], command.type);
+        // Every skill a new session is offered, whatever its source, and the
+        // ones that were found but not offered with the reason.
+        return this.#requireResources().skillCatalog();
       case "plugins.list":
         exactPayload(command.payload, [], command.type);
         return this.#requireResources().list().filter((entry) => entry.record.kind === "host-plugin");

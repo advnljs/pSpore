@@ -1,4 +1,4 @@
-import type { HostPluginActivationConfig, ResourceCatalogEntry, ResourceHealthRecord, ResourceKind, StagedResourceInspection } from "./types.js";
+import type { HostPluginActivationConfig, ResourceCatalogEntry, ResourceHealthRecord, ResourceKind, SessionSkill, SkillCatalogEntry, StagedResourceInspection } from "./types.js";
 import { type BundledSkillLinkResult } from "./bundled-skills.js";
 export interface ExtensionManagerOptions {
     stagingRoot: string;
@@ -30,6 +30,18 @@ export declare class ExtensionManager {
     list(): ResourceCatalogEntry[];
     listHealth(): ResourceHealthRecord[];
     skillPaths(): Promise<string[]>;
+    /**
+     * Skills the user put under `workspace/skills/` without the staged install
+     * flow. Re-read on every call, so one added while the daemon runs reaches the
+     * next session instead of waiting for a restart.
+     */
+    sessionSkills(): Promise<SessionSkill[]>;
+    /**
+     * Every skill a new session would be offered, from all three sources, plus
+     * the ones found but not offered and why — the answer to "why can't the
+     * agent see my skill" without reading daemon logs.
+     */
+    skillCatalog(): Promise<SkillCatalogEntry[]>;
     startHostPlugins(): Promise<void>;
     stop(reason?: string): Promise<void>;
 }

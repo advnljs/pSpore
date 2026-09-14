@@ -17,7 +17,7 @@ pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本�
 - Linux-first、local-first、单用户；默认不提供多租户或公网服务。
 - 主进程与工具默认使用启动 pSpore 的登录用户权限，不构成沙箱。
 - `allow_all` 会允许模型以当前用户身份执行任意工具操作；当用户拥有免密或已缓存的 `sudo` 权限时，影响可能扩大到 root。
-- skills、Pi extensions、pSpore plugins 和本地 MCP server 都可能执行任意代码，只能在显式信任后加载。
+- Pi extensions、pSpore plugins 和本地 MCP server 都可能执行任意代码，只能在显式信任后加载。用户自己放进 `workspace/skills/` 的 skill 视为用户已信任，新会话自动加载；模型用 `edit` 改写该目录需要审批（`ask_risky` 下），但 shell 命令仍可绕过这项识别。
 - 默认记忆检索为精确搜索与 BM25；向量搜索保留为可插拔扩展，不属于首版范围。
 
 ## 当前可运行流程
@@ -89,7 +89,9 @@ pspore config clear-cookie
 
 用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。交互式根会话由私有 `session-catalog.json` 映射到 Pi JSONL；服务启动会恢复全部目录会话及历史，旧安装首次迁移最近的主会话。GUI 用 `＋` 新建，TUI 用 `/new [TITLE]` 与 `/select ID` 创建/切换。普通输入发送到当前根会话或 child；根会话运行中时服务端自动按 follow-up 排队，每项显示“继续排队/直接发送消息”（TUI `/send-now N`），不再要求选择三种发送模式。还可以用 `/agent-spawn`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。输入 `/help` 打开完整命令面板，`/back` 或 Esc 返回对话。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。
 
-生成或复制来的 skill/host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
+用户自己的 skill 直接放进 `workspace/skills/<name>/SKILL.md`（也支持 `office/excel/SKILL.md` 这类嵌套套件与根目录下带 frontmatter `description` 的 `.md`），新会话即可使用，服务运行中新增的也不必重启。扫描规则与 Pi 一致，但解析更宽容：frontmatter 不是合法 YAML（常见于中文描述里未加引号的 `: `）时逐行读取，缺 `description` 时用开头的标题与首段；读不了的（非 UTF-8、只有 `SKILL_*.md`、文件名大小写不对等）不会静默消失，`pspore skills`、TUI `/skills` 与 GUI 集成页都会列出来源、状态和原因。已安装或内置的同名 skill 优先。
+
+需要按精确内容摘要固定的 skill 与所有 host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
 
 源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。解压 GitHub Release 全量 zip 后运行 `创建桌面快捷方式.sh` 即可从桌面启动；脚本安装稳定 XDG launcher，应用目录带空格或 `%` 时也不再直接进入 Desktop Entry，并把启动诊断写到 `~/.local/state/pspore/desktop-launcher.log`。生产 GUI/TUI 会自动安装、启用并连接 systemd user service，同时尽力启用 linger；完整 Kernel、session、定时任务和集成能力独立常驻，关闭任一客户端都不会停止服务。main process 独占 UDS 连接，preload 仅暴露 `bootstrap/dispatch/getSettings/saveSettings/getPathForFile/subscribe` 六个固定 API；其中 `getPathForFile` 只把用户通过操作系统拖入的 `File` 解析成路径，不接受任意字符串路径，也不读取文件系统。renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。GUI 聊天框可接收文件与目录拖拽并显示可移除引用；拖入只记录路径，不自动发送、不读/复制/上传内容，也不展开目录，真正发送时仅附加带引号的绝对 `@"/path"` 引用。GUI 以变高虚拟列表只保留视口附近消息，TUI 从历史尾部按可见行反向格式化；正文与 thinking 使用独立流式通道，thinking 只在生成期间单独显示并在回复完成后隐藏，不进入最终 Markdown 或历史。工具调用通过活动视图展示而不再把 `[tool:*]` 混入正文。后续升级运行 overlay 内的 `覆盖升级.sh`：它校验 Electron 精确版本、平台、架构与完整应用 payload，保留回滚备份并重启匹配的 systemd 服务，因此无需重复下载 Chromium；运行时不匹配时会拒绝并提示使用全量包。每次用户可见更新使用新的 SemVer tag 和不可变 GitHub Release，历史资产不再原地覆盖。
 

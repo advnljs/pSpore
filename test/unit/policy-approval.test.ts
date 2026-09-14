@@ -22,6 +22,38 @@ async function rootFixture() {
 }
 
 describe("policy", () => {
+  test("asks before the model edits a workspace skill, but not for reading one or running a command beside it", async () => {
+    const { root } = await rootFixture();
+    const skill = join(root, "skills", "ccb-mail");
+    await mkdir(skill, { recursive: true });
+    const policy = await PolicyEngine.create({ mode: "ask_risky", rules: [], workspaceRoot: root, cwd: root });
+
+    const edit = await policy.evaluate({
+      sessionId: "s",
+      toolCallId: "skill-edit",
+      toolName: "edit",
+      input: { path: join(skill, "SKILL.md") },
+    });
+    assert.equal(edit.decision, "ask");
+    assert.ok(edit.riskReasons.includes("changes skill instructions that new sessions load automatically"));
+
+    const note = await policy.evaluate({
+      sessionId: "s",
+      toolCallId: "note-edit",
+      toolName: "edit",
+      input: { path: join(root, "notes.md") },
+    });
+    assert.equal(note.decision, "allow");
+    assert.equal(
+      (await policy.evaluate({ sessionId: "s", toolCallId: "skill-read", toolName: "read", input: { path: join(skill, "SKILL.md") } })).decision,
+      "allow",
+    );
+    assert.equal(
+      (await policy.evaluate({ sessionId: "s", toolCallId: "skill-run", toolName: "shell", input: { command: "ls", cwd: skill } })).decision,
+      "allow",
+    );
+  });
+
   test("asks for risky shell, allows low-risk reads, and keeps explicit deny under allow_all", async () => {
     const { root } = await rootFixture();
     const risky = await PolicyEngine.create({ mode: "ask_risky", rules: [], workspaceRoot: root, cwd: root });

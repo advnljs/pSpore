@@ -16,6 +16,7 @@ import { defineTool, ModelRuntime, type ToolDefinition } from "@earendil-works/p
 import { Type } from "typebox";
 
 import type { RuntimeEvent, ToolGate } from "../../src/domain/runtime.js";
+import type { SessionSkill } from "../../src/plugins/types.js";
 import { PiRuntimeAdapter } from "../../src/pi/pi-runtime-adapter.js";
 import type { AutoCompactionConfig } from "../../src/settings/compaction-settings.js";
 
@@ -32,6 +33,7 @@ async function fixture(
     toolGate?: ToolGate;
     createTools?: () => readonly ToolDefinition[];
     createSkillPaths?: () => readonly string[] | Promise<readonly string[]>;
+    createSkills?: () => readonly SessionSkill[] | Promise<readonly SessionSkill[]>;
     autoCompaction?: AutoCompactionConfig;
   } = {},
 ) {
@@ -55,6 +57,7 @@ async function fixture(
     ...(options.toolGate ? { toolGate: options.toolGate } : {}),
     ...(options.createTools ? { createTools: options.createTools } : {}),
     ...(options.createSkillPaths ? { createSkillPaths: options.createSkillPaths } : {}),
+    ...(options.createSkills ? { createSkills: options.createSkills } : {}),
     ...(options.autoCompaction ? { autoCompaction: options.autoCompaction } : {}),
   });
   cleanups.push(async () => {
@@ -452,5 +455,52 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.match(prompts[1] ?? "", /Reviews code only when a review task matches/);
     assert.match(prompts[1] ?? "", /SKILL\.md/);
     assert.doesNotMatch(prompts[1] ?? "", /FULL_SKILL_BODY_SENTINEL/);
+  });
+
+  test("offers resolved workspace skills with the path-based ones, and a path-based skill keeps a contested name", async () => {
+    const readTool = defineTool({
+      name: "read",
+      label: "Read",
+      description: "Read a file for the workspace skill contract.",
+      parameters: Type.Object({ path: Type.String() }),
+      execute: async () => ({ content: [{ type: "text" as const, text: "unused" }], details: {} }),
+    });
+    const root = await mkdtemp(join(tmpdir(), "pspore-pi-workspace-skills-"));
+    cleanups.push(async () => rm(root, { recursive: true, force: true }));
+    const bundled = join(root, "doc-extract");
+    await mkdir(bundled);
+    await writeFile(join(bundled, "SKILL.md"), "---\nname: doc-extract\ndescription: Bundled extraction wins its name.\n---\n");
+    const workspace = (name: string, description: string, hidden = false): SessionSkill => ({
+      name,
+      description,
+      filePath: join(root, "workspace", name, "SKILL.md"),
+      baseDir: join(root, "workspace", name),
+      disableModelInvocation: hidden,
+    });
+    const { adapter, faux, root: sessionRoot } = await fixture({
+      createTools: () => [readTool],
+      createSkillPaths: () => [bundled],
+      createSkills: () => [
+        workspace("ccb-mail", "发送邮件: 支持附件 & <抄送>"),
+        workspace("doc-extract", "USER_COPY_SENTINEL"),
+        workspace("manual-only", "MANUAL_ONLY_SENTINEL", true),
+      ],
+    });
+    const prompts: string[] = [];
+    faux.setResponses([(context) => {
+      prompts.push(context.systemPrompt ?? "");
+      return fauxAssistantMessage("listed skills");
+    }]);
+    await adapter.create(spec(sessionRoot));
+    await adapter.prompt("main", "list your skills");
+    await adapter.waitForIdle("main");
+
+    const prompt = prompts[0] ?? "";
+    assert.match(prompt, /<name>ccb-mail<\/name>/);
+    assert.match(prompt, /发送邮件: 支持附件 &amp; &lt;抄送&gt;/);
+    assert.ok(prompt.includes(join(root, "workspace", "ccb-mail", "SKILL.md")));
+    assert.match(prompt, /Bundled extraction wins its name/);
+    assert.doesNotMatch(prompt, /USER_COPY_SENTINEL/);
+    assert.doesNotMatch(prompt, /MANUAL_ONLY_SENTINEL/);
   });
 });

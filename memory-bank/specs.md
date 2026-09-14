@@ -173,6 +173,19 @@
 - 格式判断不依赖扩展名。
 - 不支持的格式要明确报错并给出可执行建议，不得返回乱码或空结果而不说明。
 
+## 2026-09-14 用户明确要求
+
+1. 通读项目继续优化：用户问"查看你的skills"时，agent 只列出内置的 `aegis-search`、`doc-extract`，没有识别用户本地已添加的邮件 skill（`~/.pspore/workspace/skills/ccb-mail/`，含 `SKILL.md` 与 `SKILL_SETUP.md`、`SKILL_SENDMAIL.md` 等子文档），模型要靠 shell 翻目录才找到。
+2. 做完后推送新版本。
+
+验收标准：
+
+- 放在 `workspace/skills/` 下的用户 skill 必须出现在新会话的 skill 目录里，不要求走 staging 安装。
+- 用户手写 skill 常见的不规范（frontmatter 不是严格 YAML、缺 description）不得导致静默丢失；确实无法加载的必须在 CLI/TUI/GUI 看到原因。
+- 内置与已安装 skill 不得被同名的工作区 skill 悄悄替换。
+- 不得削弱"模型生成的 skill 不得自动加载"的设计约束：模型改写工作区 skill 须经审批（`ask_risky`）。
+- 按既有流程升 PATCH 版本并由 CI 发布双架构 Release。
+
 ## 2026-09-08 用户明确要求（第四轮）
 
 1. 需要真实模型的端到端测试统一用 `deepseek-v4-flash`（provider `deepseek`），凭据已就位。

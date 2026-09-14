@@ -113,6 +113,10 @@ interface SmokeReport {
     builtinTools: string[];
     /** Installed skills shown alongside them. */
     skills: string[];
+    /** Every skill new sessions are offered — bundled and workspace ones included. */
+    skillChips: string[];
+    /** Skills found but not loaded, each listed with its reason. */
+    unloadedSkills: string[];
   };
   indexingPanel: {
     phase: string;
@@ -616,8 +620,10 @@ async function runSmoke(
   const integrations: SmokeReport["integrations"] = await target.webContents.executeJavaScript(`(() => {
     const rows = Array.from(document.querySelectorAll('#integration-list > *'));
     return {
-      builtinTools: Array.from(document.querySelectorAll('#integration-list .tool-chip')).map((chip) => chip.textContent ?? ''),
-      skills: rows.map((row) => row.textContent ?? '').filter((text) => text.includes('Skill ·')).map((text) => text.trim().slice(0, 40))
+      builtinTools: Array.from(document.querySelectorAll('#integration-list .tool-chips:not(.skill-chips) .tool-chip')).map((chip) => chip.textContent ?? ''),
+      skills: rows.map((row) => row.textContent ?? '').filter((text) => text.startsWith('Skill ·')).map((text) => text.trim().slice(0, 40)),
+      skillChips: Array.from(document.querySelectorAll('#integration-list .skill-chips .tool-chip')).map((chip) => chip.textContent ?? ''),
+      unloadedSkills: rows.map((row) => row.textContent ?? '').filter((text) => text.startsWith('未加载 Skill ·')).map((text) => text.trim().slice(0, 160))
     };
   })()`);
   const indexingPanel: SmokeReport["indexingPanel"] = await target.webContents.executeJavaScript(`(() => ({
@@ -1047,6 +1053,15 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
       }
     }
     if (report.integrations.skills.length === 0) failures.push("integrations tab lists no installed skill");
+    // A skill the user put in the workspace must be visible, not only trusted installs:
+    // the smoke harness seeds one loadable skill and one without an entry point.
+    for (const expected of ["doc-extract", "smoke-mail"]) {
+      if (!report.integrations.skillChips.includes(expected)) failures.push(`integrations tab does not offer the ${expected} skill`);
+    }
+    if (report.integrations.builtinTools.includes("smoke-mail")) failures.push("a skill was rendered as a built-in tool");
+    if (!report.integrations.unloadedSkills.some((row) => row.includes("smoke-draft") && row.includes("SKILL_DRAFT.md"))) {
+      failures.push("integrations tab does not explain why the smoke-draft skill was not loaded");
+    }
     // Panels stay put inside a band; the transcript still has to re-lay out.
     if (!report.inBandResize.panelsUnchanged) failures.push("in-band resize crossed a breakpoint, so it tests nothing");
     if (report.inBandResize.afterWidth >= report.inBandResize.beforeWidth) {

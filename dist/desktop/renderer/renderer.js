@@ -17,6 +17,13 @@ let jobs = [];
 let resources = [];
 /** The fixed tools this build ships, as reported by the daemon. */
 let builtinTools = [];
+/** Every skill new sessions are offered, and the ones found but not loaded. */
+let skillCatalog = [];
+const SKILL_SOURCE_LABELS = {
+    installed: "已安装",
+    bundled: "内置",
+    workspace: "本地",
+};
 let inspection;
 let activeApprovalId;
 let renderSequence = 0;
@@ -896,10 +903,15 @@ async function refreshSideData() {
         window.pspore.dispatch({ action: "agents.list" }),
         window.pspore.dispatch({ action: "mcp.servers" }),
         window.pspore.dispatch({ action: "tools.list" }),
+        window.pspore.dispatch({ action: "skills.catalog" }),
     ]);
     const toolResult = results[4];
     if (toolResult?.status === "fulfilled" && Array.isArray(toolResult.value)) {
         builtinTools = toolResult.value.filter(isBuiltinTool);
+    }
+    const skillResult = results[5];
+    if (skillResult?.status === "fulfilled" && Array.isArray(skillResult.value)) {
+        skillCatalog = skillResult.value.filter(isSkillCatalogEntry);
     }
     const jobResult = results[0];
     const resourceResult = results[1];
@@ -1769,6 +1781,33 @@ function renderIntegrations(snapshot) {
         item.append(tools);
         nodes.push(item);
     }
+    // Skills next, from every source a session loads them from — not only the
+    // trusted installs below — so a skill the user dropped into the workspace is
+    // either visible here or listed with the reason it was not loaded.
+    const activeSkills = skillCatalog.filter((skill) => skill.status === "active");
+    if (activeSkills.length > 0) {
+        const chips = element("div", "tool-chips skill-chips");
+        chips.setAttribute("role", "list");
+        for (const skill of activeSkills) {
+            const chip = element("span", "tool-chip");
+            chip.setAttribute("role", "listitem");
+            chip.textContent = skill.name;
+            chip.title = [`${skill.name} · ${SKILL_SOURCE_LABELS[skill.source]}`, skill.description, skill.path, skill.message]
+                .filter(Boolean)
+                .join("\n");
+            chips.append(chip);
+        }
+        const item = denseItem(`Skills · ${activeSkills.length}`, "新会话可用", "ready");
+        item.append(chips);
+        nodes.push(item);
+    }
+    for (const skill of skillCatalog.filter((candidate) => candidate.status !== "active")) {
+        const item = denseItem(`未加载 Skill · ${skill.name}`, `${SKILL_SOURCE_LABELS[skill.source]} · ${skill.status === "shadowed" ? "同名被覆盖" : "已跳过"}`, "degraded");
+        const reason = element("p");
+        reason.textContent = skill.message ? `${skill.message}（${skill.path}）` : skill.path;
+        item.append(reason);
+        nodes.push(item);
+    }
     for (const health of Object.values(snapshot.kernel.mcpServers)) {
         const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
         const actions = element("div", "item-actions");
@@ -2016,6 +2055,13 @@ function isResourceEntry(value) {
     if (!isRecord(value) || !isRecord(value["record"]) || !isRecord(value["health"]))
         return false;
     return typeof value["record"]["name"] === "string" && typeof value["record"]["digest"] === "string";
+}
+function isSkillCatalogEntry(value) {
+    return isRecord(value)
+        && typeof value["name"] === "string"
+        && typeof value["path"] === "string"
+        && (value["source"] === "installed" || value["source"] === "bundled" || value["source"] === "workspace")
+        && (value["status"] === "active" || value["status"] === "skipped" || value["status"] === "shadowed");
 }
 function isInspection(value) {
     return isRecord(value) && value["version"] === 1 && typeof value["name"] === "string" && typeof value["digest"] === "string" && Array.isArray(value["files"]);

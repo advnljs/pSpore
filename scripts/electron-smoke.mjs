@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { access, mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -25,6 +25,8 @@ let daemonExit;
 let succeeded = false;
 
 try {
+  await seedWorkspaceSkills(temporaryHome);
+  await seedWorkspaceSkills(ownedHome);
   await run(process.execPath, [cli, "--home", temporaryHome, "init"]);
   daemon = spawn(process.execPath, [cli, "--home", temporaryHome, "daemon"], {
     cwd: root,
@@ -102,6 +104,19 @@ try {
       `Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}; external output: ${externalFiles}; owned output: ${ownedFiles}\n`,
     );
   }
+}
+
+/**
+ * Skills a user would drop into the workspace by hand: one loadable (its
+ * description is not valid YAML, as hand-written Chinese frontmatter often is)
+ * and one with sub-documents but no SKILL.md, which must be explained.
+ */
+async function seedWorkspaceSkills(home) {
+  const skills = join(home, "workspace", "skills");
+  await mkdir(join(skills, "smoke-mail"), { recursive: true, mode: 0o700 });
+  await writeFile(join(skills, "smoke-mail", "SKILL.md"), "---\nname: smoke-mail\ndescription: 邮件: 发送与读取\n---\n\n# smoke-mail\n");
+  await mkdir(join(skills, "smoke-draft"), { recursive: true, mode: 0o700 });
+  await writeFile(join(skills, "smoke-draft", "SKILL_DRAFT.md"), "# draft\n");
 }
 
 async function waitForDaemon(home, daemonExit) {

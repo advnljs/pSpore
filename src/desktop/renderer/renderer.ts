@@ -2,7 +2,7 @@
 
 import type { JobDefinition } from "../../automation/types.js";
 import type { SessionView, RuntimeMessage } from "../../domain/runtime.js";
-import type { ResourceCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
+import type { ResourceCatalogEntry, SkillCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import { publishedTextTruncation } from "../../protocol/limits.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
 import { defaultModelFor, type ProviderOption } from "../../settings/llm-settings.js";
@@ -68,6 +68,13 @@ let jobs: JobDefinition[] = [];
 let resources: ResourceCatalogEntry[] = [];
 /** The fixed tools this build ships, as reported by the daemon. */
 let builtinTools: { name: string; label?: string; description?: string }[] = [];
+/** Every skill new sessions are offered, and the ones found but not loaded. */
+let skillCatalog: SkillCatalogEntry[] = [];
+const SKILL_SOURCE_LABELS: Record<SkillCatalogEntry["source"], string> = {
+  installed: "已安装",
+  bundled: "内置",
+  workspace: "本地",
+};
 let inspection: StagedResourceInspection | undefined;
 let activeApprovalId: string | undefined;
 let renderSequence = 0;
@@ -966,10 +973,15 @@ async function refreshSideData(): Promise<void> {
     window.pspore.dispatch({ action: "agents.list" }),
     window.pspore.dispatch({ action: "mcp.servers" }),
     window.pspore.dispatch({ action: "tools.list" }),
+    window.pspore.dispatch({ action: "skills.catalog" }),
   ]);
   const toolResult = results[4];
   if (toolResult?.status === "fulfilled" && Array.isArray(toolResult.value)) {
     builtinTools = toolResult.value.filter(isBuiltinTool);
+  }
+  const skillResult = results[5];
+  if (skillResult?.status === "fulfilled" && Array.isArray(skillResult.value)) {
+    skillCatalog = skillResult.value.filter(isSkillCatalogEntry);
   }
   const jobResult = results[0];
   const resourceResult = results[1];
@@ -1866,6 +1878,37 @@ function renderIntegrations(snapshot: DesktopStoreSnapshot): void {
     item.append(tools);
     nodes.push(item);
   }
+  // Skills next, from every source a session loads them from — not only the
+  // trusted installs below — so a skill the user dropped into the workspace is
+  // either visible here or listed with the reason it was not loaded.
+  const activeSkills = skillCatalog.filter((skill) => skill.status === "active");
+  if (activeSkills.length > 0) {
+    const chips = element("div", "tool-chips skill-chips");
+    chips.setAttribute("role", "list");
+    for (const skill of activeSkills) {
+      const chip = element("span", "tool-chip");
+      chip.setAttribute("role", "listitem");
+      chip.textContent = skill.name;
+      chip.title = [`${skill.name} · ${SKILL_SOURCE_LABELS[skill.source]}`, skill.description, skill.path, skill.message]
+        .filter(Boolean)
+        .join("\n");
+      chips.append(chip);
+    }
+    const item = denseItem(`Skills · ${activeSkills.length}`, "新会话可用", "ready");
+    item.append(chips);
+    nodes.push(item);
+  }
+  for (const skill of skillCatalog.filter((candidate) => candidate.status !== "active")) {
+    const item = denseItem(
+      `未加载 Skill · ${skill.name}`,
+      `${SKILL_SOURCE_LABELS[skill.source]} · ${skill.status === "shadowed" ? "同名被覆盖" : "已跳过"}`,
+      "degraded",
+    );
+    const reason = element("p");
+    reason.textContent = skill.message ? `${skill.message}（${skill.path}）` : skill.path;
+    item.append(reason);
+    nodes.push(item);
+  }
   for (const health of Object.values(snapshot.kernel.mcpServers)) {
     const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
     const actions = element("div", "item-actions");
@@ -2135,6 +2178,14 @@ function isJobDefinition(value: unknown): value is JobDefinition {
 function isResourceEntry(value: unknown): value is ResourceCatalogEntry {
   if (!isRecord(value) || !isRecord(value["record"]) || !isRecord(value["health"])) return false;
   return typeof value["record"]["name"] === "string" && typeof value["record"]["digest"] === "string";
+}
+
+function isSkillCatalogEntry(value: unknown): value is SkillCatalogEntry {
+  return isRecord(value)
+    && typeof value["name"] === "string"
+    && typeof value["path"] === "string"
+    && (value["source"] === "installed" || value["source"] === "bundled" || value["source"] === "workspace")
+    && (value["status"] === "active" || value["status"] === "skipped" || value["status"] === "shadowed");
 }
 
 function isInspection(value: unknown): value is StagedResourceInspection {

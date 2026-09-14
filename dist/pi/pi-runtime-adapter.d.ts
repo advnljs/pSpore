@@ -2,6 +2,7 @@ import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptMessageSlice, TranscriptPage } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
+import type { SessionSkill } from "../plugins/types.js";
 type Clock = () => Date;
 type IdFactory = () => string;
 export interface PiRuntimeAdapterOptions {
@@ -11,6 +12,12 @@ export interface PiRuntimeAdapterOptions {
     resolveModel?: (ref: ModelRef | undefined, runtime: ModelRuntime) => Model<string> | undefined;
     createTools?: (sessionId: SessionId) => readonly ToolDefinition[];
     createSkillPaths?: (sessionId: SessionId) => readonly string[] | Promise<readonly string[]>;
+    /**
+     * Skills already resolved outside Pi — the user's own workspace skills, which
+     * Pi's strict loader would drop for loose frontmatter. They join the path-based
+     * skills, which win any name collision.
+     */
+    createSkills?: (sessionId: SessionId) => readonly SessionSkill[] | Promise<readonly SessionSkill[]>;
     toolGate?: ToolGate;
     clock?: Clock;
     idFactory?: IdFactory;

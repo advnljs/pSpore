@@ -90,6 +90,7 @@ export function decodeDesktopCommand(value) {
         case "mcp.tools":
         case "resources.list":
         case "skills.list":
+        case "skills.catalog":
         case "plugins.list":
             exactKeys(input, ["action"], action);
             return { action };
@@ -210,6 +211,7 @@ export function toProtocolInvocation(command, paths) {
         case "mcp.tools":
         case "resources.list":
         case "skills.list":
+        case "skills.catalog":
         case "plugins.list":
             return { type: command.action, payload: {} };
         case "job.run":

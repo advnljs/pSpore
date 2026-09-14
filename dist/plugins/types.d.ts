@@ -74,6 +74,35 @@ export interface ResourceCatalogEntry {
     health: ResourceHealthRecord;
     installPath: string;
 }
+/**
+ * Where a skill a session can load came from. `installed` went through the
+ * staged exact-digest trust flow, `bundled` ships inside the release, and
+ * `workspace` is a directory the user put under `workspace/skills/` themselves.
+ */
+export type SkillSource = "installed" | "bundled" | "workspace";
+/**
+ * `active`: new sessions offer it to the model. `skipped`: it could not be
+ * loaded, and `message` says why. `shadowed`: another skill already owns its
+ * name, so this copy is ignored.
+ */
+export type SkillCatalogStatus = "active" | "skipped" | "shadowed";
+export interface SkillCatalogEntry {
+    name: string;
+    source: SkillSource;
+    status: SkillCatalogStatus;
+    /** The instructions file the model reads when it selects the skill. */
+    path: string;
+    description?: string;
+    message?: string;
+}
+/** A workspace skill resolved far enough to be offered to a session as-is. */
+export interface SessionSkill {
+    name: string;
+    description: string;
+    filePath: string;
+    baseDir: string;
+    disableModelInvocation: boolean;
+}
 export interface HostPluginHealth {
     status: "ready" | "degraded";
     message?: string;

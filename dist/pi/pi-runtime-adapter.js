@@ -1,7 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
 import { resolveSessionFile } from "../sessions/session-file.js";
 export class PiRuntimeAdapter {
     #agentDir;
@@ -10,6 +10,7 @@ export class PiRuntimeAdapter {
     #resolveModel;
     #createTools;
     #createSkillPaths;
+    #createSkills;
     #toolGate;
     #clock;
     #idFactory;
@@ -24,6 +25,7 @@ export class PiRuntimeAdapter {
                 ((ref, runtime) => (ref ? runtime.getModel(ref.provider, ref.model) : undefined));
         this.#createTools = options.createTools ?? (() => []);
         this.#createSkillPaths = options.createSkillPaths ?? (() => []);
+        this.#createSkills = options.createSkills ?? (() => []);
         this.#toolGate = options.toolGate;
         this.#clock = options.clock ?? (() => new Date());
         this.#idFactory = options.idFactory ?? randomUUID;
@@ -343,6 +345,7 @@ export class PiRuntimeAdapter {
             const policyExtension = this.#policyExtension(spec);
             const contextFiles = spec.contextFiles ? [...spec.contextFiles] : [];
             const skillPaths = [...await this.#createSkillPaths(spec.sessionId)].sort();
+            const resolvedSkills = [...await this.#createSkills(spec.sessionId)];
             const extensionFactories = policyExtension ? [policyExtension] : [];
             const services = await createAgentSessionServices({
                 cwd,
@@ -366,6 +369,9 @@ export class PiRuntimeAdapter {
                     noThemes: true,
                     noContextFiles: true,
                     ...(skillPaths.length > 0 ? { additionalSkillPaths: skillPaths } : {}),
+                    ...(resolvedSkills.length > 0
+                        ? { skillsOverride: (base) => withResolvedSkills(base, resolvedSkills) }
+                        : {}),
                     ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
                     ...(extensionFactories.length > 0 ? { extensionFactories } : {}),
                     ...(contextFiles.length > 0
@@ -609,6 +615,32 @@ export class PiRuntimeAdapter {
             ...(sessionFile ? { sessionFile } : {}),
         };
     }
+}
+/**
+ * Adds skills resolved outside Pi to what Pi loaded from paths. A name Pi
+ * already has keeps its skill — the same first-wins rule Pi applies among its
+ * own paths — and the loser is reported the way Pi reports a collision.
+ */
+function withResolvedSkills(base, resolved) {
+    const skills = [...base.skills];
+    const diagnostics = [...base.diagnostics];
+    for (const skill of resolved) {
+        const winner = skills.find((candidate) => candidate.name === skill.name);
+        if (winner) {
+            diagnostics.push({
+                type: "collision",
+                message: `name "${skill.name}" collision`,
+                path: skill.filePath,
+                collision: { resourceType: "skill", name: skill.name, winnerPath: winner.filePath, loserPath: skill.filePath },
+            });
+            continue;
+        }
+        skills.push({
+            ...skill,
+            sourceInfo: createSyntheticSourceInfo(skill.filePath, { source: "local", scope: "user", baseDir: skill.baseDir }),
+        });
+    }
+    return { skills, diagnostics };
 }
 function toBranchMessage(entry) {
     return { id: entry.id, ...toRuntimeMessage(entry.message) };

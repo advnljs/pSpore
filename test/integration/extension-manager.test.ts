@@ -147,6 +147,77 @@ describe("trusted staged resources", () => {
   });
 });
 
+describe("skills the user put in the workspace", () => {
+  test("reach new sessions alongside bundled and installed skills, and the catalog explains every one", async () => {
+    const fixture = await createFixture();
+    const bundled = join(fixture.root, "release", "bundled-skills");
+    await mkdir(join(bundled, "doc-extract"), { recursive: true });
+    await writeFile(join(bundled, "doc-extract", "SKILL.md"), "---\nname: doc-extract\ndescription: Bundled extraction.\nversion: 0.1.0\n---\n");
+    const staged = join(fixture.staging, "review-skill");
+    await mkdir(staged, { recursive: true });
+    await writeFile(join(staged, "SKILL.md"), skillText("review-skill"));
+
+    const errors: Error[] = [];
+    const manager = await managerFor(fixture, [], errors, bundled);
+    const inspected = await manager.inspect("review-skill");
+    const installed = await manager.install("review-skill", inspected.digest);
+    // Nothing of the user's yet: only the two managed skills, and no workspace entries.
+    assert.deepEqual(await manager.sessionSkills(), []);
+
+    // Added while the daemon runs — the next session must see it without a restart.
+    await mkdir(join(fixture.skills, "ccb-mail"), { recursive: true });
+    await writeFile(join(fixture.skills, "ccb-mail", "SKILL.md"), "---\nname: ccb-mail\ndescription: 发送邮件: 支持附件\n---\n");
+    await writeFile(join(fixture.skills, "ccb-mail", "SKILL_SENDMAIL.md"), "# send\n");
+    await mkdir(join(fixture.skills, "my-review"), { recursive: true });
+    await writeFile(join(fixture.skills, "my-review", "SKILL.md"), "---\nname: review-skill\ndescription: my copy\n---\n");
+
+    assert.deepEqual((await manager.sessionSkills()).map((skill) => [skill.name, skill.description]), [
+      ["ccb-mail", "发送邮件: 支持附件"],
+    ]);
+    // The bundled link and the installed copy stay on the path-based route and are not rescanned as workspace skills.
+    assert.deepEqual(await manager.skillPaths(), [installed.installPath, join(fixture.skills, "doc-extract")].sort());
+
+    const catalog = await manager.skillCatalog();
+    assert.deepEqual(catalog.map((entry) => [entry.source, entry.name, entry.status]), [
+      ["installed", "review-skill", "active"],
+      ["bundled", "doc-extract", "active"],
+      ["workspace", "ccb-mail", "active"],
+      ["workspace", "review-skill", "shadowed"],
+    ]);
+    assert.equal(catalog[0]?.path, join(installed.installPath, "SKILL.md"));
+    assert.equal(catalog[1]?.path, join(fixture.skills, "doc-extract", "SKILL.md"));
+    assert.equal(catalog[1]?.description, "Bundled extraction.");
+    assert.match(catalog[2]?.message ?? "", /not valid YAML/);
+    assert.match(catalog[3]?.message ?? "", /installed skill named review-skill takes precedence/);
+
+    // Revoking trust frees the name for the user's own copy at the next session.
+    await manager.disable("skill", "review-skill", inspected.digest);
+    assert.deepEqual((await manager.sessionSkills()).map((skill) => skill.name), ["ccb-mail", "review-skill"]);
+    const revoked = (await manager.skillCatalog()).find((entry) => entry.source === "installed");
+    assert.equal(revoked?.status, "skipped");
+    assert.match(revoked?.message ?? "", /[Tt]rust/);
+    assert.deepEqual(errors, []);
+  });
+
+  test("a directory of the user's under a bundled name is loaded as theirs, and the bundled entry says so", async () => {
+    const fixture = await createFixture();
+    const bundled = join(fixture.root, "release", "bundled-skills");
+    await mkdir(join(bundled, "doc-extract"), { recursive: true });
+    await writeFile(join(bundled, "doc-extract", "SKILL.md"), "---\nname: doc-extract\ndescription: Bundled.\nversion: 0.1.0\n---\n");
+    await mkdir(join(fixture.skills, "doc-extract"), { recursive: true });
+    await writeFile(join(fixture.skills, "doc-extract", "SKILL.md"), "# 我的文档抽取\n\n自己改过的版本。\n");
+
+    const manager = await managerFor(fixture, [], [], bundled);
+    assert.deepEqual(await manager.skillPaths(), []);
+    assert.deepEqual((await manager.sessionSkills()).map((skill) => [skill.name, skill.description]), [
+      ["doc-extract", "我的文档抽取 — 自己改过的版本。"],
+    ]);
+    const catalog = await manager.skillCatalog();
+    assert.deepEqual(catalog.map((entry) => [entry.source, entry.status]), [["bundled", "skipped"], ["workspace", "active"]]);
+    assert.match(catalog[0]?.message ?? "", /your own directory/);
+  });
+});
+
 interface Fixture {
   root: string;
   staging: string;
@@ -171,10 +242,12 @@ async function managerFor(
   fixture: Fixture,
   activations: readonly HostPluginActivationConfig[] = [],
   errors: Error[] = [],
+  bundledSkillsRoot?: string,
 ): Promise<ExtensionManager> {
   const manager = await ExtensionManager.create({
     stagingRoot: fixture.staging,
     skillsRoot: fixture.skills,
+    ...(bundledSkillsRoot === undefined ? {} : { bundledSkillsRoot }),
     pluginsRoot: fixture.plugins,
     trustPath: fixture.trustPath,
     activations,

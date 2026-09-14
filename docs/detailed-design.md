@@ -423,6 +423,8 @@ interface RetrievalProvider {
 
 生成新 skill/plugin 的流程固定为：生成到 `workspace/staging/` → schema/static check → 展示 diff、依赖与 capability → 用户显式安装 → 下个 session/restart 生效。禁止模型生成后自动加载执行。
 
+用户自己放进 `workspace/skills/` 的 skill（2026-09-14 起）视为用户已信任，按 Pi 的发现规则在每个新 session 边界重新扫描并载入，不走 staging。为维持上一条约束，模型通过 `edit` 写入该目录被 policy 标为风险（`ask_risky` 下需审批）；shell 写入无法完备识别，属于已知风险。同名时 installed/bundled 优先，工作区副本标为 shadowed。
+
 ### 10.3 Host plugin contract
 
 ```ts

@@ -18,6 +18,7 @@
 | `src/pi/pi-runtime-adapter.ts` | 唯一 Pi SDK 边界与领域事件映射 |
 | `bundled-skills/` | 随发行版携带的 skills；启动时由守护进程链接进 `workspace/skills/<name>`，见 `src/plugins/bundled-skills.ts` |
 | `src/plugins/bundled-skills.ts` | 发行版 skills 的读取、asar-unpacked 路径解析、workspace 链接与版本比对升级 |
+| `src/plugins/workspace-skills.ts` | 用户自己放进 `workspace/skills/` 的 skill：按 Pi 规则发现、宽容解析 frontmatter/描述、同名遮蔽与未加载原因；结果供会话注入与 `skills.catalog` |
 | `src/domain/indexing.ts` | 索引状态的纯类型与初始值；`KernelState` 经渲染器导入，因此这里必须不含任何 Node 内置模块 |
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
@@ -122,7 +123,8 @@
 - Job 原子更新：`npm run dev -- schedule put examples/jobs/heartbeat.json`；通知：`npm run dev -- notifications`。
 - Subagent：`npm run dev -- agents`；`agent spawn <objective>`、`agent send <id> <message>`、`agent join <id...>`、`agent cancel <id>`。
 - MCP：`npm run dev -- mcp list`；`mcp discover <server-id>`、`mcp tools`、`mcp ping <server-id>`。配置位于 `config.json#mcpServers`，secret 仅通过 `envRefs/headerRefs` 引用。
-- 资源：`npm run dev -- resources|skills|plugins`；`resource inspect <staging-path>`、`resource install <path> <sha256>`、`resource disable <kind> <name> <sha256>`。staging 位于 `workspace/staging/`，trust store 位于 `state/resource-trust.json`。
+- Skills 目录：`npm run dev -- skills`（= `skills.catalog`，列出 installed/bundled/workspace 三类 skill 的状态与未加载原因）；TUI `/skills`；GUI 集成页「Skills · N」与「未加载 skill」条目。用户自己的 skill 放 `~/.pspore/workspace/skills/<name>/SKILL.md`，新会话生效。
+- 资源：`npm run dev -- resources|plugins`；`resource inspect <staging-path>`、`resource install <path> <sha256>`、`resource disable <kind> <name> <sha256>`。staging 位于 `workspace/staging/`，trust store 位于 `state/resource-trust.json`。
 - Electron 工具链：`electron@43.3.0`；中国大陆环境可临时使用 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js` 下载二进制，不修改全局 npm 配置。`npm run build` 会同步 desktop 静态资源。
 
 ## 配置与运行数据

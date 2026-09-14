@@ -26,6 +26,7 @@ import { PsporeTuiView } from "./view.js";
 import { activityDetailLines } from "../shared/activity.js";
 import { conversationIntent, selectedAgent } from "../shared/presentation.js";
 import type { SessionView, TranscriptPage } from "../../domain/runtime.js";
+import type { SkillCatalogEntry } from "../../plugins/types.js";
 
 export interface TuiSettingsPort {
   get(): Promise<LlmSettings>;
@@ -332,13 +333,21 @@ export class PsporeTuiApp {
         ]);
         return;
       }
-      if (input === "/resources" || input === "/skills" || input === "/plugins") {
-        const command = input === "/skills" ? "skills.list" : input === "/plugins" ? "plugins.list" : "resources.list";
+      if (input === "/skills") {
+        const skills = await this.#command("skills.catalog", {}) as SkillCatalogEntry[];
+        this.#store.setPanel("Skills", skills.length === 0 ? ["No skills found"] : skills.flatMap((skill) => [
+          `• ${skill.name} · ${skill.source} · ${skill.status}`,
+          ...(skill.message ? [`    ${skill.message}`] : []),
+        ]));
+        return;
+      }
+      if (input === "/resources" || input === "/plugins") {
+        const command = input === "/plugins" ? "plugins.list" : "resources.list";
         const resources = await this.#command(command, {}) as Array<{
           record: { kind: string; name: string };
           health: { status: string };
         }>;
-        this.#store.setPanel(input === "/skills" ? "Skills" : input === "/plugins" ? "Host plugins" : "Trusted resources", resources.map((resource) => (
+        this.#store.setPanel(input === "/plugins" ? "Host plugins" : "Trusted resources", resources.map((resource) => (
           `• ${resource.record.kind} · ${resource.record.name} · ${resource.health.status}`
         )));
         return;

@@ -45,7 +45,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 14. MCP server 只在 discover/call/ping 时连接；配置只保存环境变量引用，不保存 secret。允许列表过滤后才激活 schema，动态 tool registry 在 session 边界更新；当前 session 使用固定的 `mcp_call` bridge。
 15. MCP 结果受 byte budget 约束，超限内容写入私有 artifact；audit 只保存参数哈希。transport 失败进入指数退避，空闲连接自动关闭；v1 没有 sandbox executor，因此 `sandboxed` 配置 fail closed。
 16. 生成资源只允许从 `workspace/staging` 检查；目录内容形成 deterministic SHA-256，显式安装必须提交相同 digest。安装使用不可变私有目录，trust store 只信任 exact content，不执行 staging 代码，也不自动运行依赖 lifecycle scripts。
-17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
+17. Skill 信任在下一 Pi session factory 调用时重验 digest，并通过 `additionalSkillPaths + noSkills` 实现受控 progressive disclosure；现有 session 不热变更。用户自己放进 `workspace/skills/` 的 skill 由 pSpore 扫描解析后经 `skillsOverride` 注入（2026-09-14），同名时 installed/bundled 优先；模型 `edit` 该目录属风险操作。Host plugin 除 exact trust 外还需 config digest/capability 完整匹配和 Daemon restart，不做热替换。
 18. Electron main 是桌面侧唯一 UDS owner；renderer 使用原生 DOM，仅通过固定 preload API 发送离散 action。main 对 action、snapshot/event、JSON 深度/大小和 event type 做二次校验，连续 delta 可合并但 cursor 顺序不可跳过。
 19. 生产 Desktop/TUI 不再拥有 Daemon：首次启动原子写入 systemd user unit，执行 `enable --now` 并尝试启用 linger；服务使用 `Restart=always`，客户端只连接 UDS。旧的 owned/external supervisor 仅保留给隔离 Electron smoke，测试不得写真实用户服务。
 20. 模型设置由 GUI/TUI/CLI 共用 `LlmSettingsService` 与严格 decoder，不进入公共 Daemon command union。非 secret 设置写入 `config.json/models.json`；Key 单独写 `0600 credentials/<provider>.api-key`，GUI/TUI 状态只获得存在状态。owned Daemon 保存后安全重启，external Daemon 不被客户端擅自中断。
@@ -128,3 +128,12 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **不可变共享**：kernel state 在 `dispatch()` 返回值与 effect runner 参数上按不可变约定共享，不再逐事件深拷贝；深拷贝只保留在 `snapshot()` 这一协议边界。
 - **内存**：replay window 同时受条数与字节上限约束，避免 durable 事件携带的快照在长任务中滞留数百 MiB。
 - **可恢复性**：systemd unit 进入 `failed` 后，客户端在启动服务前先 `reset-failed`；守护进程的未捕获 rejection 只写 journal 不退出，避免崩溃—重启—触发 start limit 的死锁。
+
+## 2026-09-14 变更：用户工作区 skills 进入会话
+
+- **问题**：会话只拿到 installed（staging 信任安装）与 bundled 两类 skill，且 `noSkills: true` 关掉了 Pi 自带的目录发现。用户直接放进 `~/.pspore/workspace/skills/` 的 skill（实际案例 `ccb-mail/`）从未进入系统提示词里的 `<available_skills>`，模型只能靠 shell 翻目录才"发现"它。
+- **决策**：`workspace/skills/` 是用户自己的目录，放进去即视为用户已信任（与 Pi `~/.pi/agent/skills`、Claude Code `~/.claude/skills` 的约定一致），不要求走 staging。staging exact-digest 流程保留给 host plugin 和需要内容钉死的 skill。
+- **为什么不直接把目录交给 Pi**：Pi 的加载器在 frontmatter 不是合法 YAML（中文描述里未加引号的 `: ` 就会触发）或缺 `description` 时**静默丢弃** skill，只留一条无人看到的 diagnostic——这正是"没识别到"的第二种形态。所以 pSpore 自己扫描、复用 Pi 导出的 `parseFrontmatter`（Pi 接受的内容语义不变），失败时逐行宽容读取、缺描述时用开头文字，再以 `SessionSkill` 描述符经 `skillsOverride` 注入。installed/bundled 仍走 `additionalSkillPaths`，契约不变。
+- **可见性**：新增 `skills.catalog`（installed/bundled/workspace × active/skipped/shadowed + 原因），CLI `pspore skills`、TUI `/skills`、GUI 集成页共用。旧 `skills.list` 保持原样，避免破坏既有客户端。
+- **信任边界补偿**：设计约束"禁止模型生成后自动加载执行"依旧成立——policy 把 `edit` 写入 `<workspace>/skills/**` 标为风险，`ask_risky` 下需要用户批准。shell 写入无法完备识别，与既有"`ask_risky` 不能完备识别 Shell 副作用"同属已知风险。
+- **生效时机**：每次 session factory 调用重新扫描，服务运行中新增的 skill 在新会话或服务重启（会话恢复）后可见；已存在会话不热更新，以保持系统提示词前缀稳定（KV cache）。

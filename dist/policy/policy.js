@@ -1,5 +1,5 @@
 import { realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 const MUTATING_CAPABILITIES = new Set([
     "fs.write",
     "fs.delete",
@@ -80,7 +80,15 @@ export class PolicyEngine {
                     capability: request.toolName.startsWith("memory_") ? "memory.write" : "fs.write",
                     canonicalTarget,
                     summary: `${request.toolName} ${canonicalTarget}`,
-                    riskReasons: this.#pathRisks(canonicalTarget, false),
+                    riskReasons: [
+                        ...this.#pathRisks(canonicalTarget, false),
+                        // Workspace skills load into every new session without an install
+                        // step, so a model writing one would be granting itself standing
+                        // instructions; the user decides that, not the model.
+                        ...(isWithin(join(this.#workspaceRoot, "skills"), canonicalTarget)
+                            ? ["changes skill instructions that new sessions load automatically"]
+                            : []),
+                    ],
                 };
             }
             case "shell": {

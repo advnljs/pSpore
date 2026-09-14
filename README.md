@@ -168,10 +168,22 @@ p-spore mcp ping <server-id>
 
 ### Skills and plugins
 
-Skills and host plugins can execute arbitrary code, so they are only loaded after you
-explicitly trust them. Staged content is inspected first — schema, paths, dependencies and
-syntax only, never imported — and installing requires echoing back the exact SHA-256 you
-were just shown.
+Your own skills go in `~/.pspore/workspace/skills/`: a directory holding a `SKILL.md`
+(nested suites like `office/excel/SKILL.md` work too) is offered to every new session.
+Frontmatter `name` and `description` are recommended; without a description, the skill's
+opening heading and paragraph describe it. Only the name, description and path stay in the
+prompt — the model reads the rest on demand. When the model itself edits a file in that
+directory, it asks for approval first (under `ask_risky`), because those instructions steer
+every later session.
+
+```bash
+p-spore skills    # installed, bundled and workspace skills, and why any one is not loaded
+```
+
+Host plugins, and skills you want pinned to an exact content digest, go through staging
+instead. Staged content is inspected first — schema, paths, dependencies and syntax only,
+never imported — and installing requires echoing back the exact SHA-256 you were just shown.
+An installed or bundled skill keeps its name if a workspace skill uses the same one.
 
 ```bash
 p-spore resource inspect <staging-path>
@@ -187,7 +199,9 @@ p-spore resource disable <skill|host-plugin> <name> <sha256>
 - Tools run as the user who started `p-spore`. This is **not** a sandbox.
 - `allow_all` lets the model run any tool action as that user, which can reach root if you
   have passwordless or cached `sudo`.
-- Skills, Pi extensions, plugins and local MCP servers are loaded only after explicit trust.
+- Pi extensions, plugins and local MCP servers are loaded only after explicit trust. Skills in
+  `workspace/skills/` count as trusted because you put them there; model edits to that
+  directory require approval, but a shell command can still bypass that check.
 
 ## Desktop client
 
