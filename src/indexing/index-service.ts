@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { initialIndexingStatus, type IndexingStatus } from "../domain/indexing.js";
 
 export { initialIndexingStatus } from "../domain/indexing.js";
-export type { IndexingPhase, IndexingStatus } from "../domain/indexing.js";
+export type { IndexingPassSummary, IndexingPhase, IndexingStatus } from "../domain/indexing.js";
 
 /**
  * Drives the bundled `aegis-search` CLI so the local full-text index stays
@@ -165,9 +165,11 @@ export class IndexService {
       skipped: 0,
       startedAt,
     };
-    // A new pass starts with no current file rather than the previous one's.
+    // A new pass starts with no current file rather than the previous one's;
+    // `lastPass` stays, so the index remains visibly usable while it rescans.
     delete fresh.currentFile;
     delete fresh.message;
+    delete fresh.finishedAt;
     this.#emit(fresh);
 
     try {
@@ -226,7 +228,10 @@ export class IndexService {
           return;
         }
         if (code === 0) {
-          this.#emit({ ...this.#status, phase: "idle", finishedAt: this.#clock().toISOString() });
+          // Normally the `done` record has already ended the pass; a CLI that
+          // exits cleanly without one still gets its pass recorded.
+          const alreadyCompleted = this.#status.phase === "idle" && this.#status.finishedAt !== undefined;
+          if (!alreadyCompleted) this.#emit(this.#completed(this.#status));
           resolve();
           return;
         }
@@ -250,9 +255,11 @@ export class IndexService {
     if (type !== "progress" && type !== "done") return;
 
     const status = record["status"];
-    this.#emit({
+    const next: IndexingStatus = {
       ...this.#status,
-      phase: type === "done" ? "idle" : status === "scanning" ? "scanning" : "indexing",
+      // The CLI's own `progress`/`done` status arrives just before the `done`
+      // record; it is still part of the pass, so it must not end it early.
+      phase: status === "scanning" ? "scanning" : status === "comparing" ? "comparing" : "indexing",
       total: numeric(record["total"], this.#status.total),
       processed: numeric(record["processed"], this.#status.processed),
       failed: numeric(record["failed"], this.#status.failed),
@@ -260,8 +267,28 @@ export class IndexService {
       ...(typeof record["currentFile"] === "string" && record["currentFile"]
         ? { currentFile: record["currentFile"] }
         : {}),
-      ...(type === "done" ? { finishedAt: this.#clock().toISOString() } : {}),
-    });
+    };
+    this.#emit(type === "done" ? this.#completed(next) : next);
+  }
+
+  /** Ends a pass as idle and keeps its result for the passes that follow. */
+  #completed(status: IndexingStatus): IndexingStatus {
+    const finishedAt = this.#clock().toISOString();
+    const started = status.startedAt ? Date.parse(status.startedAt) : Number.NaN;
+    const next: IndexingStatus = {
+      ...status,
+      phase: "idle",
+      finishedAt,
+      lastPass: {
+        finishedAt,
+        durationMs: Number.isFinite(started) ? Math.max(0, Date.parse(finishedAt) - started) : 0,
+        processed: status.processed,
+        skipped: status.skipped,
+        failed: status.failed,
+      },
+    };
+    delete next.currentFile;
+    return next;
   }
 
   #emit(status: IndexingStatus): void {

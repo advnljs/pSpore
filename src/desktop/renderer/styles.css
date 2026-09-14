@@ -419,6 +419,8 @@ kbd {
 
 @media (prefers-reduced-motion: reduce) {
   .run-activity-mark { animation: none !important; }
+  /* Without motion the tinted track alone marks the bar as busy; the elapsed time carries the rest. */
+  .indexing-panel[data-progress="indeterminate"] .indexing-bar i { animation: none !important; background-image: none; }
 }
 
 /* The fixed tool list is long and every entry is one short identifier, so it
@@ -789,6 +791,19 @@ select {
 .indexing-bar { position: relative; height: 6px; margin: 0 0 10px; border-radius: 999px; background: var(--surface-soft); border: 1px solid var(--border-soft); overflow: hidden; }
 .indexing-bar i { position: absolute; inset: 0 auto 0 0; width: 0; border-radius: 999px; background: var(--accent); transition: width 220ms var(--motion-out); }
 .indexing-panel[data-phase="failed"] .indexing-bar i { background: var(--rust); }
+/* The CLI walks and compares without reporting counts, sometimes for minutes:
+   a travelling fill says "working" where an empty bar read as a hang. */
+.indexing-panel[data-progress="indeterminate"] .indexing-bar i {
+  inset: 0;
+  width: auto;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  background-image: linear-gradient(90deg, transparent, var(--accent), transparent);
+  background-size: 45% 100%;
+  background-repeat: no-repeat;
+  transition: none;
+  animation: activity-travel 1.6s linear infinite;
+}
 .indexing-panel[data-phase="idle"] .indexing-bar i { background: var(--live); }
 .indexing-panel[data-phase="disabled"] .indexing-bar,
 .indexing-panel[data-phase="unconfigured"] .indexing-bar,

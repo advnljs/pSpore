@@ -21,6 +21,7 @@
 | `src/plugins/workspace-skills.ts` | 用户自己放进 `workspace/skills/` 的 skill：按 Pi 规则发现、宽容解析 frontmatter/描述、同名遮蔽与未加载原因；结果供会话注入与 `skills.catalog` |
 | `src/domain/indexing.ts` | 索引状态的纯类型与初始值；`KernelState` 经渲染器导入，因此这里必须不含任何 Node 内置模块 |
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
+| `src/desktop/renderer/indexing-view.ts` | GUI 本机索引面板的纯展示逻辑（阶段文案、确定/不确定进度、已用时、上次结果），DOM 无关、可单测 |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |
 | `src/protocol/limits.ts` | 客户端/守护进程双侧出站上限、`boundPublishedValue` 裁剪、NUL→`\uFFFD` 净化与 `publishedTextTruncation` 截断标记解析（标记格式的唯一定义处）|
@@ -112,7 +113,7 @@
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。
 - 端到端测试模型：统一用 `deepseek` / `deepseek-v4-flash`，Key 在 `~/.pspore/credentials/deepseek.api-key`。临时 home 做真实会话测试时复制该 Key 并配同样的 provider/model；用假 provider 会被 Pi 以 `Configured model is unavailable` 拒绝。见 `specs.md`。
 - 文档抽取：`document` 工具（`src/documents/extract.ts`）支持 docx/xlsx/pptx、doc/xls/ppt、pdf 与纯文本（UTF-8/UTF-16/GB18030）；格式按文件头字节判断，不看扩展名。PDF 依赖 `pdfjs-dist`，桌面版与 npm 安装可用，独立 SEA CLI 解析不到会明确报错降级（其余格式不受影响）。WPS 私有 `.wps`/`.et`/`.dps` 不支持，会提示另存为 OOXML。
-- 本机索引：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`，写入 `config.indexing`，需 `service restart` 生效；默认关闭且目录为空。`indexing.status.phase` 区分 `disabled`（未启用）/`unconfigured`（已启用但没选目录）/`unavailable`（缺索引程序），`status.enabled` 直接反映 `config.indexing.enabled`，GUI 右侧面板据此不再把已启用的索引显示成未启用。
+- 本机索引：`pspore config indexing show|on|off|add DIR|remove DIR|interval MINUTES|ext a,b,c`，写入 `config.indexing`，需 `service restart` 生效；默认关闭且目录为空。`indexing.status.phase` 区分 `disabled`（未启用）/`unconfigured`（已启用但没选目录）/`unavailable`（缺索引程序），`status.enabled` 直接反映 `config.indexing.enabled`，GUI 右侧面板据此不再把已启用的索引显示成未启用。扫描阶段另有 `scanning`/`comparing`（CLI 在这两段不报计数），GUI 显示不确定进度条与已用时；`status.lastPass` 保留上次完成的结果，重扫期间与无变化的增量扫描后都能看出索引可用。
 - 自动 compact：GUI 设置 → 自动压缩；TUI `/config compact on|off [RESERVE] [KEEP] [TRIGGER]`；CLI `config compact on|off [RESERVE] [KEEP] [TRIGGER]`。`TRIGGER` 是直接 active-context token 长度，默认 100000；保存于 `config.context.autoCompaction`，服务重启后应用。
 - 授权模式：`config permissions ask_risky|ask_all|allow_all|deny`（`bypass` = `allow_all`）；TUI `/config permissions MODE`；GUI 设置弹层“权限”区。写入 `config.permissions.mode`，需要 Daemon 重启生效（owned Daemon 由 GUI 自动重启）。
 - Electron：`npm run desktop` 或构建后 `node dist/cli/main.js desktop`；自动初始化并拥有/复用 Daemon，主视觉基准 `1920×1080`，PC 响应式补测 `1440×900`、`1180×720`。

@@ -14,7 +14,26 @@ export type IndexingPhase =
 /** Switched on, but no directory has been chosen, so no pass can run. */
  | "unconfigured"
 /** Switched on and configured, but the release shipped no indexer binary. */
- | "unavailable" | "idle" | "scanning" | "indexing" | "failed";
+ | "unavailable" | "idle"
+/** Walking the directories. The CLI reports no counts here, however long it takes. */
+ | "scanning"
+/** Checking what was found against the fingerprints of the last pass, also without counts. */
+ | "comparing" | "indexing" | "failed";
+/**
+ * The outcome of the last pass that ran to completion. It survives the next
+ * pass starting, so a rescan — which zeroes the live counters and can spend
+ * minutes walking a large tree without reporting anything — does not make an
+ * index that is already usable look as if it never ran.
+ */
+export interface IndexingPassSummary {
+    finishedAt: string;
+    durationMs: number;
+    /** Files that were new or changed and so were (re)indexed. */
+    processed: number;
+    /** Files unchanged since the previous pass. */
+    skipped: number;
+    failed: number;
+}
 export interface IndexingStatus {
     version: 1;
     /**
@@ -35,6 +54,7 @@ export interface IndexingStatus {
     finishedAt?: string;
     nextRunAt?: string;
     message?: string;
+    lastPass?: IndexingPassSummary;
 }
 export declare function initialIndexingStatus(): IndexingStatus;
 //# sourceMappingURL=indexing.d.ts.map

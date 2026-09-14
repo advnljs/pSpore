@@ -6,6 +6,7 @@ import { readFullMessage } from "../../ui/shared/full-message.js";
 import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import { DAEMON_NOT_CONNECTED_MESSAGE, } from "../ipc-contract.js";
 import { composeMessageWithFileReferences, composerFileReference, composerFileReferenceName, mergeComposerFileReferences, } from "./composer-file-references.js";
+import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import { animateMessagesIn, animateTranscriptHero, crossfadeText, flipStatusChip, hideOverlayMotion, introChoreography, nudgeElement, popChips, pulseStatus, revealListItems, revealPanel, setReconnectingPulse, showOverlayMotion, toggleBannerMotion, tweenMetric, } from "./motion.js";
 import { CONNECTION_SETTLE_MS, DesktopStore } from "./store.js";
@@ -55,6 +56,7 @@ const SESSION_DELETE_ARM_MS = 5_000;
  */
 let activityPhase;
 let activityTicker;
+let indexingTicker;
 const transcriptState = {
     sessionId: "",
     end: -1,
@@ -1648,12 +1650,6 @@ function currentRunPhase(snapshot) {
         return { key: `think:${sessionId}`, kind: "thinking", label: "思考中" };
     return { key: `wait:${sessionId}`, kind: "waiting", label: "等待模型响应" };
 }
-function formatElapsed(seconds) {
-    if (seconds < 60)
-        return `${seconds} 秒`;
-    const minutes = Math.floor(seconds / 60);
-    return seconds % 60 === 0 ? `${minutes} 分` : `${minutes} 分 ${seconds % 60} 秒`;
-}
 /** The elapsed count has to advance without new frames, so it drives itself. */
 function startActivityTicker() {
     if (activityTicker !== undefined)
@@ -1673,62 +1669,44 @@ function stopActivityTicker() {
     window.clearInterval(activityTicker);
     activityTicker = undefined;
 }
-const INDEXING_PHASE_LABEL = {
-    disabled: "未启用",
-    unconfigured: "缺少目录",
-    unavailable: "不可用",
-    idle: "空闲",
-    scanning: "扫描中",
-    indexing: "索引中",
-    failed: "失败",
-};
-/** Why a switched-on indexer is not making progress, in the panel's own words. */
-const INDEXING_IDLE_REASON = {
-    disabled: "未启用本机索引",
-    unconfigured: "已启用，但还没有选择要索引的目录",
-    unavailable: "已启用，但本次发行版没有可用的索引程序",
-};
 /**
  * Continuous indexing status. The daemon owns the work; this is a read-only
  * view so the user can tell whether a search is running against a current index.
  */
 function renderIndexing(snapshot) {
-    const indexing = snapshot.kernel.indexing;
-    const phase = indexing?.phase ?? "disabled";
-    elements.indexingPanel.dataset["phase"] = phase;
-    elements.indexingPhase.textContent = INDEXING_PHASE_LABEL[phase] ?? phase;
-    const total = indexing?.total ?? 0;
-    const processed = indexing?.processed ?? 0;
-    const done = phase === "idle" && total > 0;
-    const percent = done ? 100 : total > 0 ? Math.min(100, Math.round((processed / total) * 100)) : 0;
-    elements.indexingBarFill.style.width = `${percent}%`;
-    elements.indexingBarFill.parentElement?.setAttribute("aria-valuenow", String(percent));
-    const idleReason = INDEXING_IDLE_REASON[phase];
-    if (idleReason !== undefined) {
-        elements.indexingCounts.textContent = indexing?.message ?? idleReason;
-    }
-    else if (total > 0) {
-        elements.indexingCounts.textContent =
-            `${processed} / ${total} 个文件 · 跳过 ${indexing?.skipped ?? 0} · 失败 ${indexing?.failed ?? 0}`;
+    const view = presentIndexing(snapshot.kernel.indexing, Date.now());
+    elements.indexingPanel.dataset["phase"] = view.phase;
+    elements.indexingPanel.dataset["progress"] = view.percent === undefined ? "indeterminate" : "determinate";
+    elements.indexingPhase.textContent = view.phaseLabel;
+    const bar = elements.indexingBarFill.parentElement;
+    if (view.percent === undefined) {
+        // An indeterminate bar has no value; the stylesheet animates the fill instead.
+        elements.indexingBarFill.style.width = "";
+        bar?.removeAttribute("aria-valuenow");
     }
     else {
-        elements.indexingCounts.textContent = phase === "scanning" ? "正在扫描目录…" : "尚未开始";
+        elements.indexingBarFill.style.width = `${view.percent}%`;
+        bar?.setAttribute("aria-valuenow", String(view.percent));
     }
-    elements.indexingCurrent.textContent = phase === "indexing" ? (indexing?.currentFile ?? "") : "";
-    const directories = indexing?.directories ?? [];
-    const notes = [];
-    // The settings panel is the only place indexing is switched on, so the status
-    // panel repeats that switch rather than letting the phase stand in for it.
-    notes.push(indexing?.enabled ? "设置：已启用" : "设置：未启用");
-    if (phase === "unconfigured")
-        notes.push("在设置 → 本机索引中添加目录后开始索引");
-    if (phase === "failed" && indexing?.message)
-        notes.push(indexing.message);
-    else if (directories.length > 0)
-        notes.push(`索引目录：${directories.join("、")}`);
-    if (phase === "idle" && indexing?.nextRunAt)
-        notes.push(`下次检查 ${clockTime(indexing.nextRunAt)}`);
-    elements.indexingNote.textContent = notes.join(" · ");
+    elements.indexingCounts.textContent = view.counts;
+    elements.indexingCurrent.textContent = view.current;
+    elements.indexingNote.textContent = view.note;
+    if (view.ticking)
+        startIndexingTicker();
+    else
+        stopIndexingTicker();
+}
+/** A walk that reports nothing still has to show the clock moving. */
+function startIndexingTicker() {
+    if (indexingTicker !== undefined)
+        return;
+    indexingTicker = window.setInterval(() => renderIndexing(store.snapshot()), 1_000);
+}
+function stopIndexingTicker() {
+    if (indexingTicker === undefined)
+        return;
+    window.clearInterval(indexingTicker);
+    indexingTicker = undefined;
 }
 function renderJobs(snapshot) {
     const connected = snapshot.stableConnection.phase === "connected";

@@ -1,5 +1,24 @@
 # Overall Progress
 
+## 2026-09-14 — 本机索引面板不再"一直扫描中"（`0.1.27`）
+
+- 阶段目标：用户反馈右侧本机索引一直显示"扫描中"，也没有进度条。
+- 根因（用 aegis-search 0.2.1 真实二进制经管道实测，而非推测）：
+  - CLI `index --json` 依次输出 `scanning`(total=0) → `comparing`(total=0) → `indexing`(total=N) → `done`，逐行实时刷新（排除了管道缓冲）。**扫描、比对两段各只输出一行，全程无计数**；`/usr` 5.2 万文件仅扫描就 9–11 秒，更大的目录或慢盘会持续数分钟。旧面板这段时间只有"扫描中 · 正在扫描目录…"与空进度条，且默认每 30 分钟重扫一次就再来一遍。
+  - 无变化的增量扫描输出 `total=0, skipped=N`，旧面板结束后显示"空闲 · 尚未开始"加空进度条，像是从未运行。
+  - 已排除：符号链接环（CLI 不跟随，117 ms 结束）、与另一个索引进程共用索引/指纹库时的锁等待（无阻塞）、事件丢失（`indexing.status` 是 durable 事件，网关不丢弃）。
+- 完成内容：
+  - 领域 `IndexingStatus`：新增 `comparing` 阶段与 `lastPass`（完成时间、耗时、处理/未变化/失败数），下一次扫描开始后仍保留。
+  - `IndexService`：映射 `comparing`；`done` 记录与干净退出都能结束扫描但只记录一次；新扫描开始清掉 `finishedAt`、保留 `lastPass`。
+  - GUI：展示规则抽成纯函数 `src/desktop/renderer/indexing-view.ts`（`formatElapsed` 同时移入并补小时档，运行状态指示器复用）；扫描/比对/无待索引文件时 `data-progress="indeterminate"`，进度条复用 `activity-travel` 动效（reduced-motion 下只保留着色轨道）、去掉 `aria-valuenow`，每秒刷新"已用时"；超过 60 秒说明"期间没有逐个文件的进度"；有上次结果时注明"上次完成于 …，此前的索引仍可搜索"；完成后显示"已是最新"、满格进度条、本次更新/未变化/失败统计与用时。有总数时仍为真实百分比，"跳过"改称"未变化"。
+- 修改文件：`src/domain/indexing.ts`、`src/indexing/index-service.ts`、`src/desktop/renderer/{indexing-view.ts(新),renderer.ts,styles.css}`、`test/unit/{index-service.test.ts,desktop-indexing-view.test.ts(新)}`、`src/version.ts`、`package.json`、`package-lock.json`（仅版本号）、memory-bank、`dist/**`。
+- 验证方式与结果：
+  - 针对性测试：`index-service` 7 项（新增：以真实 CLI 输出回放的"无变化扫描"用例，覆盖 `comparing` 阶段、`lastPass`、完成只记录一次、重扫期间保留上次结果）、`desktop-indexing-view` 5 项、渲染器模块图 2 项，全部通过。
+  - 端到端（构建后的 daemon + 真实 aegis-search 二进制，临时 `HOME` 隔离共享索引，索引 `/usr`、间隔 1 分钟，协议客户端记录全部 `indexing.status`）：`scanning`(9.1 s) → `comparing` → `indexing 1/1` → `idle` 记录 `lastPass{processed:1,durationMs:9865}`；60 秒后重扫 `scanning` 期间 `lastPass` 保留 → `comparing` → `indexing total=0 skipped=1` → `idle`，`lastPass` 更新为 `{processed:0,skipped:1}`。
+  - GUI（`1920×1080`，桌面端连接上述真实 daemon，dist 临时插桩截图后已 `npm run build` 覆盖）："扫描中 · 正在扫描目录 · 已用时 2 秒"，进度条 `animation=activity-travel`、无 `aria-valuenow`，备注"上次完成于 03:46 PM，此前的索引仍可搜索"；完成后"已是最新 · 没有变化 · 已检查 1 个文件"，满格、`aria-valuenow=100`，备注含用时与下次检查时间。截图人工复核无溢出。
+- 当前状态：待完整检查、提交推送并由 CI 发布 `v0.1.27`。
+- 遗留问题：CLI 扫描阶段仍无计数（需上游改动）；并发实测发现与桌面版共用指纹库时可能互相清除条目（待上游确认）；均见 `todo.md`。
+
 ## 2026-09-14 — 用户本地 skills 进入会话（`0.1.26`）
 
 - 阶段目标：用户问"查看你的skills"时 agent 只列出内置的 `aegis-search`、`doc-extract`，看不到用户早已放进 `~/.pspore/workspace/skills/ccb-mail/` 的邮件技能套件，只能靠 shell 翻目录"发现"。修好并发布新版。
@@ -20,7 +39,8 @@
   - `npm run typecheck` 通过；`npm test` 234 项中 233 通过，唯一失败为 todo 中已记录的 MCP `-32001 Request timed out` 抖动用例（两轮分别落在 `daemon.test.ts` 与 `mcp-manager.test.ts`，在**未改动的 HEAD worktree 上同样失败**；实测 fixture `node --import tsx` 冷启动 2.04 s，已超过用例的 2 s 请求超时）；`npm run build` 通过。本地 `node_modules` 缺 lockfile 中已有的 `pdfjs-dist`，以 `npm install --no-save --ignore-scripts` 补回（lockfile 校验和不变），PDF 用例随后通过。
   - 端到端（构建产物）：本机没有 DeepSeek 凭据（`~/.pspore/credentials/` 为空），改用真实 daemon + 真实 Pi adapter 指向本地 OpenAI 兼容 mock，抓取实际发出的系统提示词。修复后 `<available_skills>` 含 `aegis-search`、`doc-extract`、`ccb-mail`（YAML 不合法的描述原样保留）、`weekly-report`（无 frontmatter，描述"周报助手 — 根据本周会议纪要生成周报并发给部门负责人。"）；只有 `SKILL_DRAFT.md` 的 `half-done` 在 `pspore skills` 中为 `skipped` 并说明原因。**对照组**（未改动 HEAD 的 dist，同一场景）只发出 `aegis-search`、`doc-extract` 两个——与用户截图症状一致。
   - GUI（主基准 `1920×1080`）：本机无 `xvfb-run`，经 X 转发显示运行 `npm run test:electron`，完整 smoke 因 2–3 s 时序等待超时失败（设置弹层关闭 / 重连遮罩），**未改动的 HEAD 在同一环境同样失败**，判定为环境问题；Chromium headless Ozone 后端直接 SIGSEGV，私有解包的 Xvfb 需要 `/usr/bin/xkbcomp` 无法使用。改为在 dist 临时插桩（随后 `npm run build` 覆盖，已确认无残留）截取集成页：「Skills · 3 · 新会话可用」列出 aegis-search / doc-extract / smoke-mail，「未加载 Skill · smoke-draft · 本地 · 已跳过」附原因与路径，换行正常无溢出。完整 smoke（含新断言）由 CI ARM64 job 在发版前执行。
-- 当前状态：代码、测试、文档与 memory-bank 已完成；待提交推送并由 CI 发布 `v0.1.26`。
+- 发布与远端复验（`v0.1.26`）：提交 `3bca7fd` 推送 `main`；CI run `34817507104`（Check + Tag and release）与 ARM64 run `34817507029` 均成功——ARM64 上 234 项测试 0 失败，`Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 …`（含本轮新增的 skill 断言）。annotated tag `v0.1.26` 指向 `3bca7fd`，Release run `34817835086` 四个 job 全部成功。Release 非 draft/prerelease、12 项资产带架构标签；下载 `pspore-desktop-0.1.26-linux-x64-overlay.zip` 实测 `sha256sum --check` 通过，manifest 为 `appVersion 0.1.26 / electron 43.3.0 / x64`，包内 `app.asar` 含 `PSPORE_VERSION = "0.1.26"`、`skills.catalog`、`scanWorkspaceSkills`、policy 新风险文案与「未加载 Skill」。
+- 当前状态：已发布并远端复验。
 - 遗留问题：已存在会话不热加载运行中新增的 skill（新会话或服务重启后可见）；本机 MCP 用例超时与 Electron smoke 时序问题；均见 `todo.md`。
 
 ## 2026-09-09 — 窗口缩放不重排、发布不再经过制品存储

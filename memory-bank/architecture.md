@@ -137,3 +137,12 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **可见性**：新增 `skills.catalog`（installed/bundled/workspace × active/skipped/shadowed + 原因），CLI `pspore skills`、TUI `/skills`、GUI 集成页共用。旧 `skills.list` 保持原样，避免破坏既有客户端。
 - **信任边界补偿**：设计约束"禁止模型生成后自动加载执行"依旧成立——policy 把 `edit` 写入 `<workspace>/skills/**` 标为风险，`ask_risky` 下需要用户批准。shell 写入无法完备识别，与既有"`ask_risky` 不能完备识别 Shell 副作用"同属已知风险。
 - **生效时机**：每次 session factory 调用重新扫描，服务运行中新增的 skill 在新会话或服务重启（会话恢复）后可见；已存在会话不热更新，以保持系统提示词前缀稳定（KV cache）。
+
+## 2026-09-14 变更：索引面板不再"一直扫描中"
+
+- **现象**：GUI 右侧本机索引长时间显示"扫描中"，进度条为空。
+- **实测根因**（aegis-search 0.2.1 真实二进制）：`index --json` 的输出是 `scanning`（total=0）→ `comparing`（total=0）→ `indexing`（total=N）→ `done`，逐行实时刷新，**扫描与比对阶段整个过程只各输出一行、没有任何计数**；`/usr` 5.2 万文件仅扫描就 9–11 秒，用户目录更大或在飞腾/机械盘/网络盘上会持续数分钟。无变化的增量扫描输出 `total=0, skipped=N`，旧面板把它显示成"空闲 · 尚未开始"。事件传输无问题：`indexing.status` 是 durable 事件，不会被网关丢弃。
+- **决策**：不改上游 CLI（发布链路仍受阻），在 pSpore 侧补足语义：
+  - 领域：新增 `comparing` 阶段；新增 `lastPass`（完成时间、耗时、处理/未变化/失败数），在下一次扫描开始后仍保留。
+  - `IndexService`：`done` 记录与干净退出都会结束一次扫描，但只记录一次；新扫描开始时清掉 `finishedAt`、保留 `lastPass`。
+  - GUI：展示规则抽成 `src/desktop/renderer/indexing-view.ts` 纯函数；扫描/比对/无待索引文件时为不确定进度条（复用 `activity-travel` 动效，reduced-motion 下只保留着色轨道）+ 每秒刷新的已用时；超过 60 秒说明"期间没有逐个文件的进度"；有上次结果时注明"此前的索引仍可搜索"；完成后显示"已是最新"、满格进度条与统计。

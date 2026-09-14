@@ -2,7 +2,7 @@ import type { ChildProcess } from "node:child_process";
 import type { Readable } from "node:stream";
 import { type IndexingStatus } from "../domain/indexing.js";
 export { initialIndexingStatus } from "../domain/indexing.js";
-export type { IndexingPhase, IndexingStatus } from "../domain/indexing.js";
+export type { IndexingPassSummary, IndexingPhase, IndexingStatus } from "../domain/indexing.js";
 /**
  * Drives the bundled `aegis-search` CLI so the local full-text index stays
  * current while the daemon runs. The CLI writes the same index directory the

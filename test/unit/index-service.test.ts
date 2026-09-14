@@ -60,6 +60,83 @@ test("a pass reports scanning, progress and completion from the CLI's JSON strea
   }
 });
 
+// Recorded from aegis-search 0.2.1 itself: an incremental pass over 300 files
+// where nothing changed walks, compares, and reports every file as skipped.
+const UNCHANGED_PASS = [
+  '{"type":"progress","status":"scanning","total":0,"processed":0,"failed":0,"skipped":0,"currentFile":""}',
+  '{"type":"progress","status":"comparing","total":0,"processed":0,"failed":0,"skipped":0,"currentFile":""}',
+  '{"type":"progress","status":"indexing","total":0,"processed":0,"failed":0,"skipped":300,"currentFile":""}',
+  '{"type":"progress","status":"done","total":0,"processed":0,"failed":0,"skipped":300,"currentFile":""}',
+  '{"type":"done","total":0,"processed":0,"failed":0,"skipped":300,"indexPath":"/idx"}',
+];
+
+test("a pass that finds nothing new still ends as a completed pass, and its result outlives the next one starting", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pspore-index-unchanged-"));
+  try {
+    const release = join(root, "release");
+    // The second pass blocks after walking, so the status mid-rescan can be observed.
+    const binary = await writeFakeIndexer(root, [
+      `if [ -e ${JSON.stringify(join(root, "second"))} ]; then`,
+      "  echo '{\"type\":\"progress\",\"status\":\"scanning\",\"total\":0,\"processed\":0,\"failed\":0,\"skipped\":0,\"currentFile\":\"\"}'",
+      `  while [ ! -e ${JSON.stringify(release)} ]; do sleep 0.05; done`,
+      "  exit 0",
+      "fi",
+      `touch ${JSON.stringify(join(root, "second"))}`,
+      ...UNCHANGED_PASS.map((line) => `echo '${line}'`),
+      "exit 0",
+    ].join("\n"));
+
+    let tick = Date.parse("2026-09-14T08:00:00.000Z");
+    const seen: IndexingStatus[] = [];
+    const service = new IndexService({
+      binaryPath: binary,
+      directories: ["/docs"],
+      extensions: [],
+      intervalMs: 60_000,
+      enabled: true,
+      clock: () => new Date((tick += 1_500)),
+      onStatus: (status) => seen.push(status),
+    });
+    await service.start();
+    await service.runNow();
+
+    const first = service.status();
+    assert.equal(first.phase, "idle");
+    assert.deepEqual(seen.map((status) => status.phase).filter((phase, index, all) => phase !== all[index - 1]), [
+      "idle", "scanning", "comparing", "indexing", "idle",
+    ]);
+    assert.ok(first.lastPass, "a pass with nothing to index is still a finished pass");
+    assert.equal(first.lastPass.processed, 0);
+    assert.equal(first.lastPass.skipped, 300);
+    assert.equal(first.lastPass.finishedAt, first.finishedAt);
+    assert.ok(first.lastPass.durationMs > 0);
+    // The `done` record ends the pass; the clean exit after it must not record it twice.
+    assert.equal(seen.filter((status) => status.lastPass !== undefined && status.phase === "idle" && !status.nextRunAt).length, 1);
+
+    const second = service.runNow();
+    await waitFor(() => service.status().phase === "scanning");
+    const rescanning = service.status();
+    assert.deepEqual(rescanning.lastPass, first.lastPass, "a rescan keeps showing the last result");
+    assert.equal(rescanning.finishedAt, undefined, "a pass in flight has not finished");
+    assert.equal(rescanning.total, 0);
+    await writeFile(release, "");
+    await second;
+    await service.stop();
+    assert.equal(service.status().phase, "idle");
+    assert.notEqual(service.status().lastPass?.finishedAt, first.lastPass.finishedAt);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+async function waitFor(predicate: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error("condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
 test("the configured directories and extensions reach the indexer", async () => {
   const root = await mkdtemp(join(tmpdir(), "pspore-index-args-"));
   try {
