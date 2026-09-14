@@ -16,7 +16,9 @@
   - 针对性测试：`index-service` 7 项（新增：以真实 CLI 输出回放的"无变化扫描"用例，覆盖 `comparing` 阶段、`lastPass`、完成只记录一次、重扫期间保留上次结果）、`desktop-indexing-view` 5 项、渲染器模块图 2 项，全部通过。
   - 端到端（构建后的 daemon + 真实 aegis-search 二进制，临时 `HOME` 隔离共享索引，索引 `/usr`、间隔 1 分钟，协议客户端记录全部 `indexing.status`）：`scanning`(9.1 s) → `comparing` → `indexing 1/1` → `idle` 记录 `lastPass{processed:1,durationMs:9865}`；60 秒后重扫 `scanning` 期间 `lastPass` 保留 → `comparing` → `indexing total=0 skipped=1` → `idle`，`lastPass` 更新为 `{processed:0,skipped:1}`。
   - GUI（`1920×1080`，桌面端连接上述真实 daemon，dist 临时插桩截图后已 `npm run build` 覆盖）："扫描中 · 正在扫描目录 · 已用时 2 秒"，进度条 `animation=activity-travel`、无 `aria-valuenow`，备注"上次完成于 03:46 PM，此前的索引仍可搜索"；完成后"已是最新 · 没有变化 · 已检查 1 个文件"，满格、`aria-valuenow=100`，备注含用时与下次检查时间。截图人工复核无溢出。
-- 当前状态：待完整检查、提交推送并由 CI 发布 `v0.1.27`。
+- 完整检查：`npm run typecheck` 通过；`npm test` 240 项中 238 通过，失败的 2 项仍是本机 MCP fixture 冷启动超时（`daemon.test.ts`、`mcp-manager.test.ts`，未改动 HEAD 同样失败）；`npm run build` 通过；`git diff --check` 通过。
+- 发布与远端复验（`v0.1.27`）：提交 `19f506a` 推送 `main`；CI run `34820088146`（Check + Tag and release）与 ARM64 run `34820088120` 成功——ARM64 上 240 项 0 失败、Electron smoke 通过。annotated tag `v0.1.27` 指向 `19f506a`，Release run `34820428437` 四个 job 全部成功；Release 非 draft/prerelease，12 项资产均带架构标签。下载 x64 overlay 实测 `sha256sum --check` 通过，manifest `appVersion 0.1.27 / electron 43.3.0 / x64`，包内 `app.asar` 含 `PSPORE_VERSION = "0.1.27"`、`presentIndexing`、"正在比对文件变化"、"此前的索引仍可搜索"、`lastPass`，以及 `0.1.26` 的 `skills.catalog`。
+- 当前状态：已发布并远端复验。
 - 遗留问题：CLI 扫描阶段仍无计数（需上游改动）；并发实测发现与桌面版共用指纹库时可能互相清除条目（待上游确认）；均见 `todo.md`。
 
 ## 2026-09-14 — 用户本地 skills 进入会话（`0.1.26`）
