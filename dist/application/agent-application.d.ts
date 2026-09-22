@@ -1,3 +1,4 @@
+import type { ArticleStore } from "../articles/store.js";
 import type { AgentSessionHost } from "../agents/agent-manager.js";
 import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "../agents/types.js";
 import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";
@@ -34,6 +35,8 @@ export interface AgentApplicationOptions {
         description?: string;
     }[];
     onShutdownRequested?: () => void;
+    /** Article panel storage. Commands that read it fail closed when it was not wired. */
+    articles?: ArticleStore;
     clock?: () => Date;
     idFactory?: () => string;
     onError?: (error: Error) => void;

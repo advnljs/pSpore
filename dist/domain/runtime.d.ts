@@ -134,7 +134,7 @@ export interface TranscriptItem {
     ts: string;
 }
 export type TranscriptDeltaKind = "text" | "thinking";
-export type RuntimeEventType = "session.replaced" | "run.started" | "run.settled" | "transcript.item.started" | "transcript.delta" | "transcript.item.finished" | "tool.started" | "tool.updated" | "tool.completed" | "queue.updated" | "compaction.started" | "compaction.completed" | "retry.started" | "retry.completed" | "runtime.error";
+export type RuntimeEventType = "session.replaced" | "run.started" | "run.settled" | "transcript.item.started" | "transcript.delta" | "transcript.item.finished" | "tool.started" | "tool.updated" | "tool.completed" | "article.preview" | "queue.updated" | "compaction.started" | "compaction.completed" | "retry.started" | "retry.completed" | "runtime.error";
 export interface RuntimeEvent {
     id: string;
     sessionId: SessionId;
@@ -199,5 +199,18 @@ export interface AgentRuntimePort {
     subscribe(sessionId: SessionId, sink: (event: RuntimeEvent) => void): () => void;
     waitForIdle(sessionId: SessionId): Promise<void>;
     dispose(sessionId: SessionId): Promise<void>;
+    /**
+     * Markdown the model is still streaming into an `article` tool call.
+     * Absent on runtimes that do not host that tool.
+     */
+    articlePreview?(toolCallId: string): ArticleDraftView | undefined;
+}
+/** A not-yet-saved article, addressed by the tool call that is writing it. */
+export interface ArticleDraftView {
+    toolCallId: string;
+    sessionId: string;
+    title?: string;
+    articleId?: string;
+    content: string;
 }
 //# sourceMappingURL=runtime.d.ts.map

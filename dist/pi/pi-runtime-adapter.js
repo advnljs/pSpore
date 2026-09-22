@@ -2,6 +2,9 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
+import { articleDraftFromUpdate } from "../articles/draft.js";
+import { ArticlePreviewBus } from "../articles/preview.js";
+import { publishedArticleValue } from "../articles/publish.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
 export class PiRuntimeAdapter {
     #agentDir;
@@ -15,6 +18,7 @@ export class PiRuntimeAdapter {
     #clock;
     #idFactory;
     #autoCompaction;
+    #articlePreviews = new ArticlePreviewBus();
     #sessions = new Map();
     constructor(options, modelRuntime) {
         this.#agentDir = options.agentDir;
@@ -41,6 +45,9 @@ export class PiRuntimeAdapter {
                 refreshOnCreate: false,
             }));
         return new PiRuntimeAdapter(options, modelRuntime);
+    }
+    articlePreview(toolCallId) {
+        return this.#articlePreviews.get(toolCallId);
     }
     async create(spec) {
         this.#assertNewSession(spec.sessionId);
@@ -472,6 +479,9 @@ export class PiRuntimeAdapter {
             }
             case "message_update": {
                 const update = event.assistantMessageEvent;
+                if (update.type === "toolcall_delta" || update.type === "toolcall_end") {
+                    this.#noteArticleDraft(record, event.message, update);
+                }
                 if (update.type !== "text_delta" && update.type !== "thinking_delta")
                     break;
                 const kind = update.type === "text_delta" ? "text" : "thinking";
@@ -491,17 +501,22 @@ export class PiRuntimeAdapter {
                 break;
             }
             case "tool_execution_start":
-                this.#emit(record, "tool.started", { toolCallId: event.toolCallId, toolName: event.toolName, input: event.args }, false);
+                this.#emit(record, "tool.started", {
+                    toolCallId: event.toolCallId,
+                    toolName: event.toolName,
+                    input: publishedArticleValue(event.toolName, event.args),
+                }, false);
                 break;
             case "tool_execution_update":
                 this.#emit(record, "tool.updated", { toolCallId: event.toolCallId, toolName: event.toolName, partialResult: event.partialResult }, true);
                 break;
             case "tool_execution_end":
+                this.#articlePreviews.clear(event.toolCallId);
                 this.#emit(record, "tool.completed", {
                     toolCallId: event.toolCallId,
                     toolName: event.toolName,
                     isError: event.isError,
-                    result: event.result,
+                    result: publishedArticleValue(event.toolName, event.result),
                 }, false);
                 break;
             case "queue_update":
@@ -550,6 +565,19 @@ export class PiRuntimeAdapter {
             status: "complete",
             ts: streaming.startedAt,
         };
+    }
+    #noteArticleDraft(record, message, update) {
+        const draft = articleDraftFromUpdate(record.spec.sessionId, update, message);
+        if (!draft)
+            return;
+        if (!this.#articlePreviews.note(draft, this.#clock().getTime()))
+            return;
+        this.#emit(record, "article.preview", {
+            toolCallId: draft.toolCallId,
+            ...(draft.title === undefined ? {} : { title: draft.title }),
+            ...(draft.articleId === undefined ? {} : { articleId: draft.articleId }),
+            chars: draft.content.length,
+        }, true);
     }
     #emit(record, type, payload, transient) {
         const event = {

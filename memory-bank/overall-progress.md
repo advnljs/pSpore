@@ -1,5 +1,23 @@
 # Overall Progress
 
+## 2026-09-22 — 长文文稿面板与导出（未升版本）
+
+- 阶段目标：写长文时不把正文直接回进聊天，而是打开一个 Markdown 面板，多次更新同一份文稿、持续渲染并展示版本差异（带动画）；可导出 txt、md、docx、pdf。docx/pdf 保留富文本，txt 去掉 Markdown 标记。
+- 完成内容：
+  - `article` 工具与 `ArticleStore`：文稿在 `workspace/articles/<id>/`，每次有变化的写入是一个不可变版本，另有 `current.md`。聊天回执第一行是 `article <id> version N`。
+  - 流式预览不把正文放进协议事件（64 KiB 上限，瞬时事件还会被丢掉）。事件只带元数据，面板用 `article.preview` / `article.get` 按片取回后渲染。
+  - 面板：撰写中重绘草稿；新版本相对上一版做段落 diff，新增段脉冲（最多 16 段，只动透明度与位移，遵守 reduced-motion）。「对照上一版」留下被删段落。版本芯片可回看。工具回执在聊天里变成「打开文稿」卡片。
+  - 导出在 Electron 主进程：txt 纯文本、md 原文、docx 为自写 OOXML、pdf 为隐藏沙箱窗口的 `printToPDF`。无新依赖。
+  - 内置 skill `article-canvas` 要求模型把长文交给该工具，聊天只留一两句。
+  - `document` 抽取工具原先没有策略分类，`ask_risky` 下每次都会问。现归为 `fs.read`。`article` 归为 `fs.write` 且风险原因为空，默认模式不逐次询问；`ask_all` 仍会问。
+- 修改文件：`src/articles/**`、`src/desktop/article-export.ts`、`src/desktop/renderer/article-panel.ts` 及 renderer/main/preload/ipc/styles/motion、`src/pi/pi-runtime-adapter.ts`、`src/application/agent-application.ts`、`src/daemon/daemon.ts`、`src/policy/policy.ts`、`src/domain/runtime.ts`、`src/desktop/validation.ts`、`src/ui/shared/activity.ts`、`bundled-skills/article-canvas/SKILL.md`、`test/unit/{article.test.ts,policy-approval.test.ts}`、`test/integration/daemon.test.ts`、memory-bank、`dist/**`。未改 `src/version.ts` 与 `package.json` 版本。未纳入无关的 `refer/`。
+- 验证方式与结果：
+  - `node_modules/.bin/tsc --noEmit` 通过。
+  - `npm test` 等价的 `tsx --test test/**/*.test.ts`：247 项全部通过（含文稿 diff/纯文本/html/docx/存储/预览、策略、渲染器模块图、daemon 工具列表）。
+  - 本机没有 `xvfb-run`，没有跑 Electron smoke，也没有在真实窗口里点过面板和导出。布局上面板默认隐藏，避免 1920×1080 smoke 因多一列而溢出。
+- 当前状态：`npm run build` 已通过，`dist/` 与源码一并提交。版本仍是 `0.1.27`，本次不发布。
+- 遗留问题：TUI 没有渲染面板；`ask_all` 下每次写入仍会询问；已打开的会话要等新会话或重启才看得到 `article-canvas` skill。见 `todo.md`。
+
 ## 2026-09-14 — 本机索引面板不再"一直扫描中"（`0.1.27`）
 
 - 阶段目标：用户反馈右侧本机索引一直显示"扫描中"，也没有进度条。

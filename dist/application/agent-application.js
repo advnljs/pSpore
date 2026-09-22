@@ -51,6 +51,7 @@ export class AgentApplication {
     #unsubscribers = new Map();
     #sessionTails = new Map();
     #automation;
+    #articles;
     #agents;
     #mcp;
     #resources;
@@ -68,6 +69,7 @@ export class AgentApplication {
             ...(tool.description === undefined ? {} : { description: tool.description }),
         }));
         this.#onShutdownRequested = options.onShutdownRequested;
+        this.#articles = options.articles;
         this.#clock = options.clock ?? (() => new Date());
         this.#idFactory = options.idFactory ?? randomUUID;
         this.#onError = options.onError ?? (() => undefined);
@@ -300,9 +302,52 @@ export class AgentApplication {
                 exactPayload(command.payload, [], command.type);
                 this.#onShutdownRequested?.();
                 return { draining: true };
+            case "article.list": {
+                exactPayload(command.payload, [], command.type);
+                const sessionId = requiredSessionId(command);
+                return { articles: await this.#requireArticles().list(sessionId) };
+            }
+            case "article.get": {
+                const payload = exactPayload(command.payload, ["id", "version", "offset", "limit"], command.type);
+                const sessionId = requiredSessionId(command);
+                const version = optionalBoundedIndex(payload["version"], "payload.version", 100);
+                const offset = optionalBoundedIndex(payload["offset"], "payload.offset");
+                const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_MESSAGE_SLICE) ?? MAX_MESSAGE_SLICE;
+                const document = await this.#requireArticles().read({
+                    sessionId,
+                    id: nonEmptyString(payload["id"], "payload.id"),
+                    ...(version === undefined || version < 1 ? {} : { version }),
+                    ...(offset === undefined ? {} : { offset }),
+                    limit,
+                });
+                return document ?? null;
+            }
+            case "article.preview": {
+                const payload = exactPayload(command.payload, ["toolCallId", "offset", "limit"], command.type);
+                const sessionId = requiredSessionId(command);
+                const draft = this.#runtime.articlePreview?.(nonEmptyString(payload["toolCallId"], "payload.toolCallId"));
+                if (!draft || draft.sessionId !== sessionId)
+                    return null;
+                const offset = optionalBoundedIndex(payload["offset"], "payload.offset") ?? 0;
+                const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_MESSAGE_SLICE) ?? MAX_MESSAGE_SLICE;
+                const start = Math.min(Math.max(0, offset), draft.content.length);
+                return {
+                    toolCallId: draft.toolCallId,
+                    ...(draft.title === undefined ? {} : { title: draft.title }),
+                    ...(draft.articleId === undefined ? {} : { articleId: draft.articleId }),
+                    offset: start,
+                    length: draft.content.length,
+                    text: draft.content.slice(start, start + limit),
+                };
+            }
             default:
                 throw new CommandError("unknown_command", `Unknown command type: ${command.type}`);
         }
+    }
+    #requireArticles() {
+        if (!this.#articles)
+            throw new CommandError("unavailable", "Article store is not configured");
+        return this.#articles;
     }
     setAutomation(automation) {
         if (this.#automation)

@@ -206,6 +206,8 @@ function compactionReason(payload) {
 export function toolLabel(toolName, status) {
     const labels = {
         read: ["Reading file", "Read file"],
+        document: ["Reading document", "Read document"],
+        article: ["Writing article", "Wrote article"],
         edit: ["Updating file", "Updated file"],
         search: ["Searching workspace", "Searched workspace"],
         shell: ["Running command", "Ran command"],
@@ -248,7 +250,9 @@ export function formatDuration(durationMs) {
     return `${minutes}m ${seconds}s`;
 }
 function toolTarget(toolName, input) {
-    if (toolName === "read" || toolName === "edit") {
+    if (toolName === "article")
+        return stringValue(input["title"]) ?? stringValue(input["id"]) ?? "article";
+    if (toolName === "read" || toolName === "document" || toolName === "edit") {
         return compactPath(stringValue(input["path"]) ?? "file");
     }
     if (toolName === "search") {

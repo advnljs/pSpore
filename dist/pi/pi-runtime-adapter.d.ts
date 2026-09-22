@@ -1,6 +1,6 @@
 import type { Model } from "@earendil-works/pi-ai";
 import { ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
-import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptMessageSlice, TranscriptPage } from "../domain/runtime.js";
+import type { Accepted, AgentHandle, AgentRuntimePort, AgentSessionSpec, ModelRef, ResumeSessionSpec, ArticleDraftView, RuntimeEvent, RuntimeMessage, SessionId, SessionMetadata, ToolGate, TranscriptMessageSlice, TranscriptPage } from "../domain/runtime.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 import type { SessionSkill } from "../plugins/types.js";
 type Clock = () => Date;
@@ -27,6 +27,7 @@ export declare class PiRuntimeAdapter implements AgentRuntimePort {
     #private;
     private constructor();
     static create(options: PiRuntimeAdapterOptions): Promise<PiRuntimeAdapter>;
+    articlePreview(toolCallId: string): ArticleDraftView | undefined;
     create(spec: AgentSessionSpec): Promise<AgentHandle>;
     resume(spec: ResumeSessionSpec): Promise<AgentHandle>;
     prompt(sessionId: SessionId, input: string): Promise<Accepted>;

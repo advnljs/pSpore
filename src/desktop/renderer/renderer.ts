@@ -40,6 +40,8 @@ import {
   type ComposerFileReference,
   type ComposerFileReferenceKind,
 } from "./composer-file-references.js";
+import { parseArticleReceipt } from "../../articles/receipt.js";
+import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
 import {
@@ -285,7 +287,15 @@ const elements = {
 applyTheme(initialTheme());
 syncResponsivePanels(true);
 
+const articles = new ArticlePanel({
+  sessionId: () => store.snapshot().selectedSessionId,
+  dispatch: (command) => window.pspore.dispatch(command),
+  exportArticle: (request) => window.pspore.exportArticle(request),
+  onLayout: () => scheduleResizeReflow(),
+});
+
 const unsubscribe = window.pspore.subscribe((frame) => {
+  if (frame.kind === "event") articles.onEvent(frame.event);
   if (!initialized) queuedFrames.push(frame);
   else {
     store.applyFrame(frame);
@@ -303,6 +313,7 @@ async function initialize(): Promise<void> {
     const bootstrap = await window.pspore.bootstrap();
     versions = bootstrap.versions;
     store.applyBootstrap(bootstrap);
+    articles.onSessionChanged();
     initialized = true;
     for (const frame of queuedFrames.splice(0)) store.applyFrame(frame);
     render();
@@ -328,6 +339,11 @@ function bindStaticActions(): void {
     setPanelState("navigation", document.documentElement.dataset["navigation"] !== "open");
   });
   elements.inspectorToggle.addEventListener("click", () => {
+    if (articles.isOpen()) {
+      articles.close();
+      setPanelState("inspector", true);
+      return;
+    }
     setPanelState("inspector", document.documentElement.dataset["inspector"] !== "open");
   });
   elements.inspectorClose.addEventListener("click", () => setPanelState("inspector", false));
@@ -337,6 +353,7 @@ function bindStaticActions(): void {
   elements.agentComposeToggle.addEventListener("click", () => setAgentCompose(elements.agentCompose.hidden));
   elements.agentComposeClose.addEventListener("click", () => setAgentCompose(false));
   elements.resourceShortcut.addEventListener("click", () => {
+    if (articles.isOpen()) articles.close();
     selectInspectorTab("resources");
     setPanelState("inspector", true);
   });
@@ -358,6 +375,7 @@ function bindStaticActions(): void {
     void perform("新建会话", { action: "session.create" }, (result) => {
       if (!isSessionView(result)) throw new Error("服务返回了无效的会话");
       store.selectSession(result.sessionId);
+      articles.onSessionChanged();
       elements.composerInput.focus();
     });
   });
@@ -1269,6 +1287,7 @@ function sessionButton(
   button.addEventListener("click", () => {
     try {
       store.selectSession(id);
+      articles.onSessionChanged();
       render();
     } catch (error) {
       store.setNotice(toError(error).message);
@@ -1521,6 +1540,24 @@ function renderMessage(message: RuntimeMessage, address: MessageAddress): HTMLEl
   label.textContent = role === "assistant" ? "pSpore" : role;
   meta.append(element("i", "role-dot"), label);
   if (role === "tool") {
+    const receipt = parseArticleReceipt(message.text);
+    if (receipt) {
+      const card = element("div", "article-receipt");
+      const heading = element("strong");
+      heading.textContent = receipt.title ? `文稿 · ${receipt.title}` : "文稿";
+      const version = element("span");
+      version.textContent = `第 ${receipt.version} 版`;
+      const open = document.createElement("button");
+      open.className = "ghost-button";
+      open.type = "button";
+      open.textContent = "打开文稿";
+      open.addEventListener("click", () => {
+        void articles.open(receipt.id, receipt.version);
+      });
+      card.append(heading, version, open);
+      article.append(meta, card);
+      return article;
+    }
     const details = element("details");
     const summary = element("summary");
     summary.textContent = `工具输出 · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · 点击展开`;
@@ -1737,7 +1774,11 @@ function currentRunPhase(snapshot: DesktopStoreSnapshot): RunPhase | undefined {
   const tool = snapshot.activities
     .filter((activity) => activity.status === "running" && (activity.sessionId ?? sessionId) === sessionId)
     .at(-1);
-  if (tool) return { key: `tool:${tool.id}`, kind: "tool", label: `执行 ${tool.toolName ?? tool.label}` };
+  if (tool) {
+    const label = tool.toolName === "article" ? "撰写文稿" : `执行 ${tool.toolName ?? tool.label}`;
+    return { key: `tool:${tool.id}`, kind: "tool", label };
+  }
+  if (articles.isWriting()) return { key: `article:${articles.writingKey()}`, kind: "tool", label: "撰写文稿" };
 
   if (snapshot.streamingText[sessionId]) return { key: `stream:${sessionId}`, kind: "streaming", label: "生成回复中" };
   if (snapshot.streamingThinking[sessionId]) return { key: `think:${sessionId}`, kind: "thinking", label: "思考中" };

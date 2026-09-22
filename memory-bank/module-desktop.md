@@ -9,7 +9,7 @@
 - CLI：`node dist/cli/main.js desktop`
 - npm：`npm run desktop`
 - Electron main：`src/desktop/main.ts`
-- renderer：`src/desktop/renderer/index.html`、`renderer.ts`、`composer-file-references.ts`、`store.ts`、`styles.css`
+- renderer：`src/desktop/renderer/index.html`、`renderer.ts`、`article-panel.ts`、`composer-file-references.ts`、`store.ts`、`styles.css`
 - preload：`src/desktop/preload.cjs`
 
 ## 关键文件
@@ -38,6 +38,7 @@ preload 仅暴露：
 - `saveSettings(settings)`：发送严格解码的模型设置；owned Daemon 自动重启应用，external Daemon 只保存并提示用户重启。
 - `getPathForFile(file)`：仅调用 Electron `webUtils.getPathForFile` 解析用户从操作系统拖入的 `File`；不接受路径字符串、不读取文件或目录。
 - `subscribe(listener)`：订阅 main 已校验的 connection/snapshot/event/delta frame。
+- `exportArticle(request)`：把当前会话已保存的文稿版本导出为 txt、md、docx 或 pdf。转换在 main process，见 `module-articles.md`。
 
 支持根 session create/delete/auto-prompt/queue-send-now/abort/compact、approval resolve、job/run、subagent、MCP 与 trusted resource 操作。所有 session 动作携带 renderer 当前选中的严格 sessionId；resource IPC 只接受单层 staging name，renderer 不能提交任意绝对路径。
 

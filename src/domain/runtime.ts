@@ -162,6 +162,7 @@ export type RuntimeEventType =
   | "tool.started"
   | "tool.updated"
   | "tool.completed"
+  | "article.preview"
   | "queue.updated"
   | "compaction.started"
   | "compaction.completed"
@@ -228,4 +229,18 @@ export interface AgentRuntimePort {
   subscribe(sessionId: SessionId, sink: (event: RuntimeEvent) => void): () => void;
   waitForIdle(sessionId: SessionId): Promise<void>;
   dispose(sessionId: SessionId): Promise<void>;
+  /**
+   * Markdown the model is still streaming into an `article` tool call.
+   * Absent on runtimes that do not host that tool.
+   */
+  articlePreview?(toolCallId: string): ArticleDraftView | undefined;
+}
+
+/** A not-yet-saved article, addressed by the tool call that is writing it. */
+export interface ArticleDraftView {
+  toolCallId: string;
+  sessionId: string;
+  title?: string;
+  articleId?: string;
+  content: string;
 }

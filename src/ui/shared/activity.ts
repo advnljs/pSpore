@@ -232,6 +232,8 @@ function compactionReason(payload: Record<string, unknown>): string {
 export function toolLabel(toolName: string, status: CoworkActivityStatus): string {
   const labels: Readonly<Record<string, readonly [string, string]>> = {
     read: ["Reading file", "Read file"],
+    document: ["Reading document", "Read document"],
+    article: ["Writing article", "Wrote article"],
     edit: ["Updating file", "Updated file"],
     search: ["Searching workspace", "Searched workspace"],
     shell: ["Running command", "Ran command"],
@@ -274,7 +276,8 @@ export function formatDuration(durationMs: number): string {
 }
 
 function toolTarget(toolName: string, input: Record<string, unknown>): string {
-  if (toolName === "read" || toolName === "edit") {
+  if (toolName === "article") return stringValue(input["title"]) ?? stringValue(input["id"]) ?? "article";
+  if (toolName === "read" || toolName === "document" || toolName === "edit") {
     return compactPath(stringValue(input["path"]) ?? "file");
   }
   if (toolName === "search") {

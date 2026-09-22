@@ -10,6 +10,7 @@ const SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 const INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 const INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 const INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+const ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 
 const api = Object.freeze({
   bootstrap() {
@@ -35,6 +36,9 @@ const api = Object.freeze({
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file);
+  },
+  exportArticle(request) {
+    return ipcRenderer.invoke(ARTICLE_EXPORT_CHANNEL, request);
   },
   subscribe(listener) {
     if (typeof listener !== "function") throw new TypeError("pSpore frame listener must be a function");

@@ -39,4 +39,8 @@ export declare function popChips(nodes: readonly Element[]): void;
 export declare function flipStatusChip(target: HTMLElement | null): void;
 /** Cross-fades the single-line status text when its content changes. */
 export declare function crossfadeText(target: HTMLElement | null, value: string): void;
+/** Slides the article panel in from the right. Layout is already final; only opacity and position move. */
+export declare function slideArticlePanel(panel: HTMLElement): void;
+/** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */
+export declare function pulseArticleChanges(targets: readonly Element[]): void;
 //# sourceMappingURL=motion.d.ts.map

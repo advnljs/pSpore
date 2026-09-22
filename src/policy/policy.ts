@@ -110,7 +110,8 @@ export class PolicyEngine {
     const input = request.input;
     switch (request.toolName) {
       case "read":
-      case "search": {
+      case "search":
+      case "document": {
         const path = stringInput(input, "path") ?? this.#workspaceRoot;
         const canonicalTarget = await canonicalizePotentialPath(path, this.#cwd);
         return {
@@ -120,6 +121,16 @@ export class PolicyEngine {
           riskReasons: this.#pathRisks(canonicalTarget, true),
         };
       }
+      case "article":
+        return {
+          capability: "fs.write",
+          canonicalTarget: join(this.#workspaceRoot, "articles"),
+          summary: `maintain article ${stringInput(input, "title") ?? stringInput(input, "id") ?? "document"}`,
+          // The tool never takes a path. It can only write snapshots inside the
+          // article directory, so the default ask_risky mode does not prompt
+          // on every revision of a draft.
+          riskReasons: [],
+        };
       case "edit":
       case "memory_append":
       case "memory_curate": {

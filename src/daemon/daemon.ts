@@ -37,6 +37,8 @@ import { ShellService } from "../shell/shell-service.js";
 import { acquireDaemonLock, writeEndpoint, type DaemonLock } from "../storage/daemon-lock.js";
 import { initializePsporeHome, type PsporePaths } from "../storage/home.js";
 import { SessionCatalog } from "../sessions/session-catalog.js";
+import { ArticleStore } from "../articles/store.js";
+import { createArticleTools } from "../articles/tool.js";
 import { createCoreTools } from "../tools/core-tools.js";
 
 export interface DaemonRuntimeFactoryContext {
@@ -231,6 +233,8 @@ export class PsporeDaemon {
         cachePath: join(paths.cache, "index.json"),
       });
       const memory = new MemoryService({ workspaceRoot: paths.workspace, clock, idFactory });
+      const articles = new ArticleStore(join(paths.workspace, "articles"));
+      await articles.ready();
       const coreTools = createCoreTools({
         workspaceRoot: paths.workspace,
         shell,
@@ -254,6 +258,7 @@ export class PsporeDaemon {
       };
       const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
         ...coreTools,
+        ...createArticleTools(sessionId, articles),
         ...createMemoryTools(sessionId, memory),
         ...createNotificationTools(sessionId, notifications),
         ...createAutomationTools(automationControl),
@@ -299,6 +304,7 @@ export class PsporeDaemon {
           ...(tool.label === undefined ? {} : { label: tool.label }),
           ...(tool.description === undefined ? {} : { description: tool.description }),
         })),
+        articles,
         sessionTemplate: {
           workspaceId: currentWorkspaceId,
           cwd: paths.workspace,

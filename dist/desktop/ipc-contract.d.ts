@@ -10,6 +10,18 @@ export declare const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:sa
 export declare const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 export declare const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 export declare const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+export declare const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
+export type ArticleExportFormat = "txt" | "md" | "docx" | "pdf";
+export interface ArticleExportRequest {
+    id: string;
+    version: number;
+    format: ArticleExportFormat;
+}
+export interface ArticleExportResult {
+    saved: boolean;
+    path?: string;
+    message: string;
+}
 /**
  * Thrown before a command is written to the socket, so a caller may safely retry
  * it once the bridge reconnects. Never used for a command that was already sent.
@@ -168,6 +180,22 @@ export type DesktopCommand = {
     kind: "skill" | "host-plugin";
     name: string;
     expectedDigest: string;
+} | {
+    action: "article.list";
+    sessionId: string;
+} | {
+    action: "article.get";
+    sessionId: string;
+    id: string;
+    version?: number;
+    offset?: number;
+    limit?: number;
+} | {
+    action: "article.preview";
+    sessionId: string;
+    toolCallId: string;
+    offset?: number;
+    limit?: number;
 };
 export interface DesktopProtocolInvocation {
     type: string;
@@ -185,6 +213,7 @@ export interface DesktopApi {
     pickIndexDirectory(): Promise<string | undefined>;
     /** Resolve only an operating-system-backed File supplied by a user drag. */
     getPathForFile(file: unknown): string;
+    exportArticle(request: ArticleExportRequest): Promise<ArticleExportResult>;
     subscribe(listener: (frame: DesktopFrame) => void): () => void;
 }
 export type DesktopModelApi = ModelApi;
@@ -210,4 +239,5 @@ export declare function decodeDesktopCommand(value: unknown): DesktopCommand;
 export declare function toProtocolInvocation(command: DesktopCommand, paths: {
     stagingPath(name: string): string;
 }): DesktopProtocolInvocation;
+export declare function decodeArticleExportRequest(value: unknown): ArticleExportRequest;
 //# sourceMappingURL=ipc-contract.d.ts.map

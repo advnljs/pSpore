@@ -27,6 +27,7 @@ import type {
   AgentSessionSpec,
   ModelRef,
   ResumeSessionSpec,
+  ArticleDraftView,
   RuntimeEvent,
   RuntimeEventType,
   RuntimeMessage,
@@ -38,6 +39,9 @@ import type {
   TranscriptMessageSlice,
   TranscriptPage,
 } from "../domain/runtime.js";
+import { articleDraftFromUpdate } from "../articles/draft.js";
+import { ArticlePreviewBus } from "../articles/preview.js";
+import { publishedArticleValue } from "../articles/publish.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 import type { SessionSkill } from "../plugins/types.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
@@ -102,6 +106,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #clock: Clock;
   readonly #idFactory: IdFactory;
   readonly #autoCompaction: AutoCompactionConfig | undefined;
+  readonly #articlePreviews = new ArticlePreviewBus();
   readonly #sessions = new Map<SessionId, SessionRecord>();
 
   private constructor(options: PiRuntimeAdapterOptions, modelRuntime: ModelRuntime) {
@@ -131,6 +136,10 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         refreshOnCreate: false,
       }));
     return new PiRuntimeAdapter(options, modelRuntime);
+  }
+
+  articlePreview(toolCallId: string): ArticleDraftView | undefined {
+    return this.#articlePreviews.get(toolCallId);
   }
 
   async create(spec: AgentSessionSpec): Promise<AgentHandle> {
@@ -590,6 +599,9 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       }
       case "message_update": {
         const update = event.assistantMessageEvent;
+        if (update.type === "toolcall_delta" || update.type === "toolcall_end") {
+          this.#noteArticleDraft(record, event.message, update);
+        }
         if (update.type !== "text_delta" && update.type !== "thinking_delta") break;
         const kind: TranscriptDeltaKind = update.type === "text_delta" ? "text" : "thinking";
         // A delta with no started item would have nowhere to land; opening one
@@ -609,7 +621,11 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         this.#emit(
           record,
           "tool.started",
-          { toolCallId: event.toolCallId, toolName: event.toolName, input: event.args },
+          {
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            input: publishedArticleValue(event.toolName, event.args),
+          },
           false,
         );
         break;
@@ -622,6 +638,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         );
         break;
       case "tool_execution_end":
+        this.#articlePreviews.clear(event.toolCallId);
         this.#emit(
           record,
           "tool.completed",
@@ -629,7 +646,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
             toolCallId: event.toolCallId,
             toolName: event.toolName,
             isError: event.isError,
-            result: event.result,
+            result: publishedArticleValue(event.toolName, event.result),
           },
           false,
         );
@@ -697,6 +714,23 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       status: "complete",
       ts: streaming.startedAt,
     };
+  }
+
+  #noteArticleDraft(record: SessionRecord, message: unknown, update: { type: string; contentIndex?: number; partial?: unknown }): void {
+    const draft = articleDraftFromUpdate(record.spec.sessionId, update, message);
+    if (!draft) return;
+    if (!this.#articlePreviews.note(draft, this.#clock().getTime())) return;
+    this.#emit(
+      record,
+      "article.preview",
+      {
+        toolCallId: draft.toolCallId,
+        ...(draft.title === undefined ? {} : { title: draft.title }),
+        ...(draft.articleId === undefined ? {} : { articleId: draft.articleId }),
+        chars: draft.content.length,
+      },
+      true,
+    );
   }
 
   #emit(record: SessionRecord, type: RuntimeEventType, payload: Record<string, unknown>, transient: boolean): void {

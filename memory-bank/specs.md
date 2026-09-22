@@ -1,5 +1,18 @@
 # Specifications
 
+## 2026-09-22 用户明确要求
+
+1. 写长文时不要直接回复到聊天，而是调起一个类似 Claude artifact 的 Markdown 渲染器：多次更新维护一个文件，持续渲染，并展示版本 diff，最好有动画。
+2. 该文稿支持导出 txt、md、docx、pdf。docx 和 pdf 保留富文本；txt 是去掉 Markdown 标记的纯文本。
+
+验收标准：
+
+- 长文由 `article` 工具写入单一文稿的多个版本，聊天只留回执和「打开文稿」，正文不进聊天气泡。
+- 撰写过程中面板持续渲染当前草稿；提交新版本后能对照上一版，新增段落有动画，并尊重 `prefers-reduced-motion`。
+- 导出四种格式：txt 无 Markdown 标记，md 为原文，docx 与 pdf 保留标题、强调、列表等富文本。
+- 不新增生产依赖。渲染器仍不得使用 Node 或 `innerHTML`。
+- 本轮不升版本号，除非另行要求发布。
+
 ## 用户明确需求
 
 1. 基于 Pi 构建自己的主动式 Agent。

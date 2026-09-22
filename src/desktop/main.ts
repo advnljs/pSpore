@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { app, BrowserWindow, dialog, ipcMain, screen, session, type IpcMainInvokeEvent, type WebContents } from "electron";
 
+import { ArticleStore } from "../articles/store.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { DaemonSupervisor, type DaemonOwnership } from "../daemon/supervisor.js";
 import { stopLegacyDaemon } from "../service/legacy-daemon.js";
@@ -14,8 +15,10 @@ import { LlmSettingsService } from "../settings/llm-settings-service.js";
 import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
+import { exportArticleFile } from "./article-export.js";
 import { DaemonBridge } from "./daemon-bridge.js";
 import {
+  DESKTOP_ARTICLE_EXPORT_CHANNEL,
   DESKTOP_BOOTSTRAP_CHANNEL,
   DESKTOP_DISPATCH_CHANNEL,
   DESKTOP_FRAME_CHANNEL,
@@ -24,6 +27,7 @@ import {
   DESKTOP_INDEXING_SAVE_CHANNEL,
   DESKTOP_SETTINGS_GET_CHANNEL,
   DESKTOP_SETTINGS_SAVE_CHANNEL,
+  decodeArticleExportRequest,
   decodeDesktopIndexingSettingsUpdate,
   decodeDesktopLlmSettingsUpdate,
   type DesktopFrame,
@@ -211,6 +215,7 @@ let rendererUrl = "";
 let exitCode = 0;
 let shuttingDown = false;
 let savingSettings = false;
+let articleRoot = "";
 
 app.on("window-all-closed", () => requestShutdown(0));
 app.on("before-quit", (event) => {
@@ -227,6 +232,7 @@ app.whenReady().then(startDesktop).catch(failStartup);
 async function startDesktop(): Promise<void> {
   const home = resolvePsporeHome(arguments_.home);
   const { paths } = await initializePsporeHome(home);
+  articleRoot = join(paths.workspace, "articles");
   const moduleDirectory = fileURLToPath(new URL(".", import.meta.url));
   const preloadPath = join(moduleDirectory, "preload.cjs");
   const rendererPath = join(moduleDirectory, "renderer", "index.html");
@@ -339,6 +345,7 @@ function installIpc(
   ipcMain.removeHandler(DESKTOP_INDEXING_GET_CHANNEL);
   ipcMain.removeHandler(DESKTOP_INDEXING_SAVE_CHANNEL);
   ipcMain.removeHandler(DESKTOP_INDEXING_PICK_CHANNEL);
+  ipcMain.removeHandler(DESKTOP_ARTICLE_EXPORT_CHANNEL);
   ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
     assertTrustedSender(event, target.webContents);
     return daemonBridge.bootstrap();
@@ -379,6 +386,11 @@ function installIpc(
       return { settings, applied: true, message: `索引设置已保存并应用，后台服务已重启。${caveat}` };
     }
     return { settings, applied: false, message: `索引设置已保存；重启服务后生效。${caveat}` };
+  });
+  ipcMain.handle(DESKTOP_ARTICLE_EXPORT_CHANNEL, async (event, candidate: unknown) => {
+    assertTrustedSender(event, target.webContents);
+    const request = decodeArticleExportRequest(candidate);
+    return exportArticleFile(new ArticleStore(articleRoot), request, target);
   });
   ipcMain.handle(DESKTOP_INDEXING_PICK_CHANNEL, async (event) => {
     assertTrustedSender(event, target.webContents);
@@ -964,6 +976,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   const expectedApi = [
     "bootstrap",
     "dispatch",
+    "exportArticle",
     "getIndexing",
     "getPathForFile",
     "getSettings",

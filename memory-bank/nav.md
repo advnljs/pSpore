@@ -36,6 +36,8 @@
 | `src/policy/` | capability/risk、审批持久化、scope grant 与 Pi tool gate |
 | `src/tools/core-tools.ts` | read/document/edit/search/shell 固定基础工具 |
 | `src/documents/` | 文档正文抽取：按魔数分派到 OOXML(zip)/OLE 复合文档/PDF/纯文本，`extract.ts` 是唯一入口 |
+| `src/articles/` | 长文文稿：版本文件、段落 diff、预览节流、txt/docx 转换。面板在 `src/desktop/renderer/article-panel.ts`，导出在 `src/desktop/article-export.ts` |
+| `bundled-skills/article-canvas/` | 告诉模型长文用 `article` 工具，不要把正文贴进聊天 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
 | `src/automation/` | cron adapter、job parser、run ledger、scheduler 与 Daemon executor |
 | `src/agents/` | subagent tree、独立 session、双工 mailbox、budget/permission ceiling 与 bundled tools |
@@ -82,6 +84,7 @@
 - `module-desktop.md`：Electron main/preload/renderer、安全边界、视觉与 smoke harness。
 - `module-settings.md`：GUI/TUI/CLI 共用 LLM Provider、验证、持久化和 secret 边界。
 - `module-documents.md`：文档正文抽取（OOXML/OLE/PDF/纯文本）、`document` 工具与 doc-extract skill。
+- `module-articles.md`：长文文稿面板、版本 diff、txt/md/docx/pdf 导出。与文档抽取不是同一个模块。
 - `module-extensions-integrations.md`：skills、plugins、MCP 与信任边界。
 - `module-storage-daemon.md`：home、原子存储、锁、Daemon 启停与 CLI。
 

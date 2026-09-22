@@ -61,6 +61,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 30. Linux 打包脚本以 Node 原生 `process.arch` 为默认目标，并只接受 `x64|arm64`；SEA 直接复制当前 Node，因此禁止跨架构伪打包。ARM64 CI 使用原生 GitHub ARM runner，并在 Ubuntu 20.04 容器中把可执行自检基线固定为 glibc 2.31；`main` 保留短期 ARM Actions artifact，正式 annotated tag 则并行构建 x64/ARM64，只有两侧检查、打包和 checksum 全部成功才创建含 12 项资产的不可变 Release。Release 资产继续使用架构后缀作为稳定文件名，并用 `ARM64 / Kylin V10`、`x86_64` display label 与对应发行说明章节分类。
 31. GUI 文件/目录拖拽保持为 renderer 草稿状态：preload 仅用 Electron `webUtils.getPathForFile` 把用户真实拖入的 `File` 转成绝对路径，不增加任意路径 IPC 或文件读取能力；renderer 去重并显示可移除引用，发送时只把路径序列化为带引号的 `@` token，目录不展开，drop 不触发 command。
 32. UDS server 大消息使用显式协商的 `server-frame-chunks.v1` transport capability：超过 1 MiB 的完整 snapshot/event 先在 64 MiB 逻辑上限内选择 gzip 或原始 bytes，再用有序 base64 chunk envelopes 发送；每个物理 frame 仍受原上限约束，客户端严格校验顺序、长度、编码和解压上限后才交给既有 reducer。自动 compact 仍复用 Pi 原生算法，同时增加共享 `triggerTokens` 直接阈值，在新 turn 前及 turn 完成后检查 active context；模型上限 reserve 保护继续独立生效。
+33. 长文是 `article` 工具维护的版本文件，不是从助手正文里自动截出来的。正文不进 `tool.started` / `tool.completed` / 快照；预览事件只带元数据，面板用 `article.preview` / `article.get` 按片取回。导出（txt/md/docx/pdf）留在 Electron main，不进公共协议。详见 `module-articles.md`。
 
 ## 重要约束
 
@@ -137,6 +138,14 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 - **可见性**：新增 `skills.catalog`（installed/bundled/workspace × active/skipped/shadowed + 原因），CLI `pspore skills`、TUI `/skills`、GUI 集成页共用。旧 `skills.list` 保持原样，避免破坏既有客户端。
 - **信任边界补偿**：设计约束"禁止模型生成后自动加载执行"依旧成立——policy 把 `edit` 写入 `<workspace>/skills/**` 标为风险，`ask_risky` 下需要用户批准。shell 写入无法完备识别，与既有"`ask_risky` 不能完备识别 Shell 副作用"同属已知风险。
 - **生效时机**：每次 session factory 调用重新扫描，服务运行中新增的 skill 在新会话或服务重启（会话恢复）后可见；已存在会话不热更新，以保持系统提示词前缀稳定（KV cache）。
+
+## 2026-09-22 变更：长文走文稿面板
+
+- **问题**：一篇长文直接写进聊天，既难读，也没有版本和导出。
+- **决策**：模型调用 `article` 工具写 `workspace/articles/<id>/` 下的版本文件。聊天只留一行回执。GUI 打开 Markdown 面板：撰写中按草稿重绘，提交后与上一版做段落 diff，新增段做透明度/位移动画。
+- **为什么正文不进事件**：出站字符串上限 64 KiB，瞬时事件在背压下还会被丢掉。预览总线把草稿留在 daemon 内存里，事件只公布 toolCallId、标题、id 和字数；面板再用切片命令取正文，和 `session.message` 同一套 `readFullMessage`。
+- **导出**：txt 去掉 Markdown 标记；md 是原文；docx 自写 OOXML ZIP；pdf 用隐藏沙箱窗口 `printToPDF`，以便中文使用系统字体。没有新增生产依赖。
+- **权限**：`article` 归为 `fs.write`，但没有路径参数、风险原因为空，所以默认 `ask_risky` 不逐次询问。`ask_all` 仍会问。顺手把原先未分类、因此总被当成有风险的 `document` 抽取标成 `fs.read`。
 
 ## 2026-09-14 变更：索引面板不再"一直扫描中"
 

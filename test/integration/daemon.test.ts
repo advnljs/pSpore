@@ -64,6 +64,7 @@ describe("daemon vertical slice", () => {
       "edit",
       "search",
       "shell",
+      "article",
       "memory_append",
       "memory_curate",
       "notify",

@@ -9,6 +9,7 @@ export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 export const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 export const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 export const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+export const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 /**
  * Thrown before a command is written to the socket, so a caller may safely retry
  * it once the bridge reconnects. Never used for a command that was already sent.
@@ -155,6 +156,35 @@ export function decodeDesktopCommand(value) {
                 name: identifier(input["name"], "resources.disable.name"),
                 expectedDigest: digest(input["expectedDigest"], "resources.disable.expectedDigest"),
             };
+        case "article.list":
+            exactKeys(input, ["action", "sessionId"], action);
+            return { action, sessionId: identifier(input["sessionId"], "article.list.sessionId") };
+        case "article.get": {
+            exactKeys(input, ["action", "sessionId", "id", "version", "offset", "limit"], action, ["version", "offset", "limit"]);
+            const version = input["version"];
+            const offset = input["offset"];
+            const limit = input["limit"];
+            return {
+                action,
+                sessionId: identifier(input["sessionId"], "article.get.sessionId"),
+                id: articleId(input["id"], "article.get.id"),
+                ...(version === undefined ? {} : { version: nonNegativeInteger(version, "article.get.version", 100) }),
+                ...(offset === undefined ? {} : { offset: nonNegativeInteger(offset, "article.get.offset", Number.MAX_SAFE_INTEGER) }),
+                ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "article.get.limit", MAX_PUBLISHED_STRING_CHARS) }),
+            };
+        }
+        case "article.preview": {
+            exactKeys(input, ["action", "sessionId", "toolCallId", "offset", "limit"], action, ["offset", "limit"]);
+            const offset = input["offset"];
+            const limit = input["limit"];
+            return {
+                action,
+                sessionId: identifier(input["sessionId"], "article.preview.sessionId"),
+                toolCallId: identifier(input["toolCallId"], "article.preview.toolCallId"),
+                ...(offset === undefined ? {} : { offset: nonNegativeInteger(offset, "article.preview.offset", Number.MAX_SAFE_INTEGER) }),
+                ...(limit === undefined ? {} : { limit: nonNegativeInteger(limit, "article.preview.limit", MAX_PUBLISHED_STRING_CHARS) }),
+            };
+        }
         default:
             throw new Error(`Desktop action is not allowlisted: ${action}`);
     }
@@ -259,6 +289,29 @@ export function toProtocolInvocation(command, paths) {
                 type: "resources.disable",
                 payload: { kind: command.kind, name: command.name, expectedDigest: command.expectedDigest },
             };
+        case "article.list":
+            return { type: "article.list", payload: {}, sessionId: command.sessionId };
+        case "article.get":
+            return {
+                type: "article.get",
+                payload: {
+                    id: command.id,
+                    ...(command.version === undefined ? {} : { version: command.version }),
+                    ...(command.offset === undefined ? {} : { offset: command.offset }),
+                    ...(command.limit === undefined ? {} : { limit: command.limit }),
+                },
+                sessionId: command.sessionId,
+            };
+        case "article.preview":
+            return {
+                type: "article.preview",
+                payload: {
+                    toolCallId: command.toolCallId,
+                    ...(command.offset === undefined ? {} : { offset: command.offset }),
+                    ...(command.limit === undefined ? {} : { limit: command.limit }),
+                },
+                sessionId: command.sessionId,
+            };
     }
 }
 function object(value, path) {
@@ -281,6 +334,21 @@ function boundedString(value, path, maximum) {
         throw new Error(`${path} must be a non-empty string of at most ${maximum} characters`);
     }
     return value;
+}
+function articleId(value, path) {
+    const id = identifier(value, path);
+    if (!/^art_[a-f0-9]{12}$/.test(id))
+        throw new Error(`${path} is not an article id`);
+    return id;
+}
+export function decodeArticleExportRequest(value) {
+    const input = object(value, "article export");
+    exactKeys(input, ["id", "version", "format"], "article export");
+    return {
+        id: articleId(input["id"], "article export.id"),
+        version: nonNegativeInteger(input["version"], "article export.version", 100),
+        format: enumeration(input["format"], ["txt", "md", "docx", "pdf"], "article export.format"),
+    };
 }
 function identifier(value, path) {
     const text = boundedString(value, path, 128);

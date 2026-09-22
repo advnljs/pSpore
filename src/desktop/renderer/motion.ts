@@ -286,3 +286,31 @@ export function crossfadeText(target: HTMLElement | null, value: string): void {
     },
   });
 }
+
+/** Slides the article panel in from the right. Layout is already final; only opacity and position move. */
+export function slideArticlePanel(panel: HTMLElement): void {
+  if (!canAnimate()) return;
+  engine!.fromTo(
+    panel,
+    { autoAlpha: 0, x: 28 },
+    { autoAlpha: 1, x: 0, duration: 0.42, ease: EASE_OUT, overwrite: "auto", clearProps: "transform,opacity,visibility" },
+  );
+}
+
+/** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */
+export function pulseArticleChanges(targets: readonly Element[]): void {
+  if (!canAnimate() || targets.length === 0) return;
+  engine!.fromTo(
+    targets,
+    { autoAlpha: 0.2, y: 12 },
+    {
+      autoAlpha: 1,
+      y: 0,
+      duration: 0.46,
+      stagger: 0.045,
+      ease: EASE_SOFT,
+      overwrite: "auto",
+      clearProps: "transform,opacity,visibility",
+    },
+  );
+}

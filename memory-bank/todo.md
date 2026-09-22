@@ -2,6 +2,9 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P1 | 长文文稿面板与四种导出 | Done | 无 | 见 overall-progress 2026-09-22。未升版本，未发版 |
+| P2 | 文稿面板的 Electron 实机观感 | Pending | 本机无 `xvfb-run`，既有 smoke 时序问题见下方 | 有桌面或 CI 时打开一篇文稿：流式渲染、版本 diff 动画、四种导出、1320 以下抽屉不把工作区撑出滚动条 |
+| P3 | TUI 没有文稿面板 | Pending | TUI 无 Markdown 渲染面 | 回执里已有 `current.md` 路径。若要做，可加只读预览，不必把正文再灌进转录 |
 | P0 | 将实现环境 Node.js 升级到 Pi 支持范围 | Done | 无；当前本机为 Node.js `v24.19.0` | 通过 `engines` 固定 Node.js 24 基线 |
 | P0 | 建立 Node.js/TypeScript 工程并锁定 Pi 版本 | Done | 无 | 已生成精确 npm lockfile与 ADR 0001 |
 | P0 | 验证 Pi adapter contract | Done | 无 | 已覆盖 create/resume/new/fork/rebind/steer/followUp/abort/compact/tool gate/cache usage |

@@ -52,6 +52,22 @@ describe("policy", () => {
       (await policy.evaluate({ sessionId: "s", toolCallId: "skill-run", toolName: "shell", input: { command: "ls", cwd: skill } })).decision,
       "allow",
     );
+    const article = await policy.evaluate({
+      sessionId: "s",
+      toolCallId: "article-1",
+      toolName: "article",
+      input: { action: "create", title: "周报", content: "正文" },
+    });
+    assert.equal(article.decision, "allow");
+    assert.deepEqual(article.riskReasons, []);
+    const document = await policy.evaluate({
+      sessionId: "s",
+      toolCallId: "doc-1",
+      toolName: "document",
+      input: { path: join(root, "notes.md") },
+    });
+    assert.equal(document.decision, "allow");
+    assert.equal(document.capability, "fs.read");
   });
 
   test("asks for risky shell, allows low-risk reads, and keeps explicit deny under allow_all", async () => {

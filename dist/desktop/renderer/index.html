@@ -119,6 +119,7 @@
               <h2 id="session-title">main</h2>
             </div>
             <div class="session-health">
+              <button id="open-article-button" class="ghost-button article-reopen" type="button" hidden>文稿</button>
               <span id="session-status" class="status-chip idle">IDLE</span>
               <span id="model-name" class="muted">未配置模型</span>
             </div>
@@ -151,6 +152,34 @@
               </div>
             </form>
           </div>
+        </section>
+
+        <section id="article-panel" class="article-panel panel" hidden aria-label="文稿">
+          <header class="article-header">
+            <div class="article-heading">
+              <span class="eyebrow">ARTICLE</span>
+              <h2 id="article-title">文稿</h2>
+            </div>
+            <div class="article-header-actions">
+              <span id="article-version" class="count-pill">v1</span>
+              <button id="article-diff-toggle" class="ghost-button" type="button" aria-pressed="false">对照上一版</button>
+              <button id="article-close" class="quiet-icon-button" type="button" aria-label="关闭文稿">×</button>
+            </div>
+          </header>
+          <div class="article-toolbar">
+            <div id="article-versions" class="article-versions" role="tablist" aria-label="文稿版本"></div>
+            <div class="article-export" aria-label="导出文稿">
+              <button class="ghost-button" type="button" data-export="txt">TXT</button>
+              <button class="ghost-button" type="button" data-export="md">MD</button>
+              <button class="ghost-button" type="button" data-export="docx">DOCX</button>
+              <button class="ghost-button" type="button" data-export="pdf">PDF</button>
+            </div>
+          </div>
+          <p id="article-diff-summary" class="article-diff-summary" hidden></p>
+          <div id="article-stage" class="article-stage">
+            <div id="article-render" class="article-render message-body markdown"></div>
+          </div>
+          <p id="article-status" class="article-status" role="status"></p>
         </section>
 
         <aside id="inspector-panel" class="right-rail panel" aria-label="上下文检查器">
