@@ -718,7 +718,12 @@ select {
 .composer-reference-remove { width: 22px; min-height: 22px; flex: 0 0 auto; padding: 0; border: 0; border-radius: 50%; color: var(--muted); background: transparent; cursor: pointer; font: 16px/1 var(--font-sans); }
 .composer-reference-remove:hover { color: var(--rust); background: var(--rust-soft); }
 .composer-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px; border-top: 1px solid var(--border-soft); }
-.send-behavior-hint { min-width: 0; padding-left: 5px; overflow: hidden; color: var(--faint); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+/* The hint gives way; the controls do not. Wrapping a button label reads as a
+   broken layout, and there are enough of them now for a narrow conversation to
+   force it. */
+.send-behavior-hint { flex: 0 1 auto; min-width: 0; padding-left: 5px; overflow: hidden; color: var(--faint); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.composer-actions { flex: 0 0 auto; }
+.composer-actions > button { white-space: nowrap; }
 .composer-actions { gap: 7px; }
 
 .inspector-header { display: flex; align-items: center; justify-content: space-between; padding: 17px 18px 14px; }
@@ -1045,13 +1050,43 @@ select {
 }
 .article-receipt strong { color: var(--text); font-size: 14.5px; }
 .article-receipt span { color: var(--muted); font: 12.5px var(--font-mono); }
-:root[data-article="open"] .workspace-grid { grid-template-columns: clamp(232px, 14vw, 264px) minmax(360px, 1fr) minmax(440px, 42vw); }
-:root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(360px, 1fr) minmax(440px, 42vw); }
+/* The document column is whatever width the reader dragged it to, and the value
+   the open and close animations move between. */
+:root { --article-width: 42vw; }
+:root[data-article="open"] .workspace-grid { grid-template-columns: clamp(232px, 14vw, 264px) minmax(0, 1fr) var(--article-width); }
+:root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr) var(--article-width); }
 :root[data-article="open"] .right-rail { display: none; }
+/* Sits just inside the panel's own left edge: `.panel` clips its overflow, so a
+   handle hanging outside it would be invisible and unclickable. */
+.article-panel { position: relative; }
+.article-resize {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 10px;
+  z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+}
+.article-resize::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 1px;
+  width: 3px;
+  border-radius: 3px;
+  background: transparent;
+  transition: background 160ms var(--motion-out);
+}
+.article-resize:hover::after,
+.article-resize:focus-visible::after,
+.article-resize[data-dragging="true"]::after { background: var(--accent); }
+.article-resize:focus-visible { outline: none; }
+:root[data-article-resizing="true"] { cursor: col-resize; }
+:root[data-article-resizing="true"] .article-stage,
+:root[data-article-resizing="true"] .transcript { user-select: none; }
 
 @media (max-width: 1480px) {
-  :root[data-article="open"] .workspace-grid { grid-template-columns: 238px minmax(320px, 1fr) minmax(400px, 40vw); }
-  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(320px, 1fr) minmax(400px, 40vw); }
+  :root[data-article="open"] .workspace-grid { grid-template-columns: 238px minmax(0, 1fr) var(--article-width); }
+  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr) var(--article-width); }
 }
 
 @media (max-width: 1320px) {
@@ -1064,6 +1099,9 @@ select {
     width: min(640px, 100%);
     box-shadow: var(--shadow-drawer);
   }
+  /* A drawer floats over the conversation instead of taking a column, so there
+     is no boundary to drag. */
+  .article-resize { display: none; }
 }
 
 @media (max-width: 1160px) {

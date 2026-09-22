@@ -4,7 +4,7 @@ import { parseArticleReceipt } from "../../articles/receipt.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown } from "./markdown-view.js";
-import { collapseArticleRemovals, pulseArticleChanges, slideArticlePanel } from "./motion.js";
+import { animateArticleWidth, collapseArticleRemovals, pulseArticleChanges, slideArticlePanel, slideArticlePanelOut, } from "./motion.js";
 /** New blocks that pulse in at once. Past this the page flashes rather than draws attention. */
 const MAX_PULSED_BLOCKS = 16;
 /**
@@ -16,6 +16,20 @@ const REOPEN_RETRY_MS = 300;
 const REOPEN_RETRY_LIMIT = 8;
 /** Blocks kept for reuse, on screen or not. Bounded so a long revision history cannot grow it forever. */
 const BLOCK_POOL_SIZE = 512;
+/**
+ * How wide the document column may be dragged.
+ *
+ * The lower bound is a readable measure for prose; the upper one leaves the
+ * conversation enough room to still be a conversation, so the panel cannot be
+ * dragged until the thing it belongs to is unusable.
+ */
+const MIN_ARTICLE_WIDTH = 380;
+const MIN_CONVERSATION_WIDTH = 560;
+/** Below this the panel is a drawer over the conversation: no boundary to drag. */
+const ARTICLE_DRAWER_QUERY = "(max-width: 1320px)";
+const ARTICLE_WIDTH_KEY = "pspore.desktop.articleWidth";
+/** Keyboard steps for the separator, so the width is reachable without a pointer. */
+const ARTICLE_WIDTH_STEP = 24;
 /**
  * Makes a signature unique among identical siblings.
  *
@@ -103,6 +117,9 @@ export class ArticlePanel {
     #viewButtons;
     #reopen;
     #exportButtons;
+    #resize;
+    /** Below this width the panel is a drawer, with no column boundary to drag. */
+    #drawer = window.matchMedia(ARTICLE_DRAWER_QUERY);
     #open = false;
     #view = "read";
     /**
@@ -137,6 +154,12 @@ export class ArticlePanel {
     /** A session change that arrived while a lookup was already running. */
     #reopenPending = false;
     #exporting = false;
+    /** True between asking to close and the width reaching zero. */
+    #closing = false;
+    /** Width the grid is laid out at right now, including mid-animation. */
+    #shownWidth = 0;
+    /** Width the reader chose, kept across opens; undefined until they choose one. */
+    #storedWidth;
     constructor(options) {
         this.#sessionId = options.sessionId;
         this.#dispatch = options.dispatch;
@@ -173,6 +196,10 @@ export class ArticlePanel {
             if (this.#reopenId)
                 void this.open(this.#reopenId);
         });
+        this.#resize = requiredElement("article-resize");
+        this.#storedWidth = readStoredWidth();
+        this.#applyWidth(0);
+        this.#bindResize();
         this.#exportButtons = Array.from(this.#panel.querySelectorAll("[data-export]"));
         for (const button of this.#exportButtons) {
             button.addEventListener("click", () => {
@@ -287,14 +314,28 @@ export class ArticlePanel {
         this.#applyLoaded(loaded, true, "top");
     }
     close() {
-        if (!this.#open && this.#panel.hidden) {
+        if ((!this.#open && this.#panel.hidden) || this.#closing) {
             this.#syncReopen();
             return;
         }
         this.#open = false;
         this.#writing = false;
-        this.#panel.hidden = true;
-        delete document.documentElement.dataset["article"];
+        this.#closing = true;
+        // `data-article` stays set until the animation ends: it is what makes the
+        // grid read the width being animated away.
+        const finish = () => {
+            if (!this.#closing)
+                return;
+            this.#closing = false;
+            this.#panel.hidden = true;
+            delete document.documentElement.dataset["article"];
+            this.#applyWidth(this.#preferredWidth());
+            this.#onLayout();
+        };
+        if (this.#drawer.matches)
+            slideArticlePanelOut(this.#panel, finish);
+        else
+            animateArticleWidth(this.#shownWidth, 0, (width) => this.#applyWidth(width), finish);
         this.#onLayout();
         this.#syncReopen();
     }
@@ -648,15 +689,92 @@ export class ArticlePanel {
     #show(title) {
         const wasOpen = this.#open;
         this.#open = true;
+        this.#closing = false;
         this.#panel.hidden = false;
         document.documentElement.dataset["article"] = "open";
         if (title)
             this.#title.textContent = title;
         if (!wasOpen) {
-            slideArticlePanel(this.#panel);
+            if (this.#drawer.matches)
+                slideArticlePanel(this.#panel);
+            else {
+                animateArticleWidth(this.#shownWidth, this.#preferredWidth(), (width) => this.#applyWidth(width), () => this.#onLayout());
+            }
             this.#onLayout();
         }
         this.#syncReopen();
+    }
+    /** The width the reader last dragged the column to, clamped to what fits now. */
+    #preferredWidth() {
+        const available = window.innerWidth - MIN_CONVERSATION_WIDTH;
+        const ceiling = Math.max(MIN_ARTICLE_WIDTH, Math.min(available, window.innerWidth * 0.72));
+        return Math.round(Math.min(Math.max(this.#storedWidth ?? window.innerWidth * 0.42, MIN_ARTICLE_WIDTH), ceiling));
+    }
+    #applyWidth(width) {
+        this.#shownWidth = width;
+        document.documentElement.style.setProperty("--article-width", `${Math.max(0, Math.round(width))}px`);
+    }
+    /**
+     * The boundary between the conversation and the document.
+     *
+     * Dragging writes the width straight through — an animated drag would lag the
+     * pointer — and the chosen width is remembered for the next time the panel opens.
+     */
+    #bindResize() {
+        const handle = this.#resize;
+        const commit = (width) => {
+            const available = window.innerWidth - MIN_CONVERSATION_WIDTH;
+            const ceiling = Math.max(MIN_ARTICLE_WIDTH, Math.min(available, window.innerWidth * 0.72));
+            const next = Math.round(Math.min(Math.max(width, MIN_ARTICLE_WIDTH), ceiling));
+            this.#storedWidth = next;
+            this.#applyWidth(next);
+            this.#onLayout();
+            try {
+                window.localStorage.setItem(ARTICLE_WIDTH_KEY, String(next));
+            }
+            catch {
+                // Private windows and blocked site data: the width still applies for this run.
+            }
+        };
+        handle.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0 || this.#drawer.matches)
+                return;
+            event.preventDefault();
+            handle.setPointerCapture(event.pointerId);
+            handle.dataset["dragging"] = "true";
+            document.documentElement.dataset["articleResizing"] = "true";
+        });
+        handle.addEventListener("pointermove", (event) => {
+            if (handle.dataset["dragging"] !== "true")
+                return;
+            // The panel is flush with the right edge, so its width is whatever is
+            // left of the viewport from the pointer.
+            commit(window.innerWidth - event.clientX);
+        });
+        const release = (event) => {
+            if (handle.dataset["dragging"] !== "true")
+                return;
+            delete handle.dataset["dragging"];
+            delete document.documentElement.dataset["articleResizing"];
+            if (handle.hasPointerCapture(event.pointerId))
+                handle.releasePointerCapture(event.pointerId);
+        };
+        handle.addEventListener("pointerup", release);
+        handle.addEventListener("pointercancel", release);
+        handle.addEventListener("keydown", (event) => {
+            if (this.#drawer.matches)
+                return;
+            const step = event.key === "ArrowLeft" ? ARTICLE_WIDTH_STEP : event.key === "ArrowRight" ? -ARTICLE_WIDTH_STEP : 0;
+            if (step === 0)
+                return;
+            event.preventDefault();
+            commit(this.#shownWidth + step);
+        });
+        window.addEventListener("resize", () => {
+            if (!this.#open || this.#drawer.matches)
+                return;
+            this.#applyWidth(this.#preferredWidth());
+        });
     }
     /**
      * The first version has nothing to compare against, so the revision views stay
@@ -679,6 +797,15 @@ export class ArticlePanel {
     }
     #pinnedToEnd() {
         return this.#stage.scrollHeight - this.#stage.scrollTop - this.#stage.clientHeight < 48;
+    }
+}
+function readStoredWidth() {
+    try {
+        const stored = Number(window.localStorage.getItem(ARTICLE_WIDTH_KEY));
+        return Number.isFinite(stored) && stored >= MIN_ARTICLE_WIDTH ? stored : undefined;
+    }
+    catch {
+        return undefined;
     }
 }
 function requiredElement(id) {

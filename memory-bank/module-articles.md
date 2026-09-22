@@ -52,6 +52,8 @@
 - 聊天卡片只显示「打开文稿」。TUI/CLI 没有面板，回执里带 `current.md` 的绝对路径；`read` 的正文仍会出现在 TUI 的工具记录里。
 - 流式阶段整篇重绘，不做逐 token 的 diff。提交后若面板里还没有上一版，会先取 `version - 1` 再对照。打开已有文稿不会把整篇当成新增来闪。
 - 面板默认隐藏，避免 Electron smoke 在 1920×1080 上多出一列。打开时检查器让位；宽度 ≤1320 时文稿是抽屉。
+- 列宽由 `--article-width` 决定，可拖拽（面板内左缘 10px 分隔条，`role="separator"`，方向键每次 24px），存在 `localStorage`。上下界：文稿 ≥380px，对话 ≥560px，文稿 ≤视口 72%。分隔条必须放在面板**内侧**——`.panel` 有 `overflow: hidden`，挂在外侧会被裁掉，而且面板不设 `position: relative` 的话它会按 `.workspace-grid` 定位、跑到工作区最左边。
+- 开关动画在宽模式下动的是**栅格列宽**（对话让出/收回空间），抽屉模式下动的是面板本身。收起时 `data-article` 要保留到动画结束才移除，否则栅格中途丢掉变量会瞬间塌掉。
 - 内置 skill 在新会话或服务重启后才进入提示词，已打开的会话不热加载。
 - 渲染器不得导入 `store.ts`、`docx.ts`、`zip-write.ts`、`article-export.ts`。
 - 面板靠 `article.preview` / `tool.completed` 两个事件活着。这两个事件走的是通用广播路径，所以**任何让桌面端拒帧断连的协议缺陷都会静默掐掉整个面板的实时行为**：2026-09-22 实机验证发现 `transcript.item.started` 少了 `status`/`ts`，桌面端每条助手消息都断一次连，流式预览与 diff 动画从未到达过面板，而聊天靠重连快照看起来正常。`test/contract/pi-runtime-adapter.test.ts` 现在用桌面端自己的 `validateEventEnvelope` 逐条校验 adapter 发出的事件，守住这个边界。

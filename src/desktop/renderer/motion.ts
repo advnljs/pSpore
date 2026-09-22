@@ -297,6 +297,57 @@ export function slideArticlePanel(panel: HTMLElement): void {
   );
 }
 
+/** Slides the drawer out, then hands back so the caller can hide it. */
+export function slideArticlePanelOut(panel: HTMLElement, finish: () => void): void {
+  if (!canAnimate()) {
+    finish();
+    return;
+  }
+  engine!.to(panel, {
+    autoAlpha: 0,
+    x: 28,
+    duration: 0.26,
+    ease: EASE_IN,
+    overwrite: "auto",
+    onComplete: () => {
+      engine!.set(panel, { clearProps: "transform,opacity,visibility" });
+      finish();
+    },
+  });
+}
+
+/**
+ * Moves the width the document column is laid out at.
+ *
+ * Opening and closing change the shape of the workspace, so the conversation
+ * has to give the width up and take it back rather than jump: the panel used to
+ * fade in over a column that had already appeared at full size.
+ */
+export function animateArticleWidth(
+  from: number,
+  to: number,
+  apply: (width: number) => void,
+  finish?: () => void,
+): void {
+  if (!canAnimate()) {
+    apply(to);
+    finish?.();
+    return;
+  }
+  const state = { width: from };
+  engine!.to(state, {
+    width: to,
+    duration: to > from ? 0.34 : 0.26,
+    ease: to > from ? EASE_OUT : EASE_IN,
+    overwrite: "auto",
+    onUpdate: () => apply(state.width),
+    onComplete: () => {
+      apply(to);
+      finish?.();
+    },
+  });
+}
+
 /** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */
 /**
  * Folds blocks that a new version dropped out of the flow, then hands them back

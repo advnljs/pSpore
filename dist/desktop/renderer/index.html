@@ -145,10 +145,10 @@
               <div class="composer-toolbar">
                 <span id="composer-file-hint" class="send-behavior-hint">拖入文件/目录或点「附件」选择，仅引用路径 · 运行中发送会继续排队</span>
                 <div class="composer-actions">
-                  <button id="attach-file-button" class="icon-button" type="button" title="选择文件（只发送路径，不读取内容）" aria-label="选择文件">
+                  <button id="attach-file-button" class="icon-button" type="button" title="选择文件" aria-label="选择文件">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.4 11.6 12 20a5 5 0 0 1-7.1-7.1l8.5-8.4a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.4a1.7 1.7 0 0 1-2.3-2.3l7.8-7.8"></path></svg>
                   </button>
-                  <button id="attach-directory-button" class="icon-button" type="button" title="选择文件夹（只发送路径，不读取内容）" aria-label="选择文件夹">
+                  <button id="attach-directory-button" class="icon-button" type="button" title="选择文件夹" aria-label="选择文件夹">
                     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"></path></svg>
                   </button>
                   <button id="compact-button" class="ghost-button" type="button">压缩上下文</button>
@@ -161,6 +161,7 @@
         </section>
 
         <section id="article-panel" class="article-panel panel" hidden aria-label="文稿">
+          <div id="article-resize" class="article-resize" role="separator" aria-orientation="vertical" aria-label="调整文稿宽度" tabindex="0"></div>
           <header class="article-header">
             <div class="article-heading">
               <span class="eyebrow">ARTICLE</span>

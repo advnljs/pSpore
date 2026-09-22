@@ -1145,6 +1145,15 @@ function assertSmokeReport(report, fixture) {
             failures.push("switching versions rebuilt blocks the new version had not changed");
         if (!article.clearedOnSessionChange)
             failures.push("another session's document was left in the panel");
+        if (!article.animatedOpen)
+            failures.push("the document column appeared at full width instead of arriving");
+        if (Math.abs(article.resizedWidth - Math.round(1_920 * 0.34)) > 24) {
+            failures.push(`dragging the boundary left the document ${article.resizedWidth}px wide`);
+        }
+        // Arrow keys reach the same boundary, so the width is not pointer-only.
+        if (article.widthAfterKeyboardStep <= article.resizedWidth) {
+            failures.push("the arrow keys did not widen the document column");
+        }
         if (article.exportFormats.join(",") !== "txt,md,docx,pdf")
             failures.push("document panel does not offer all four exports");
         if (article.documentOverflow > 0)
@@ -1186,6 +1195,9 @@ async function exerciseArticlePanel(target) {
         reusedAcrossVersions: false,
         exportLabel: "",
         clearedOnSessionChange: false,
+        resizedWidth: 0,
+        widthAfterKeyboardStep: 0,
+        animatedOpen: false,
         exportFormats: [],
         documentOverflow: 0,
     };
@@ -1195,6 +1207,9 @@ async function exerciseArticlePanel(target) {
     const reopenLabel = await target.webContents.executeJavaScript("document.querySelector('#open-article-button')?.textContent ?? ''");
     await target.webContents.executeJavaScript("document.querySelector('#open-article-button')?.click(); true");
     await waitForRenderer(target, "document.documentElement.dataset.article === 'open'", 6_000);
+    // The column has to arrive, not appear: sampled immediately after the click
+    // it is still narrower than it settles at.
+    const openingWidth = await target.webContents.executeJavaScript("Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--article-width')) || 0");
     // The version it replaced is fetched after the first paint, so the compare
     // control only becomes usable once that lands.
     await waitForRenderer(target, "document.querySelector('#article-view-token')?.disabled === false", 6_000)
@@ -1246,6 +1261,26 @@ async function exerciseArticlePanel(target) {
     await new Promise((resolve) => setTimeout(resolve, 400));
     return document.querySelector('#article-render')?.firstElementChild === first;
   })()`);
+    const settledWidth = await target.webContents.executeJavaScript("Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--article-width')) || 0");
+    // Dragging the boundary, and the same boundary reached from the keyboard.
+    const resize = await target.webContents.executeJavaScript(`(async () => {
+    const handle = document.querySelector('#article-resize');
+    const read = () => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--article-width')) || 0;
+    if (!handle) return { resizedWidth: 0, widthAfterKeyboardStep: 0 };
+    const target = Math.round(innerWidth * 0.34);
+    const options = { bubbles: true, pointerId: 1, button: 0, clientX: innerWidth - target, clientY: 400 };
+    handle.setPointerCapture = () => undefined;
+    handle.releasePointerCapture = () => undefined;
+    handle.hasPointerCapture = () => false;
+    handle.dispatchEvent(new PointerEvent('pointerdown', { ...options, clientX: innerWidth - read() }));
+    handle.dispatchEvent(new PointerEvent('pointermove', options));
+    handle.dispatchEvent(new PointerEvent('pointerup', options));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    const resizedWidth = read();
+    handle.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'ArrowLeft' }));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return { resizedWidth, widthAfterKeyboardStep: read() };
+  })()`);
     // Switching session has to take the document with it. The panel keeps the
     // current text to diff the next version against and a pool of rendered
     // blocks; carried across, they become the previous session's article showing
@@ -1268,7 +1303,16 @@ async function exerciseArticlePanel(target) {
     await target.webContents.executeJavaScript("document.querySelector('#article-close')?.click(); true");
     await waitForRenderer(target, "document.documentElement.dataset.article === undefined", 4_000).catch(() => undefined);
     await settlePaint();
-    return { ...opened, ...revision, ...lineView, reopenLabel, reusedAcrossVersions, clearedOnSessionChange };
+    return {
+        ...opened,
+        ...revision,
+        ...lineView,
+        ...resize,
+        reopenLabel,
+        reusedAcrossVersions,
+        clearedOnSessionChange,
+        animatedOpen: openingWidth < settledWidth,
+    };
 }
 async function exerciseComposerFileDrop(target, outputDirectory) {
     const fixtureRoot = join(outputDirectory, "file-drop-fixture");
