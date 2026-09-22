@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog, ipcMain, screen, session } from "electron";
@@ -15,7 +15,7 @@ import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { exportArticleFile } from "./article-export.js";
 import { DaemonBridge } from "./daemon-bridge.js";
-import { DESKTOP_ARTICLE_EXPORT_CHANNEL, DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeArticleExportRequest, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
+import { DESKTOP_ARTICLE_EXPORT_CHANNEL, DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_ATTACH_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeArticleExportRequest, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
 import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 const arguments_ = parseArguments(process.argv.slice(1));
@@ -102,6 +102,23 @@ async function startDesktop() {
     if (!window.isVisible())
         showMaximized(window);
 }
+/** At most this many paths from one chooser, matching the composer's own ceiling. */
+const MAX_ATTACHMENTS = 32;
+/**
+ * Where this system keeps the user's own directories. Electron resolves the XDG
+ * entries, so a desktop named 桌面 is found without the renderer guessing.
+ */
+function desktopPlaces() {
+    const place = (name) => {
+        try {
+            return app.getPath(name);
+        }
+        catch {
+            return "";
+        }
+    };
+    return { desktop: place("desktop"), home: place("home") };
+}
 function primaryWorkArea() {
     try {
         const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -151,10 +168,11 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
     ipcMain.removeHandler(DESKTOP_INDEXING_GET_CHANNEL);
     ipcMain.removeHandler(DESKTOP_INDEXING_SAVE_CHANNEL);
     ipcMain.removeHandler(DESKTOP_INDEXING_PICK_CHANNEL);
+    ipcMain.removeHandler(DESKTOP_ATTACH_CHANNEL);
     ipcMain.removeHandler(DESKTOP_ARTICLE_EXPORT_CHANNEL);
     ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
         assertTrustedSender(event, target.webContents);
-        return daemonBridge.bootstrap();
+        return { ...daemonBridge.bootstrap(), places: desktopPlaces() };
     });
     ipcMain.handle(DESKTOP_DISPATCH_CHANNEL, async (event, command) => {
         assertTrustedSender(event, target.webContents);
@@ -197,6 +215,26 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
         assertTrustedSender(event, target.webContents);
         const request = decodeArticleExportRequest(candidate);
         return exportArticleFile(new ArticleStore(articleRoot), request, target);
+    });
+    ipcMain.handle(DESKTOP_ATTACH_CHANNEL, async (event) => {
+        assertTrustedSender(event, target.webContents);
+        const result = await dialog.showOpenDialog(target, {
+            title: "选择要引用的文件或目录",
+            // Only the path is ever sent; nothing here is read or uploaded.
+            properties: ["openFile", "openDirectory", "multiSelections"],
+        });
+        if (result.canceled)
+            return [];
+        const attachments = [];
+        for (const path of result.filePaths.slice(0, MAX_ATTACHMENTS)) {
+            try {
+                attachments.push({ path, kind: (await stat(path)).isDirectory() ? "directory" : "file" });
+            }
+            catch {
+                // Gone between choosing and answering; the renderer simply gets fewer.
+            }
+        }
+        return attachments;
     });
     ipcMain.handle(DESKTOP_INDEXING_PICK_CHANNEL, async (event) => {
         assertTrustedSender(event, target.webContents);
@@ -384,6 +422,8 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       truncationNoticeVisible: Boolean(document.querySelector('#transcript .message-truncated button')),
       truncationRetryOffered: false,
       legacyComposerModes: document.querySelectorAll('#composer-mode, .mode-select').length,
+    // Dragging is not always possible, so a chooser has to be reachable too.
+    attachButtonOffered: Boolean(document.querySelector('#attach-button')),
       virtualIndices: Array.from(document.querySelectorAll('#transcript > .message')).map((node) => Number(node.dataset.virtualIndex)),
       scrollDistance: transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1,
       renderedMessages: document.querySelectorAll('#transcript > .message').length,
@@ -839,6 +879,7 @@ function assertSmokeReport(report, fixture) {
         "getIndexing",
         "getPathForFile",
         "getSettings",
+        "pickAttachments",
         "pickIndexDirectory",
         "saveIndexing",
         "saveSettings",
@@ -932,6 +973,8 @@ function assertSmokeReport(report, fixture) {
             failures.push("thinking was not rendered separately from response text");
         if (!report.mainVisual.thinkingHiddenAfterCompletion)
             failures.push("thinking did not hide after message completion");
+        if (!report.mainVisual.attachButtonOffered)
+            failures.push("composer offers no way to choose a file or directory");
         // Text already on screen has to stay selectable while the reply continues.
         if (report.selection.historyBefore.length < 12)
             failures.push("smoke could not select a settled message to copy from");

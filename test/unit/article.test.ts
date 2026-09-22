@@ -8,6 +8,7 @@ import {
   articleChangeCounts,
   articleLineChangeCounts,
   diffArticleBlocks,
+  alignArticleDraft,
   diffArticleLines,
 } from "../../src/articles/diff.js";
 import { articleDraftFromUpdate } from "../../src/articles/draft.js";
@@ -33,6 +34,40 @@ describe("article diff and export text", () => {
     assert.deepEqual(diff.map((block) => block.kind), ["same", "remove", "add", "same"]);
     assert.equal(articleChangeCounts(diff).added, 1);
     assert.equal(articleChangeCounts(diff).removed, 1);
+  });
+
+  test("a draft keeps the part of the previous version it has not reached", () => {
+    const previous = "# 报告\n\n第一段。\n\n第二段。\n\n第三段。\n";
+    // The model has rewritten the first paragraph and is still typing.
+    const aligned = alignArticleDraft(previous, "# 报告\n\n改写后的第一段。\n\n第二");
+    assert.deepEqual(aligned.written, [
+      { source: "# 报告", changed: false },
+      { source: "改写后的第一段。", changed: true },
+      { source: "第二", changed: true },
+    ]);
+    // The paragraph being typed is the start of the one it replaces, so it is
+    // not also shown below; the untouched remainder is.
+    assert.deepEqual(aligned.pending, ["第三段。"]);
+  });
+
+  test("a draft that has only just started still shows the whole previous version", () => {
+    const previous = "# 报告\n\n第一段。\n\n第二段。\n";
+    assert.deepEqual(alignArticleDraft(previous, "# 报").pending, ["第一段。", "第二段。"]);
+    assert.deepEqual(alignArticleDraft(previous, "").pending, ["# 报告", "第一段。", "第二段。"]);
+  });
+
+  test("a finished draft leaves nothing pending", () => {
+    const previous = "# 报告\n\n第一段。\n";
+    const aligned = alignArticleDraft(previous, "# 报告\n\n第一段。\n\n新增一段。\n");
+    assert.deepEqual(aligned.pending, []);
+    assert.deepEqual(aligned.written.map((block) => block.changed), [false, false, true]);
+  });
+
+  test("a first version has no previous blocks to keep", () => {
+    assert.deepEqual(alignArticleDraft("", "# 新文稿\n\n正文"), {
+      written: [{ source: "# 新文稿", changed: true }, { source: "正文", changed: true }],
+      pending: [],
+    });
   });
 
   test("line diff marks the words that changed inside a rewritten line", () => {

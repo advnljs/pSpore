@@ -273,4 +273,58 @@ function collapseSegments(segments) {
     }
     return merged;
 }
+/**
+ * Lines a partly-written draft up against the version it is replacing.
+ *
+ * A model rewriting a document sends it from the top, so early in the write the
+ * draft is a few characters and the saved version is the whole article. Showing
+ * only the draft empties the panel and retypes the document from nothing, which
+ * is exactly what a reader watching a revision does not want to see.
+ *
+ * The blocks after the last one the draft has reached are therefore kept: what
+ * is on screen stays the old version until the draft actually gets there, and
+ * the part already rewritten says whether it changed. Whether the tail was
+ * deleted or simply not reached yet cannot be known until the version lands, and
+ * leaving it up is the answer that does not make the document disappear.
+ */
+export function alignArticleDraft(previous, draft) {
+    const before = splitArticleBlocks(previous);
+    const after = splitArticleBlocks(draft);
+    if (before.length === 0)
+        return { written: after.map((source) => ({ source, changed: true })), pending: [] };
+    const kept = new Set(before);
+    const written = after.map((source) => ({ source, changed: !kept.has(source) }));
+    if (after.length === 0)
+        return { written, pending: [...before] };
+    // How far into the previous version the draft has got. The blocks it has
+    // written past the last one both versions share are assumed to stand in for
+    // the same number of old blocks — with no shared block to anchor on there is
+    // nothing better to go by, and position is what a rewrite actually follows.
+    let row = 0;
+    let column = 0;
+    let rowMatch = -1;
+    let columnMatch = -1;
+    for (const entry of diffBlockLists(before, after)) {
+        if (entry.kind === "same") {
+            rowMatch = row;
+            columnMatch = column;
+            row += 1;
+            column += 1;
+        }
+        else if (entry.kind === "remove") {
+            row += 1;
+        }
+        else {
+            column += 1;
+        }
+    }
+    const reach = Math.min(before.length, Math.max(0, rowMatch + 1 + (after.length - 1 - columnMatch)));
+    const pending = before.slice(reach);
+    // The block being typed right now is the start of the one it replaces, so
+    // showing both would print the same heading twice for a second.
+    const last = after.at(-1);
+    if (last !== undefined && pending[0] !== undefined && pending[0].startsWith(last))
+        pending.shift();
+    return { written, pending };
+}
 //# sourceMappingURL=diff.js.map

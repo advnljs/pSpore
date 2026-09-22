@@ -9,6 +9,7 @@ export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 export const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 export const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 export const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+export const DESKTOP_ATTACH_CHANNEL = "pspore:desktop:composer:attach";
 export const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 /**
  * Thrown before a command is written to the socket, so a caller may safely retry

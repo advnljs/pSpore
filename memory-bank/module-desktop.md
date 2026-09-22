@@ -101,3 +101,10 @@ preload 仅暴露：
 - 高频渲染保护：会话列表与活动列表用签名比较，只有集合真正变化才重放动画，流式增量不会每帧重启 stagger。
 - 连接呈现改用 `stableConnection`，`document.documentElement.dataset.reconnecting` 与徽标 `data-reconnecting` 供样式和 smoke 断言使用；smoke 新增 `reconnectMasked`，要求短暂掉线先被遮蔽、随后真实掉线仍会显示。
 - overlay payload 从“仅 `resources/`”改为“完整安装目录减去 Electron/Chromium 运行时清单”，updater 在安装根目录整体替换、备份到 `<install>/.pspore-backup-*`、输出 `[ NN%] …` 进度、升级后重跑随包的 `创建桌面快捷方式.sh` 使已有桌面快捷方式指向本次升级目录。`scripts/linux/overlay-upgrade-gui.sh` 提供 zenity/kdialog 的目录选择与进度条，无对话框工具时回落终端模式。
+
+## 输入框的文件与目录引用（2026-09-22）
+
+- 两条入口走同一条 `addComposerFileReferences()`：拖拽（`webUtils.getPathForFile`）与「附件」按钮（`pspore:desktop:composer:attach` → `dialog.showOpenDialog(['openFile','openDirectory','multiSelections'])`，主进程 `stat` 判定文件/目录）。渲染器自己没有任何路径来源，只有这两条。
+- 只发送路径，不读内容。
+- bootstrap 多了一个 `places` 字段（`desktop` / `home`），由 Electron 主进程用 `app.getPath()` 解析——本地化的目录名（例如「桌面」）因此不需要渲染器去猜。字段是可选的：`DaemonBridge` 不知道 Electron，只有主进程能填。
+- 首页第三条示例点击后会把桌面目录挂成引用，让"把目录交给它"这件事在被解释之前就出现在屏幕上。

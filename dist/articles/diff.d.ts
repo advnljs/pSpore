@@ -41,4 +41,30 @@ export declare function articleLineChangeCounts(diff: readonly ArticleLineDiff[]
     added: number;
     removed: number;
 };
+export interface ArticleDraftBlock {
+    source: string;
+    /** True when this block is not one the previous version already had. */
+    changed: boolean;
+}
+export interface ArticleDraftAlignment {
+    /** Blocks the draft has produced so far, in order. */
+    written: ArticleDraftBlock[];
+    /** Blocks of the previous version the draft has not reached, still worth showing. */
+    pending: string[];
+}
+/**
+ * Lines a partly-written draft up against the version it is replacing.
+ *
+ * A model rewriting a document sends it from the top, so early in the write the
+ * draft is a few characters and the saved version is the whole article. Showing
+ * only the draft empties the panel and retypes the document from nothing, which
+ * is exactly what a reader watching a revision does not want to see.
+ *
+ * The blocks after the last one the draft has reached are therefore kept: what
+ * is on screen stays the old version until the draft actually gets there, and
+ * the part already rewritten says whether it changed. Whether the tail was
+ * deleted or simply not reached yet cannot be known until the version lands, and
+ * leaving it up is the answer that does not make the document disappear.
+ */
+export declare function alignArticleDraft(previous: string, draft: string): ArticleDraftAlignment;
 //# sourceMappingURL=diff.d.ts.map

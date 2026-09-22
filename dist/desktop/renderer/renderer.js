@@ -48,6 +48,8 @@ let armSessionDeletionTimer;
 let renderFrame;
 let transcriptRenderFrame;
 let composerFileReferences = [];
+/** Well-known directories, filled in by the Electron main process at bootstrap. */
+let desktopPlaces;
 /** How long a delete control stays armed before it reverts on its own. */
 const SESSION_DELETE_ARM_MS = 5_000;
 /**
@@ -190,6 +192,7 @@ const elements = {
     settingsApiKeyState: byId("settings-api-key-state"),
     settingsKeyCopyPath: byId("settings-key-copy-path"),
     settingsCookiePath: byId("settings-cookie-path"),
+    attach: byId("attach-button"),
     settingsHeaderList: byId("settings-header-list"),
     settingsHeaderAdd: byId("settings-header-add"),
     settingsCookieState: byId("settings-cookie-state"),
@@ -241,6 +244,7 @@ async function initialize() {
     try {
         const bootstrap = await window.pspore.bootstrap();
         versions = bootstrap.versions;
+        desktopPlaces = bootstrap.places;
         store.applyBootstrap(bootstrap);
         articles.onSessionChanged();
         initialized = true;
@@ -329,6 +333,7 @@ function bindStaticActions() {
     elements.settingsIndexingAdd.addEventListener("click", () => void addIndexingDirectory());
     bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
     elements.settingsHeaderAdd.addEventListener("click", () => addCustomHeaderRow("", false));
+    elements.attach.addEventListener("click", () => void chooseAttachments());
     elements.settingsOverlay.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !savingSettings) {
             event.preventDefault();
@@ -432,21 +437,47 @@ function bindComposerFileDrop() {
         event.preventDefault();
         event.stopPropagation();
         setComposerDropActive(false);
-        const incoming = droppedComposerFileReferences(event.dataTransfer);
-        const merged = mergeComposerFileReferences(composerFileReferences, incoming);
-        composerFileReferences = merged.references;
-        renderComposerFileReferences();
-        if (merged.added > 0) {
-            const ignored = merged.skipped > 0 ? `；另有 ${merged.skipped} 个重复引用或超出上限` : "";
-            store.setNotice(`已添加 ${merged.added} 个文件/目录引用，仅会发送路径${ignored}`);
-        }
-        else {
-            store.setNotice(incoming.length > 0 ? "这些路径已经引用，未重复添加" : "未能从拖入项获取本地文件或目录路径");
-        }
-        render();
-        elements.composerInput.focus();
+        addComposerFileReferences(droppedComposerFileReferences(event.dataTransfer));
     });
     window.addEventListener("dragend", () => setComposerDropActive(false));
+}
+/**
+ * The same references a drop produces, chosen from a native dialog instead.
+ * Dragging is not always possible — a folder the user reaches through a file
+ * manager's tree, a window that cannot be arranged side by side — and the
+ * renderer has no path of its own to offer.
+ */
+async function chooseAttachments() {
+    let chosen;
+    try {
+        chosen = await window.pspore.pickAttachments();
+    }
+    catch (error) {
+        store.setNotice(`无法打开选择器：${toError(error).message}`);
+        render();
+        return;
+    }
+    if (chosen.length === 0)
+        return;
+    addComposerFileReferences(chosen.flatMap((entry) => {
+        const reference = composerFileReference(entry.path, entry.kind);
+        return reference ? [reference] : [];
+    }));
+}
+/** Merges references into the composer and says what happened, for drops and the chooser alike. */
+function addComposerFileReferences(incoming) {
+    const merged = mergeComposerFileReferences(composerFileReferences, incoming);
+    composerFileReferences = merged.references;
+    renderComposerFileReferences();
+    if (merged.added > 0) {
+        const ignored = merged.skipped > 0 ? `；另有 ${merged.skipped} 个重复引用或超出上限` : "";
+        store.setNotice(`已添加 ${merged.added} 个文件/目录引用，仅会发送路径${ignored}`);
+    }
+    else {
+        store.setNotice(incoming.length > 0 ? "这些路径已经引用，未重复添加" : "未能获取本地文件或目录路径");
+    }
+    render();
+    elements.composerInput.focus();
 }
 function hasDraggedFiles(transfer) {
     if (!transfer)
@@ -1551,9 +1582,22 @@ function renderMessageQueue(snapshot, session) {
  * app nothing else on the screen explains.
  */
 const MAIN_SESSION_EXAMPLES = [
-    "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
-    "看看现在最占内存的 10 个进程，说说哪些可以关掉",
-    "读一下 ~/.bashrc，指出其中可能有问题或过时的设置",
+    {
+        label: "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
+        prompt: "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
+    },
+    {
+        label: "看看现在最占内存的 10 个进程，说说哪些可以关掉",
+        prompt: "看看现在最占内存的 10 个进程，说说哪些可以关掉",
+    },
+    {
+        // A template rather than a prompt. Clicking it also attaches the desktop,
+        // so the reference a dropped folder produces is already on screen: the way
+        // to point this agent at a directory is visible before it is explained.
+        label: "分析一个目录里都有什么 —— 已附上桌面，也可以拖入别的文件夹",
+        prompt: "分析这个目录里都有什么、哪些可以清理，把结论整理成文档：",
+        attach: "desktop",
+    },
 ];
 function emptyTranscript(isChild) {
     const empty = element("div", "empty-transcript");
@@ -1568,9 +1612,16 @@ function emptyTranscript(isChild) {
     if (!isChild) {
         const suggestions = element("div", "transcript-suggestions");
         for (const example of MAIN_SESSION_EXAMPLES) {
-            suggestions.append(actionButton(example, "", () => {
-                elements.composerInput.value = example;
+            suggestions.append(actionButton(example.label, "", () => {
+                elements.composerInput.value = example.prompt;
+                if (example.attach === "desktop" && desktopPlaces?.desktop) {
+                    const reference = composerFileReference(desktopPlaces.desktop, "directory");
+                    if (reference)
+                        addComposerFileReferences([reference]);
+                }
                 elements.composerInput.focus();
+                // Leaves the caret at the end, where a dropped path is appended.
+                elements.composerInput.setSelectionRange(example.prompt.length, example.prompt.length);
             }));
         }
         inner.append(suggestions);

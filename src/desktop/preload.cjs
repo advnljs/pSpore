@@ -10,6 +10,7 @@ const SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 const INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 const INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 const INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+const ATTACH_CHANNEL = "pspore:desktop:composer:attach";
 const ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 
 const api = Object.freeze({
@@ -33,6 +34,9 @@ const api = Object.freeze({
   },
   pickIndexDirectory() {
     return ipcRenderer.invoke(INDEXING_PICK_CHANNEL);
+  },
+  pickAttachments() {
+    return ipcRenderer.invoke(ATTACH_CHANNEL);
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file);

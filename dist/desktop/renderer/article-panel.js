@@ -1,5 +1,5 @@
 /// <reference lib="DOM" />
-import { articleChangeCounts, articleLineChangeCounts, diffArticleBlocks, diffArticleLines, splitArticleBlocks, } from "../../articles/diff.js";
+import { alignArticleDraft, articleChangeCounts, articleLineChangeCounts, diffArticleBlocks, diffArticleLines, } from "../../articles/diff.js";
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
 import { reconcileChildren } from "./dom-reconcile.js";
@@ -28,15 +28,21 @@ function keyOf(seen, signature) {
     seen.set(signature, occurrence);
     return `${occurrence}\u0000${signature}`;
 }
-/** Rendered markdown blocks, keyed by what they draw so an unchanged one keeps its element. */
-function blockEntries(sources) {
+/**
+ * Rendered markdown blocks, keyed by what they draw so an unchanged one keeps
+ * its element. Whether a block is a change is carried separately: it is an
+ * attribute on the node, not part of its identity, so a block that was new in
+ * one version and settled in the next is not rebuilt to say so.
+ */
+function blockEntries(blocks) {
     const seen = new Map();
-    return sources.map((source) => ({
-        key: keyOf(seen, `block\u0000${source}`),
+    return blocks.map((block) => ({
+        key: keyOf(seen, `block\u0000${block.source}`),
+        changed: block.changed,
         build: () => {
             const wrap = document.createElement("div");
             wrap.className = "article-block";
-            appendMarkdown(wrap, source);
+            appendMarkdown(wrap, block.source);
             return wrap;
         },
     }));
@@ -128,6 +134,8 @@ export class ArticlePanel {
     #reopenSession = "";
     #reopenInFlight = false;
     #reopenRetries = 0;
+    /** A session change that arrived while a lookup was already running. */
+    #reopenPending = false;
     #exporting = false;
     constructor(options) {
         this.#sessionId = options.sessionId;
@@ -201,8 +209,15 @@ export class ArticlePanel {
             this.#reopenRetries = 0;
             this.close();
         }
-        if (!sessionId || this.#reopenSession === sessionId || this.#reopenInFlight)
+        if (!sessionId || this.#reopenSession === sessionId)
             return;
+        if (this.#reopenInFlight) {
+            // The lookup in flight is for the session we have just left. Remembering
+            // this is what keeps the change from being dropped: the frames that carry
+            // it are the same ones that stop arriving once the session settles.
+            this.#reopenPending = true;
+            return;
+        }
         void this.#refreshReopen(sessionId);
     }
     onEvent(event) {
@@ -407,6 +422,10 @@ export class ArticlePanel {
             // whether it was just built or restored from the pool.
             if (!node.isConnected)
                 appeared.push(node);
+            if (entry.changed === true)
+                node.dataset["change"] = "add";
+            else if (entry.changed === false)
+                delete node.dataset["change"];
             // Re-inserting refreshes the entry's place in the eviction order.
             this.#nodes.delete(entry.key);
             this.#nodes.set(entry.key, node);
@@ -440,13 +459,15 @@ export class ArticlePanel {
     #readEntries(previous) {
         return blockEntries(diffArticleBlocks(previous, this.#committed)
             .filter((block) => block.kind !== "remove")
-            .map((block) => block.source));
+            .map((block) => ({ source: block.source, changed: block.kind === "add" })));
     }
     #diffEntries(previous, granularity) {
         const seen = new Map();
         return diffArticleLines(previous, this.#committed, granularity).map((line) => {
             const marks = (line.segments ?? []).map((segment) => `${segment.kind}:${segment.text}`).join("\u0001");
             const signature = `diff\u0000${granularity}\u0000${line.kind}\u0000${line.number}\u0000${line.text}\u0000${marks}`;
+            // A revision row carries its own add/remove/same mark; leaving `changed`
+            // unset keeps the commit from overwriting it with the block-level one.
             return { key: keyOf(seen, signature), build: () => diffLineNode(line) };
         });
     }
@@ -459,8 +480,13 @@ export class ArticlePanel {
      * left to patch, and the whole document was drawn again.
      */
     #renderLive(text) {
+        const aligned = alignArticleDraft(this.#committed, text);
         this.#paintSequence += 1;
-        this.#commit(blockEntries(splitArticleBlocks(text)), false, "keep");
+        this.#commit(blockEntries([
+            ...aligned.written,
+            // Not reached yet, so it is still what the document says.
+            ...aligned.pending.map((source) => ({ source, changed: false })),
+        ]), false, "keep");
     }
     #paintVersions() {
         this.#versions.replaceChildren();
@@ -518,12 +544,15 @@ export class ArticlePanel {
                 this.#reopenRetries += 1;
                 window.setTimeout(() => this.onSessionChanged(), REOPEN_RETRY_MS);
             }
+            this.#drainReopenPending();
             return;
         }
         this.#reopenInFlight = false;
         this.#reopenRetries = 0;
-        if (token !== this.#token || sessionId !== this.#sessionId())
+        if (token !== this.#token || sessionId !== this.#sessionId()) {
+            this.#drainReopenPending();
             return;
+        }
         this.#reopenSession = sessionId;
         const articles = asRecord(listed)["articles"];
         const first = Array.isArray(articles) ? asRecord(articles[0]) : undefined;
@@ -537,6 +566,13 @@ export class ArticlePanel {
             this.#reopenTitle = stringValue(first?.["title"]) ?? "文稿";
         }
         this.#syncReopen();
+        this.#drainReopenPending();
+    }
+    #drainReopenPending() {
+        if (!this.#reopenPending)
+            return;
+        this.#reopenPending = false;
+        this.onSessionChanged();
     }
     async #load(id, version) {
         const text = await this.#readSlices((offset, limit) => this.#dispatch({

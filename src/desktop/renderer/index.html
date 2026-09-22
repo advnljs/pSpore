@@ -143,8 +143,9 @@
               <textarea id="composer-input" name="message" rows="3" maxlength="65536" placeholder="向 main 发送消息…" aria-label="消息" aria-describedby="composer-file-hint"></textarea>
               <div id="composer-references" class="composer-references" role="list" aria-label="文件与目录引用" hidden></div>
               <div class="composer-toolbar">
-                <span id="composer-file-hint" class="send-behavior-hint">拖入文件/目录仅引用路径 · 运行中发送会继续排队</span>
+                <span id="composer-file-hint" class="send-behavior-hint">拖入文件/目录或点「附件」选择，仅引用路径 · 运行中发送会继续排队</span>
                 <div class="composer-actions">
+                  <button id="attach-button" class="ghost-button" type="button" title="选择文件或目录，只发送路径">附件</button>
                   <button id="compact-button" class="ghost-button" type="button">压缩上下文</button>
                   <button id="abort-button" class="danger-ghost-button" type="button">中止</button>
                   <button id="send-button" class="primary-button" type="submit" title="Enter 发送 · Shift+Enter 或 Ctrl+Enter 换行">发送 <kbd>↵</kbd></button>

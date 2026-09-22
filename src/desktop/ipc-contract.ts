@@ -22,6 +22,7 @@ export const DESKTOP_SETTINGS_SAVE_CHANNEL = "pspore:desktop:settings:save";
 export const DESKTOP_INDEXING_GET_CHANNEL = "pspore:desktop:indexing:get";
 export const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 export const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
+export const DESKTOP_ATTACH_CHANNEL = "pspore:desktop:composer:attach";
 export const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 
 export type ArticleExportFormat = "txt" | "md" | "docx" | "pdf";
@@ -66,6 +67,24 @@ export interface DesktopBootstrap {
   snapshot: KernelState | null;
   cursors: Record<string, number>;
   versions: DesktopVersions;
+  /**
+   * Well-known directories the renderer can offer without asking the user to
+   * find them. Added by the Electron main process, which is the only side that
+   * can resolve them, so the daemon bridge leaves it out.
+   */
+  places?: DesktopPlaces;
+}
+
+export interface DesktopPlaces {
+  /** The user's desktop directory, wherever this system keeps it. */
+  desktop: string;
+  home: string;
+}
+
+/** One file or directory the composer will reference by path. */
+export interface DesktopAttachment {
+  path: string;
+  kind: "file" | "directory";
 }
 
 export type DesktopFrame =
@@ -140,6 +159,8 @@ export interface DesktopApi {
   saveIndexing(settings: DesktopIndexingSettingsUpdate): Promise<DesktopIndexingSaveResult>;
   /** Opens a native directory chooser; resolves to undefined when cancelled. */
   pickIndexDirectory(): Promise<string | undefined>;
+  /** Opens a native chooser for files and directories; the renderer has no path of its own. */
+  pickAttachments(): Promise<DesktopAttachment[]>;
   /** Resolve only an operating-system-backed File supplied by a user drag. */
   getPathForFile(file: unknown): string;
   exportArticle(request: ArticleExportRequest): Promise<ArticleExportResult>;
