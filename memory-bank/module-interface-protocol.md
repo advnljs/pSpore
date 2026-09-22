@@ -92,6 +92,7 @@ schema version、event mapping、共享 reducer/presentation、replay window、b
 ## 2026-09-07：阶段 2 —— item 级事件
 
 - `transcript.item.started` / `transcript.delta{itemId,kind}` / `transcript.item.finished` 取代原来的四个 `message.*` 事件。item id 由 adapter 分配（`${upstreamSessionId}:${n}`），因为 Pi 的 `Message` 对象没有 id，只有持久化 branch entry 才有。
+- `transcript.item.started` 与 `transcript.item.finished` 的 `item` 都必须是完整的 `TranscriptItem`（含 `status` 与 `ts`），不能直接把 adapter 内部的流式对象发出去。桌面端 `validateEventEnvelope` 会拒掉不合规的帧并**关闭连接**，代价是整条连接而不是这一个事件；2026-09-22 之前 `started` 少了这两个字段，导致每条助手消息都触发一次重连。`test/contract/pi-runtime-adapter.test.ts` 用桌面端自己的校验器逐条检查 adapter 发出的事件。
 - 携带 transcript 尾窗的事件只剩 `run.settled`/`session.replaced`/`runtime.error`/`compaction.completed`；其余非瞬时事件只带会话元数据，客户端合并时保留自己已有的消息。
 - `transcript.item.finished` 由客户端**追加**（事件里就有完整文本），`run.settled` 的权威尾窗负责校正漂移——对应 Pi 的 snapshot-resets-overlay 与 OpenClaw 的 cursor-stale-reset。
 - 客户端维护 `streamingItems`（每会话当前流式 item id），delta 属于被取代的 item 时另起缓冲；desktop delta 合并键为 `sessionId+itemId+channel`。

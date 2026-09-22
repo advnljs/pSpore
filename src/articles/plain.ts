@@ -39,16 +39,25 @@ function blockToPlain(block: MarkdownBlock): string {
   }
 }
 
+/** Two spaces per level, so a nested list reads as nested without any markers. */
+const LIST_INDENT = "  ";
+
 function listItemToPlain(
   blocks: readonly MarkdownBlock[],
   ordered: boolean,
   number: number,
   checked: boolean | undefined,
 ): string {
-  const text = blocks.map((block) => blockToPlain(block)).filter(Boolean).join("\n");
+  const head = blocks[0];
+  const lead = head?.kind === "paragraph" ? inlineToPlain(head.inline) : "";
+  const rest = blocks.slice(head?.kind === "paragraph" ? 1 : 0)
+    .map((block) => blockToPlain(block))
+    .filter(Boolean)
+    .map((text) => text.split("\n").map((line) => `${LIST_INDENT}${line}`).join("\n"))
+    .join("\n");
   const mark = checked === undefined ? "" : checked ? "已完成 " : "未完成 ";
   const prefix = ordered ? `${number}. ` : "• ";
-  return `${prefix}${mark}${text}`;
+  return rest ? `${prefix}${mark}${lead}\n${rest}` : `${prefix}${mark}${lead}`;
 }
 
 function inlineToPlain(inline: readonly MarkdownInline[]): string {

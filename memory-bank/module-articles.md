@@ -24,9 +24,9 @@
 | `preview.ts` / `draft.ts` | 从 Pi `toolcall_delta` 里取出正在写的 `content`。预览总线 120 ms 节流。事件只带 toolCallId、标题、id 和字数，正文留在进程内 |
 | `publish.ts` | 广播前去掉工具参数里的 `content` / `edits`，工具结果只留前 4 行，避免正文冲上 64 KiB 出站上限 |
 | `receipt.ts` | 解析回执，供面板和聊天卡片定位文稿 |
-| `plain.ts` / `html.ts` / `docx.ts` / `zip-write.ts` | txt 去掉 Markdown 标记；pdf 用 HTML；docx 是自写的 WordprocessingML ZIP（`node:zlib`，无新依赖）。`plain.ts` 与 `html.ts` 无 Node，可被渲染器导入；`docx.ts` 与 `zip-write.ts` 不行 |
+| `plain.ts` / `html.ts` / `docx.ts` / `zip-write.ts` | txt 去掉 Markdown 标记，嵌套列表按两空格逐级缩进；pdf 用 HTML，列表项的首段直接内联进 `<li>`（包成 `<p>` 会让 ☑ 和文字分行、每项多一段行距）；docx 是自写的 WordprocessingML ZIP（`node:zlib`，无新依赖），`numbering.xml` 声明 9 级、字体用 Calibri/Consolas/宋体这类目标机上真实存在的名字，ZIP 条目写 1980-01-01 的合法 DOS 日期。`plain.ts` 与 `html.ts` 无 Node，可被渲染器导入；`docx.ts` 与 `zip-write.ts` 不行 |
 | `article-export.ts` | 保存对话框。pdf 用隐藏、关 JavaScript 的沙箱窗口 `printToPDF`，中文走系统字体 |
-| `article-panel.ts` | 流式重绘、版本芯片、对照上一版、新增段 GSAP 脉冲（最多 16 段，只动 opacity/位移） |
+| `article-panel.ts` | 流式重绘、版本芯片、对照上一版、新增段 GSAP 脉冲（最多 16 段，只动 opacity/位移）。`onSessionChanged()` 每帧调用且可重试；打开/切版本锚定顶部，提交新版本时保留贴底；无基线时禁用对照，打开第 N 版后补取第 N−1 版作基线 |
 
 ## 对外接口
 
@@ -54,3 +54,6 @@
 - 面板默认隐藏，避免 Electron smoke 在 1920×1080 上多出一列。打开时检查器让位；宽度 ≤1320 时文稿是抽屉。
 - 内置 skill 在新会话或服务重启后才进入提示词，已打开的会话不热加载。
 - 渲染器不得导入 `store.ts`、`docx.ts`、`zip-write.ts`、`article-export.ts`。
+- 面板靠 `article.preview` / `tool.completed` 两个事件活着。这两个事件走的是通用广播路径，所以**任何让桌面端拒帧断连的协议缺陷都会静默掐掉整个面板的实时行为**：2026-09-22 实机验证发现 `transcript.item.started` 少了 `status`/`ts`，桌面端每条助手消息都断一次连，流式预览与 diff 动画从未到达过面板，而聊天靠重连快照看起来正常。`test/contract/pi-runtime-adapter.test.ts` 现在用桌面端自己的 `validateEventEnvelope` 逐条校验 adapter 发出的事件，守住这个边界。
+- 只调用工具、没有正文的助手轮次在聊天里折叠（`.message-silent`，`display:none`），保留虚拟列表槽位，不动绝对索引。
+- Electron smoke 在临时 home 里预置 `art_5c0de0000001`（两版，`sessionId: "main"`），断言面板入场、版本芯片、首屏定位、对照上一版与四个导出按钮。导出按钮不点击——每个都会拉起系统保存对话框。

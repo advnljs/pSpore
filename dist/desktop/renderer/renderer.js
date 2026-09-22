@@ -221,6 +221,10 @@ const unsubscribe = window.pspore.subscribe((frame) => {
         queuedFrames.push(frame);
     else {
         store.applyFrame(frame);
+        // The selection can change without anyone clicking: a restored session
+        // arrives with the first snapshot, and a reconnect replaces it. The panel
+        // no-ops when nothing changed.
+        articles.onSessionChanged();
         scheduleRender();
     }
 });
@@ -236,6 +240,7 @@ async function initialize() {
         initialized = true;
         for (const frame of queuedFrames.splice(0))
             store.applyFrame(frame);
+        articles.onSessionChanged();
         render();
         await refreshSideData();
     }
@@ -1476,6 +1481,13 @@ function renderMessage(message, address) {
         pre.textContent = message.text || "（无输出）";
         details.append(summary, pre);
         article.append(meta, details);
+    }
+    else if (role === "assistant" && message.text.trim() === "") {
+        // A turn that only called a tool has no words of its own. The tool card
+        // below already says what happened, so the empty shell is collapsed rather
+        // than announced — with the article tool this is every writing turn.
+        article.classList.add("message-silent");
+        article.append(meta);
     }
     else {
         const body = element("div", "message-body markdown");

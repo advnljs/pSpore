@@ -6,6 +6,16 @@ export interface ZipMember {
 }
 
 /**
+ * MS-DOS date for 1980-01-01, the epoch the format starts at. A zeroed field
+ * decodes as month 0 day 0, which strict readers reject outright and lenient
+ * ones show as "1980-00-00"; the parts carry no meaningful time of their own,
+ * so they all take this one valid stamp and the output stays byte-identical
+ * between runs.
+ */
+const DOS_EPOCH_DATE = (1 << 5) | 1;
+const DOS_EPOCH_TIME = 0;
+
+/**
  * Writes a ZIP that Office and WPS can open. Parts are deflated when that
  * actually shrinks them; everything else is stored. No extra fields, no
  * comment, so the central directory stays trivial to read back.
@@ -26,6 +36,8 @@ export function writeZip(files: readonly ZipMember[]): Buffer {
     local.writeUInt32LE(0x04034b50, 0);
     local.writeUInt16LE(20, 4);
     local.writeUInt16LE(method, 8);
+    local.writeUInt16LE(DOS_EPOCH_TIME, 10);
+    local.writeUInt16LE(DOS_EPOCH_DATE, 12);
     local.writeUInt32LE(checksum, 14);
     local.writeUInt32LE(payload.length, 18);
     local.writeUInt32LE(data.length, 22);
@@ -36,6 +48,8 @@ export function writeZip(files: readonly ZipMember[]): Buffer {
     central.writeUInt16LE(20, 4);
     central.writeUInt16LE(20, 6);
     central.writeUInt16LE(method, 10);
+    central.writeUInt16LE(DOS_EPOCH_TIME, 12);
+    central.writeUInt16LE(DOS_EPOCH_DATE, 14);
     central.writeUInt32LE(checksum, 16);
     central.writeUInt32LE(payload.length, 20);
     central.writeUInt32LE(data.length, 24);

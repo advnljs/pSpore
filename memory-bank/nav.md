@@ -65,7 +65,7 @@
 | `scripts/linux/apply-overlay-upgrade.sh` | overlay updater：校验 manifest/运行时/payload，在安装根目录整体替换 Chromium 之外的全部应用文件、输出 `[ NN%] …` 进度、保留回滚、重指向已有桌面快捷方式并重启匹配服务 |
 | `scripts/linux/overlay-upgrade-gui.sh` | overlay 图形界面升级（打包为「图形界面升级.sh」）：zenity/kdialog 选目录 + 进度条，无对话框工具时回落终端 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
-| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收 |
+| `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收；并预置一篇两版文稿验收文稿面板（入场、版本芯片、首屏定位、对照上一版、四个导出按钮） |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |
 | `.gitignore` | 环境文件、私钥、`release-dist/` 与本地 pSpore 数据排除；`dist/` 已不再忽略 |

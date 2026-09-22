@@ -62,7 +62,7 @@ function blockToWord(block: MarkdownBlock, links: string[], depth: number): stri
     case "heading":
       return paragraph(inlineToWord(block.inline, links), `Heading${block.level}`);
     case "code":
-      return block.value.split("\n").map((line) => paragraph(`<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:eastAsia="Noto Sans Mono CJK SC"/><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(line.length === 0 ? " " : line)}</w:t></w:r>`, "Code")).join("");
+      return block.value.split("\n").map((line) => paragraph(`<w:r><w:rPr><w:rFonts w:ascii="Consolas" w:hAnsi="Consolas" w:eastAsia="宋体"/><w:sz w:val="21"/></w:rPr><w:t xml:space="preserve">${escapeXml(line.length === 0 ? " " : line)}</w:t></w:r>`, "Code")).join("");
     case "quote":
       return block.blocks.map((child) => {
         if (child.kind === "paragraph") return paragraph(inlineToWord(child.inline, links), "Quote");
@@ -75,7 +75,7 @@ function blockToWord(block: MarkdownBlock, links: string[], depth: number): stri
         const mark = item.checked === undefined ? "" : item.checked ? "☑ " : "☐ ";
         const prefix = mark ? `<w:r><w:t xml:space="preserve">${mark}</w:t></w:r>` : "";
         const numId = block.ordered ? 2 : 1;
-        const first = paragraph(`${prefix}${runs}`, undefined, { ilvl: Math.min(depth, 8), numId });
+        const first = paragraph(`${prefix}${runs}`, undefined, { ilvl: Math.min(depth, LIST_LEVELS - 1), numId });
         const rest = item.blocks.slice(head?.kind === "paragraph" ? 1 : 0).map((child) => blockToWord(child, links, depth + 1)).join("");
         return `${first}${rest}`;
       }).join("");
@@ -107,7 +107,7 @@ function inlinePart(part: MarkdownInline, links: string[]): string {
     case "text":
       return run(part.value);
     case "code":
-      return run(part.value, "<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\" w:eastAsia=\"Noto Sans Mono CJK SC\"/><w:shd w:val=\"clear\" w:fill=\"F5F5F4\"/>");
+      return run(part.value, "<w:rFonts w:ascii=\"Consolas\" w:hAnsi=\"Consolas\" w:eastAsia=\"宋体\"/><w:shd w:val=\"clear\" w:fill=\"F5F5F4\"/>");
     case "strong":
       return wrap(part.children, links, "<w:b/>");
     case "emphasis":
@@ -183,12 +183,18 @@ function coreProps(title: string): string {
 </cp:coreProperties>`;
 }
 
+/**
+ * Font names travel with the file, not the glyphs. The names picked here are the
+ * ones present where these documents are opened: Calibri and Consolas on
+ * Windows Word, 宋体 for Chinese on every Windows and WPS install. A Linux
+ * reader substitutes through fontconfig, so the document still renders.
+ */
 function styles(): string {
   const heading = (level: number, size: number) => `<w:style w:type="paragraph" w:styleId="Heading${level}"><w:name w:val="heading ${level}"/><w:basedOn w:val="Normal"/><w:qFormat/><w:rPr><w:b/><w:sz w:val="${size}"/><w:szCs w:val="${size}"/></w:rPr></w:style>`;
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:styles xmlns:w="${W}">
   <w:docDefaults><w:rPrDefault><w:rPr>
-    <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="Noto Sans CJK SC" w:cs="Calibri"/>
+    <w:rFonts w:ascii="Calibri" w:hAnsi="Calibri" w:eastAsia="宋体" w:cs="Calibri"/>
     <w:sz w:val="22"/><w:szCs w:val="22"/>
     <w:lang w:val="en-US" w:eastAsia="zh-CN"/>
   </w:rPr></w:rPrDefault></w:docDefaults>
@@ -200,12 +206,29 @@ function styles(): string {
 </w:styles>`;
 }
 
+/** Nesting depth a list can reach before deeper items reuse the last level. */
+const LIST_LEVELS = 9;
+
+const BULLET_GLYPHS = ["\u2022", "\u25e6", "\u25aa"];
+const ORDERED_FORMATS = ["decimal", "lowerLetter", "lowerRoman"];
+
+/**
+ * Word draws a list item at the level its `ilvl` names, and an `ilvl` the
+ * numbering part never defines gets no indent and no glyph — which is how a
+ * nested list ends up flattened to the left margin. Every level a document can
+ * reach is therefore declared here, each with its own counter and indent.
+ */
 function numbering(): string {
-  const level = (format: string, text: string) => `<w:lvl w:ilvl="0"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${text}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="720" w:hanging="360"/></w:pPr></w:lvl>`;
+  const levels = (ordered: boolean) => Array.from({ length: LIST_LEVELS }, (_unused, depth) => {
+    const format = ordered ? ORDERED_FORMATS[depth % ORDERED_FORMATS.length] : "bullet";
+    const text = ordered ? `%${depth + 1}.` : BULLET_GLYPHS[depth % BULLET_GLYPHS.length];
+    const indent = 720 * (depth + 1);
+    return `<w:lvl w:ilvl="${depth}"><w:start w:val="1"/><w:numFmt w:val="${format}"/><w:lvlText w:val="${escapeXml(text ?? "\u2022")}"/><w:lvlJc w:val="left"/><w:pPr><w:ind w:left="${indent}" w:hanging="360"/></w:pPr></w:lvl>`;
+  }).join("");
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:numbering xmlns:w="${W}">
-  <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>${level("bullet", "•")}</w:abstractNum>
-  <w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>${level("decimal", "%1.")}</w:abstractNum>
+  <w:abstractNum w:abstractNumId="0"><w:multiLevelType w:val="hybridMultilevel"/>${levels(false)}</w:abstractNum>
+  <w:abstractNum w:abstractNumId="1"><w:multiLevelType w:val="hybridMultilevel"/>${levels(true)}</w:abstractNum>
   <w:num w:numId="1"><w:abstractNumId w:val="0"/></w:num>
   <w:num w:numId="2"><w:abstractNumId w:val="1"/></w:num>
 </w:numbering>`;

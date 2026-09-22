@@ -42,6 +42,9 @@ export class ArticlePanel {
     #versionsKnown = [];
     #reopenId = "";
     #reopenTitle = "";
+    /** Session whose article list has been read. "" means the lookup still owes us an answer. */
+    #reopenSession = "";
+    #reopenInFlight = false;
     constructor(options) {
         this.#sessionId = options.sessionId;
         this.#dispatch = options.dispatch;
@@ -57,13 +60,14 @@ export class ArticlePanel {
         this.#status = requiredElement("article-status");
         this.#diffToggle = requiredButton("article-diff-toggle");
         this.#reopen = requiredButton("open-article-button");
+        this.#syncDiffToggle(false);
         requiredButton("article-close").addEventListener("click", () => this.close());
         this.#diffToggle.addEventListener("click", () => {
             this.#diffMode = !this.#diffMode;
             this.#diffToggle.setAttribute("aria-pressed", String(this.#diffMode));
             this.#diffToggle.textContent = this.#diffMode ? "只看正文" : "对照上一版";
             if (this.#articleId)
-                this.#paint(this.#baseline, false);
+                this.#paint(this.#baseline, false, "keep");
         });
         this.#reopen.addEventListener("click", () => {
             if (this.#reopenId)
@@ -86,15 +90,26 @@ export class ArticlePanel {
     writingKey() {
         return this.#writingKey;
     }
+    /**
+     * Called whenever the selected session may have changed, including on the
+     * frames that follow a reconnect. The session is often selected for the user
+     * — restored at startup, or picked once the daemon answers — so waiting for a
+     * click would leave the panel unaware of the articles that session owns. A
+     * lookup that could not run, because the daemon was not connected yet, is
+     * retried on the next frame instead of leaving the panel silent for good.
+     */
     onSessionChanged() {
         const sessionId = this.#sessionId();
-        if (sessionId === this.#session)
+        if (sessionId !== this.#session) {
+            this.#session = sessionId;
+            this.#token += 1;
+            this.#writing = false;
+            this.#reopenSession = "";
+            this.close();
+        }
+        if (!sessionId || this.#reopenSession === sessionId || this.#reopenInFlight)
             return;
-        this.#session = sessionId;
-        this.#token += 1;
-        this.#writing = false;
-        this.close();
-        void this.#refreshReopen();
+        void this.#refreshReopen(sessionId);
     }
     onEvent(event) {
         const payload = asRecord(event.payload);
@@ -129,7 +144,9 @@ export class ArticlePanel {
                 this.#status.textContent = "没有找到文稿";
             return;
         }
-        this.#applyLoaded(loaded, true);
+        // Opening a document, or stepping to another version, is a request to read
+        // it — so it starts at the title, not at whatever the last line happens to be.
+        this.#applyLoaded(loaded, true, "top");
     }
     close() {
         if (!this.#open && this.#panel.hidden) {
@@ -185,9 +202,9 @@ export class ArticlePanel {
         const loaded = await this.#load(id, version);
         if (token !== this.#token || !loaded)
             return;
-        this.#applyLoaded(loaded, true);
+        this.#applyLoaded(loaded, true, "keep");
     }
-    #applyLoaded(loaded, animate) {
+    #applyLoaded(loaded, animate, anchor) {
         const sequential = this.#articleId === loaded.id && this.#loadedVersion > 0 && loaded.version === this.#loadedVersion + 1;
         const firstVersion = this.#loadedVersion === 0 && loaded.version === 1;
         const baseline = sequential ? this.#committed : "";
@@ -202,15 +219,34 @@ export class ArticlePanel {
         this.#title.textContent = loaded.title;
         this.#version.textContent = `v${loaded.version}`;
         this.#paintVersions();
-        this.#paint(baseline, animate && (sequential || firstVersion));
+        this.#paint(baseline, animate && (sequential || firstVersion), anchor);
         const counts = articleChangeCounts(diffArticleBlocks(baseline, loaded.text));
         this.#summary.hidden = baseline === "" || (counts.added === 0 && counts.removed === 0);
         this.#summary.textContent = `相对上一版 +${counts.added} 段 −${counts.removed} 段`;
+        this.#syncDiffToggle(baseline !== "");
         this.#status.textContent = `${loaded.text.length} 字 · 第 ${loaded.version} 版`;
         this.#syncReopen();
+        // Reopening a document, or stepping back through the version chips, skips
+        // the hand-off the panel would otherwise have watched. Fetching the version
+        // it replaced is what makes "对照上一版" mean something there too.
+        if (baseline === "" && loaded.version > 1)
+            void this.#loadBaseline(loaded.id, loaded.version);
     }
-    #paint(previous, animate) {
-        const pinned = this.#pinnedToEnd();
+    async #loadBaseline(id, version) {
+        const token = this.#token;
+        const previous = await this.#load(id, version - 1);
+        if (token !== this.#token || !previous)
+            return;
+        if (this.#articleId !== id || this.#loadedVersion !== version)
+            return;
+        this.#baseline = previous.text;
+        const counts = articleChangeCounts(diffArticleBlocks(previous.text, this.#committed));
+        this.#summary.hidden = counts.added === 0 && counts.removed === 0;
+        this.#summary.textContent = `相对上一版 +${counts.added} 段 −${counts.removed} 段`;
+        this.#syncDiffToggle(true);
+    }
+    #paint(previous, animate, anchor) {
+        const pinned = anchor === "keep" && this.#pinnedToEnd();
         const diff = diffArticleBlocks(previous, this.#committed);
         this.#render.replaceChildren();
         const added = [];
@@ -235,7 +271,9 @@ export class ArticlePanel {
             empty.textContent = "这一版还没有正文";
             this.#render.append(empty);
         }
-        if (pinned)
+        if (anchor === "top")
+            this.#stage.scrollTop = 0;
+        else if (pinned)
             this.#stage.scrollTop = this.#stage.scrollHeight;
         if (animate)
             pulseArticleChanges(added.slice(0, 16));
@@ -274,11 +312,23 @@ export class ArticlePanel {
             this.#status.textContent = error instanceof Error ? error.message : "导出失败";
         }
     }
-    async #refreshReopen() {
+    async #refreshReopen(sessionId) {
         const token = this.#token;
-        const listed = await this.#dispatch({ action: "article.list", sessionId: this.#sessionId() });
-        if (token !== this.#token)
+        this.#reopenInFlight = true;
+        let listed;
+        try {
+            listed = await this.#dispatch({ action: "article.list", sessionId });
+        }
+        catch {
+            // Usually "daemon is not connected" during startup. Leaving
+            // `#reopenSession` unset makes the next frame try again.
+            this.#reopenInFlight = false;
             return;
+        }
+        this.#reopenInFlight = false;
+        if (token !== this.#token || sessionId !== this.#sessionId())
+            return;
+        this.#reopenSession = sessionId;
         const articles = asRecord(listed)["articles"];
         const first = Array.isArray(articles) ? asRecord(articles[0]) : undefined;
         const id = stringValue(first?.["id"]);
@@ -339,6 +389,18 @@ export class ArticlePanel {
             this.#onLayout();
         }
         this.#syncReopen();
+    }
+    /**
+     * The first version has nothing to compare against, so the control that
+     * brings back removed paragraphs stays out of reach until there is a baseline.
+     */
+    #syncDiffToggle(comparable) {
+        this.#diffToggle.disabled = !comparable;
+        if (comparable)
+            return;
+        this.#diffMode = false;
+        this.#diffToggle.setAttribute("aria-pressed", "false");
+        this.#diffToggle.textContent = "对照上一版";
     }
     #syncReopen() {
         const visible = !this.#open && this.#reopenId !== "";

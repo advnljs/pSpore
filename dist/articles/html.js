@@ -30,6 +30,9 @@ export function markdownToPdfHtml(source, title) {
   blockquote { margin: 0.8em 0; padding: 0.2em 0 0.2em 0.9em; border-left: 3px solid #d6d3d1; color: #44403c; }
   ul, ol { margin: 0.6em 0; padding-left: 1.4em; }
   li { margin: 0.2em 0; }
+  li > p:first-child { margin-top: 0; }
+  li > p:last-child { margin-bottom: 0; }
+  li > ul, li > ol { margin: 0.2em 0; }
   pre { margin: 0.8em 0; padding: 10px 12px; background: #f5f5f4; border-radius: 6px; white-space: pre-wrap; font: 13px/1.6 ${MONO}; }
   code { font-family: ${MONO}; font-size: 0.92em; background: #f5f5f4; padding: 0 0.2em; border-radius: 3px; }
   pre code { background: transparent; padding: 0; }
@@ -59,9 +62,14 @@ function blockToHtml(block) {
             const tag = block.ordered ? "ol" : "ul";
             const start = block.ordered && block.start !== 1 ? ` start="${block.start}"` : "";
             const items = block.items.map((item) => {
-                const inner = item.blocks.map((child) => blockToHtml(child)).join("");
+                const head = item.blocks[0];
                 const mark = item.checked === undefined ? "" : item.checked ? "☑ " : "☐ ";
-                return `<li>${mark}${inner}</li>`;
+                // An item's own sentence goes straight into the <li>. Wrapping it in a
+                // block would put the checkbox on one line and the words on the next,
+                // and give every item a paragraph's worth of air around it.
+                const lead = head?.kind === "paragraph" ? `${mark}${inlineToHtml(head.inline)}` : mark;
+                const rest = item.blocks.slice(head?.kind === "paragraph" ? 1 : 0).map((child) => blockToHtml(child)).join("");
+                return `<li>${lead}${rest}</li>`;
             }).join("");
             return `<${tag}${start}>${items}</${tag}>`;
         }

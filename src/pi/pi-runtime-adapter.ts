@@ -593,8 +593,8 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         this.#emit(record, "run.settled", {}, false);
         break;
       case "message_start": {
-        const item = this.#beginItem(record, event.message);
-        this.#emit(record, "transcript.item.started", { item }, false);
+        const streaming = this.#beginItem(record, event.message);
+        this.#emit(record, "transcript.item.started", { item: this.#startedItem(streaming) }, false);
         break;
       }
       case "message_update": {
@@ -702,6 +702,22 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
     };
     record.streaming = streaming;
     return streaming;
+  }
+
+  /**
+   * The item a `transcript.item.started` event announces. It is the same shape
+   * a finished item has — clients and the desktop's frame validator both read a
+   * `TranscriptItem` — only still open, so the status is `streaming`.
+   */
+  #startedItem(streaming: NonNullable<SessionRecord["streaming"]>): TranscriptItem {
+    return {
+      id: streaming.id,
+      role: streaming.role,
+      text: streaming.text,
+      ...(streaming.thinking ? { thinking: streaming.thinking } : {}),
+      status: "streaming",
+      ts: streaming.startedAt,
+    };
   }
 
   #finishItem(record: SessionRecord, message: unknown): TranscriptItem {

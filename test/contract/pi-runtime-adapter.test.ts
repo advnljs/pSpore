@@ -15,9 +15,11 @@ import {
 import { defineTool, ModelRuntime, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 
+import { validateEventEnvelope } from "../../src/desktop/validation.js";
 import type { RuntimeEvent, ToolGate } from "../../src/domain/runtime.js";
 import type { SessionSkill } from "../../src/plugins/types.js";
 import { PiRuntimeAdapter } from "../../src/pi/pi-runtime-adapter.js";
+import { toEventEnvelope } from "../../src/protocol/schema.js";
 import type { AutoCompactionConfig } from "../../src/settings/compaction-settings.js";
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -127,6 +129,55 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal(adapter.branch("main").at(-1)?.text, "second turn");
     assert.ok(snapshot.usage.cacheWrite > 0);
     assert.ok(snapshot.usage.cacheRead > 0);
+  });
+
+  test("every event it emits survives the frame validator the desktop applies", async () => {
+    const echo = defineTool({
+      name: "echo_contract_tool",
+      label: "Echo",
+      description: "Returns what it is given.",
+      parameters: Type.Object({ value: Type.String() }, { additionalProperties: false }),
+      execute: async (_toolCallId, params) => ({ content: [{ type: "text", text: params.value }], details: undefined }),
+    });
+    const { adapter, faux, root } = await fixture({ createTools: () => [echo] });
+    faux.setResponses([
+      // A turn whose only content is the call: Pi still opens an item for it,
+      // and an item the desktop rejects costs the whole connection, not the event.
+      fauxAssistantMessage(fauxToolCall("echo_contract_tool", { value: "contract" }), { stopReason: "toolUse" }),
+      fauxAssistantMessage("done"),
+    ]);
+    await adapter.create({ ...spec(root), enabledTools: ["echo_contract_tool"] });
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+
+    await adapter.prompt("main", "call the tool");
+    await adapter.waitForIdle("main");
+
+    assert.ok(events.some((event) => event.type === "transcript.item.started"));
+    assert.ok(events.some((event) => event.type === "tool.completed"));
+    let seq = 0;
+    for (const event of events) {
+      // The same envelope the kernel broadcasts and the gateway puts on the wire.
+      const envelope = toEventEnvelope(
+        {
+          id: event.id,
+          ts: event.ts,
+          durable: !event.transient,
+          type: event.type,
+          payload: {
+            sessionId: event.sessionId,
+            upstreamSessionId: event.upstreamSessionId,
+            ...event.payload,
+          },
+        },
+        "kernel",
+        ++seq,
+      );
+      // The client validates what came off the wire, so the check runs on the
+      // JSON round-trip rather than the in-process object.
+      const onTheWire: unknown = JSON.parse(JSON.stringify(envelope));
+      assert.doesNotThrow(() => validateEventEnvelope(onTheWire), `${event.type} was rejected`);
+    }
   });
 
   test("emits thinking on its own transient channel and keeps it out of persisted prose", async () => {

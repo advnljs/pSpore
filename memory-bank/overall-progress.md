@@ -1,5 +1,33 @@
 # Overall Progress
 
+## 2026-09-22 — 文稿面板实机验证与修复（未升版本）
+
+- 阶段目标：在有 GUI 的本机对上一阶段（文稿面板与四种导出）做真实验证，修掉验证中发现的问题。
+- 验证环境与手段：`Xvfb :98` 1920×1080 跑真实 Electron 桌面端，连真实守护进程；模型侧用本地 OpenAI 兼容 mock（`/v1/chat/completions` SSE，按 90 字符一片流式吐出 `article` 工具参数），因此走的是真实的 Pi adapter → 工具 → 事件 → 面板全链路。用 `--remote-debugging-port` 经 CDP 读渲染器状态与装探针。导出用 WPS Office（本机已装）打开 docx、用 `pdftoppm` 光栅化 PDF 人工比对。
+- 发现并修复的问题：
+  1. **（P0，既有缺陷，自 `2d172a7`）桌面端每条助手消息都会把自己和守护进程的连接断掉。** `transcript.item.started` 携带的 `item` 是 adapter 内部的流式对象（`{id, role, text, thinking, startedAt}`），缺 `TranscriptItem` 要求的 `status` 与 `ts`；`src/desktop/validation.ts` 的 `validateTranscriptItem` 因此判定 `item.status is invalid`，`DaemonBridge` 把校验失败当协议错误、关闭 socket 重连。后果是**流式预览与版本 diff 动画从来没有到达过面板**——事件全丢在重连里，聊天只靠重连后的快照恢复，看起来"能用"。实测断连信息：`Rejected a transcript.item.started event from the daemon: event.payload.item.status is invalid`。修法：adapter 新增 `#startedItem()`，按 `TranscriptItem` 形状发 `status: "streaming"` 与 `ts`。修完同一场景连跑 3 轮 0 次断连、48 个事件全部到达渲染器。
+  2. 文稿面板只在"用户点了会话行"时才去查该会话的文稿；会话被隐式选中（启动恢复、守护进程稍后应答）时 `onSessionChanged()` 直接 return，「文稿」按钮整场会话都不出现。且首次查询在守护进程尚未连上时抛 `daemon is not connected`，被 `void` 吞掉且不重试。改为每帧调用（无变化即空转）、失败不记录会话、下一帧重试。
+  3. 打开已有文稿时面板滚到**底部**（`#pinnedToEnd()` 在空舞台上恒为真）。新增 `ScrollAnchor`：打开/切版本锚定顶部，提交新版本时保留原有的贴底行为。
+  4. 「对照上一版」在没有基线时是个死控件（v1 无上一版；从聊天卡片打开任意版本也没有基线）。现在无基线时禁用；并新增 `#loadBaseline()`，打开第 N 版（N>1）后补取第 N−1 版，使**任意版本都能对照上一版**并显示段落增删统计。
+  5. 只调用工具、没有正文的助手轮次在聊天里渲染成「（空消息）」——用 article 工具时每轮都会出现。改为折叠该行（保留虚拟列表槽位，`display:none`，不动索引数学）。
+  6. **docx 嵌套列表被压平到左边距**（WPS 实测截图确认）：`numbering.xml` 只声明了 `ilvl=0`。改为两个 abstractNum 各声明 9 级，序号级 decimal/lowerLetter/lowerRoman 轮换、项目符号 •/◦/▪ 轮换，缩进 720×(depth+1)。
+  7. docx/OOXML 的 ZIP 条目时间戳全为 0，解码出来是 `1980-00-00`（月 0 日 0，非法日期）。改写为 1980-01-01 的合法 DOS 日期，输出仍然逐字节确定。
+  8. docx 正文字体写的是 `Noto Sans CJK SC`（只存在于 Linux），发给 Word 必然回退。改为 `宋体`（Windows 与 WPS 都有）。
+  9. PDF/HTML 的列表项把单段正文包进 `<p>`，导致任务清单的 ☑ 和文字分两行、每项多出一段的行距。改为首段直接内联进 `<li>`，并补 `li > p` 的首尾边距归零。
+  10. txt 导出的嵌套列表没有缩进，二级项和一级项看起来同级。改为续行按两空格逐级缩进。
+- 新增回归测试：
+  - `test/contract/pi-runtime-adapter.test.ts`：用 faux provider 跑一轮"只有工具调用"的助手轮次，把 adapter 发出的每个事件按 reducer+gateway 的方式组装成 `EventEnvelope`、JSON 往返后交给桌面端自己的 `validateEventEnvelope`。已验证：把 `#startedItem` 换回旧写法，这条用例立刻失败。
+  - `test/unit/article.test.ts`：docx 九级列表声明与嵌套 `ilvl`、ZIP 合法日期、PDF HTML 单行列表项、txt 嵌套缩进。
+  - `scripts/electron-smoke.mjs` + `src/desktop/main.ts`：smoke 现在在两个临时 home 里预置一篇两版文稿（`sessionId: "main"`），在 1920×1080 基准下打开文稿面板并断言：未点击即出现「文稿」入口、打开的是最新版、版本芯片 `v1,v2`、正文渲染出段落、`scrollTop === 0`、可对照上一版且摘要为 `+2 段`、对照模式留下被删段落、四个导出按钮齐全、工作区没有横向滚动条。导出按钮不点击（会拉起系统保存对话框）。
+- 修改文件：`src/pi/pi-runtime-adapter.ts`、`src/desktop/renderer/{article-panel.ts,renderer.ts,styles.css}`、`src/desktop/main.ts`、`src/articles/{docx.ts,html.ts,plain.ts,zip-write.ts}`、`scripts/electron-smoke.mjs`、`test/contract/pi-runtime-adapter.test.ts`、`test/unit/article.test.ts`、memory-bank、`dist/**`。未改 `src/version.ts` 与 `package.json` 版本。
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过，**252/252** 测试通过，production build 通过。
+  - `npm run test:electron`：本机实跑通过（`Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 …, the document panel with its version diff and four exports, …`）。
+  - GUI 实机（主基准 `1920×1080`）：流式撰写→提交→版本 diff 全链路可见；新增段落脉冲动画经 CDP 逐帧采样确认真的在跑（opacity 0.348→1、位移 9.77px→0，约 460 ms，`power3.out`）；面板打开 `scrollTop=0`、八个版本芯片、对照模式留下被删段落。
+  - 导出实机：docx 经 WPS 打开，标题/加粗/斜体/删除线/行内代码底色/超链接/表格边框与表头加粗/代码块/分隔线/有序与无序列表**含嵌套缩进**全部正确；PDF 经 `pdftoppm` 光栅化，中文可选可搜、表格与代码块正常、删除线存在、列表间距修复后紧凑。两者都通过 GUI 里的真实系统保存对话框实际落盘过一次（`已导出 …`），文件已从用户「下载」目录清理。txt 用例断言 + 人工比对。
+- 当前状态：`dist/` 与源码一并提交，版本仍为 `0.1.27`，本次不发布。
+- 遗留问题：见 `todo.md` 新增三条（网关重放的 transient 序号缺口、导出对话框无返回时状态停在「正在导出…」、WPS 的「缺失字体」提示）。
+
 ## 2026-09-22 — 长文文稿面板与导出（未升版本）
 
 - 阶段目标：写长文时不把正文直接回进聊天，而是打开一个 Markdown 面板，多次更新同一份文稿、持续渲染并展示版本差异（带动画）；可导出 txt、md、docx、pdf。docx/pdf 保留富文本，txt 去掉 Markdown 标记。

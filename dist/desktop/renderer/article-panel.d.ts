@@ -23,6 +23,14 @@ export declare class ArticlePanel {
     isOpen(): boolean;
     isWriting(): boolean;
     writingKey(): string;
+    /**
+     * Called whenever the selected session may have changed, including on the
+     * frames that follow a reconnect. The session is often selected for the user
+     * — restored at startup, or picked once the daemon answers — so waiting for a
+     * click would leave the panel unaware of the articles that session owns. A
+     * lookup that could not run, because the daemon was not connected yet, is
+     * retried on the next frame instead of leaving the panel silent for good.
+     */
     onSessionChanged(): void;
     onEvent(event: EventEnvelope): void;
     open(id: string, version?: number): Promise<void>;

@@ -39,12 +39,26 @@ describe("article diff and export text", () => {
     assert.match(plain, /甲\t乙/);
   });
 
+  test("plain text indents what sits under a list item", () => {
+    const plain = markdownToPlainText("1. 第一层\n   - 第二层\n   - 第二层乙\n2. 收尾\n");
+    assert.match(plain, /^1\. 第一层\n {2}• 第二层\n {2}• 第二层乙\n2\. 收尾$/);
+  });
+
   test("pdf html escapes text and keeps heading structure", () => {
     const html = markdownToPdfHtml("# 标题\n\n<script>alert(1)</script> 与 **重点**", "标题");
     assert.match(html, /<h1>标题<\/h1>/);
     assert.match(html, /<strong>重点<\/strong>/);
     assert.match(html, /&lt;script&gt;/);
     assert.doesNotMatch(html, /<script>/);
+  });
+
+  test("pdf html keeps a one-sentence list item on one line", () => {
+    const html = markdownToPdfHtml("- [x] 已办\n- 普通项\n  - 下一层\n", "清单");
+    // A block inside the <li> puts the checkbox on its own line and gives each
+    // item a paragraph's margins.
+    assert.match(html, /<li>☑ 已办<\/li>/);
+    assert.match(html, /<li>普通项<ul><li>下一层<\/li><\/ul><\/li>/);
+    assert.doesNotMatch(html, /<li>[^<]*<p>/);
   });
 
   test("docx is a zip whose document carries the heading and bold run", () => {
@@ -56,6 +70,31 @@ describe("article diff and export text", () => {
     assert.match(xml, /<w:b\/>/);
     assert.match(xml, /授信/);
     assert.equal(archive.has("word/styles.xml"), true);
+  });
+
+  test("docx declares every list level a nested list can reach", () => {
+    const docx = markdownToDocx("1. 第一层\n   - 第二层\n     1. 第三层\n", "层级");
+    const archive = ZipArchive.open(docx);
+    const numbering = archive.readText("word/numbering.xml") ?? "";
+    // Word gives an item no indent and no glyph when its ilvl is undeclared,
+    // which flattens a nested list against the left margin.
+    for (let level = 0; level < 9; level += 1) {
+      assert.match(numbering, new RegExp(`<w:lvl w:ilvl="${level}">`, "g"), `level ${level} is not declared`);
+    }
+    const document = archive.readText("word/document.xml") ?? "";
+    assert.match(document, /<w:ilvl w:val="1"\/>/);
+    assert.match(document, /<w:ilvl w:val="2"\/>/);
+  });
+
+  test("docx entries carry a date a zip reader accepts", () => {
+    const docx = markdownToDocx("# 标题\n\n正文。", "标题");
+    // Local header: signature(4) version(2) flags(2) method(2) time(2) date(2).
+    const time = docx.readUInt16LE(10);
+    const date = docx.readUInt16LE(12);
+    assert.equal(time, 0);
+    // A zeroed date decodes as month 0 day 0, which is not a date.
+    assert.equal((date >> 5) & 0x0f, 1);
+    assert.equal(date & 0x1f, 1);
   });
 });
 

@@ -128,6 +128,23 @@ interface SmokeReport {
     counts: string;
     note: string;
   };
+  articlePanel: {
+    /** Offered without a click: the session is selected for the user, not by one. */
+    reopenLabel: string;
+    title: string;
+    version: string;
+    versionChips: string[];
+    renderedBlocks: number;
+    /** A document opens at its title, not at whatever line happens to be last. */
+    scrollTop: number;
+    diffSummary: string;
+    /** Enabled once the version it replaced has been fetched. */
+    comparable: boolean;
+    removedBlocks: number;
+    exportFormats: string[];
+    /** The panel takes its column without pushing the workspace into a scrollbar. */
+    documentOverflow: number;
+  };
   /** A resize inside one breakpoint must still reflow the conversation. */
   inBandResize: {
     beforeWidth: number;
@@ -833,6 +850,10 @@ async function runSmoke(
   target.setContentSize(1_920, 1_080);
   await settlePaint();
 
+  // Back at the baseline viewport, before the approval overlay goes up: the
+  // panel needs the full width it is designed for and an unblocked page.
+  const articlePanel = await exerciseArticlePanel(target);
+
   let approvalSize: { width: number; height: number } | undefined;
   if (fixture) {
     const base = daemonBridge.bootstrap();
@@ -921,6 +942,7 @@ async function runSmoke(
     runActivity,
     sessionRail,
     indexingPanel,
+    articlePanel,
     responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
     settings: settingsProbe,
     ...(fileDrop ? { fileDrop } : {}),
@@ -1109,11 +1131,86 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (report.indexingPanel.phase !== "unconfigured") failures.push("indexing panel did not render the unconfigured phase");
     if (report.indexingPanel.phaseLabel.includes("未启用")) failures.push("indexing panel reported an enabled indexer as switched off");
     if (!report.indexingPanel.note.includes("已启用")) failures.push("indexing panel did not report the configured enable state");
+    // The document panel: chat keeps a receipt, the article is rendered here.
+    const article = report.articlePanel;
+    if (article.reopenLabel !== "季度复盘") failures.push("document panel was not offered for the session's own article");
+    if (article.version !== "v2") failures.push(`document panel opened ${article.version || "nothing"} instead of the latest version`);
+    if (article.versionChips.join(",") !== "v1,v2") failures.push("document panel did not list both saved versions");
+    if (article.renderedBlocks < 4) failures.push("document panel did not render the article body");
+    if (article.scrollTop !== 0) failures.push("document panel opened part-way down the article instead of at its title");
+    if (!article.comparable) failures.push("document panel could not compare against the version it replaced");
+    if (!article.diffSummary.includes("+2 段")) failures.push(`document panel summarised the change as "${article.diffSummary}"`);
+    if (article.removedBlocks < 1) failures.push("comparing against the previous version left out the removed paragraph");
+    if (article.exportFormats.join(",") !== "txt,md,docx,pdf") failures.push("document panel does not offer all four exports");
+    if (article.documentOverflow > 0) failures.push("document panel pushed the workspace into a horizontal scrollbar");
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
     if (!report.probe.document.backgroundInert) failures.push("approval modal did not make the background inert");
     if (report.probe.document.focusLabel !== "拒绝") failures.push("approval modal did not receive deterministic focus");
   }
   if (failures.length > 0) throw new Error(`Electron smoke validation failed: ${failures.join("; ")}`);
+}
+
+/**
+ * Opens the document panel on the seeded article and reports what it rendered.
+ *
+ * This is the part of the feature no unit test reaches: the panel reads the
+ * store through the daemon, renders markdown into real DOM, and has to take its
+ * column without pushing the workspace into a horizontal scrollbar. Export
+ * buttons are deliberately not clicked — each opens a native save dialog.
+ */
+async function exerciseArticlePanel(target: BrowserWindow): Promise<SmokeReport["articlePanel"]> {
+  const empty: SmokeReport["articlePanel"] = {
+    reopenLabel: "",
+    title: "",
+    version: "",
+    versionChips: [],
+    renderedBlocks: 0,
+    scrollTop: -1,
+    diffSummary: "",
+    comparable: false,
+    removedBlocks: 0,
+    exportFormats: [],
+    documentOverflow: 0,
+  };
+  const offered = await waitForRenderer(
+    target,
+    "document.querySelector('#open-article-button')?.hidden === false",
+    6_000,
+  ).then(() => true).catch(() => false);
+  if (!offered) return empty;
+  const reopenLabel: string = await target.webContents.executeJavaScript(
+    "document.querySelector('#open-article-button')?.textContent ?? ''",
+  );
+  await target.webContents.executeJavaScript("document.querySelector('#open-article-button')?.click(); true");
+  await waitForRenderer(target, "document.documentElement.dataset.article === 'open'", 6_000);
+  // The version it replaced is fetched after the first paint, so the compare
+  // control only becomes usable once that lands.
+  await waitForRenderer(target, "document.querySelector('#article-diff-toggle')?.disabled === false", 6_000)
+    .catch(() => undefined);
+  await settlePaint();
+  const opened: Omit<SmokeReport["articlePanel"], "reopenLabel" | "removedBlocks"> = await target.webContents.executeJavaScript(`(() => {
+    const stage = document.querySelector('#article-stage');
+    return {
+      title: document.querySelector('#article-title')?.textContent ?? '',
+      version: document.querySelector('#article-version')?.textContent ?? '',
+      versionChips: Array.from(document.querySelectorAll('.article-version')).map((node) => node.textContent ?? ''),
+      renderedBlocks: document.querySelectorAll('#article-render .article-block').length,
+      scrollTop: stage ? stage.scrollTop : -1,
+      diffSummary: document.querySelector('#article-diff-summary')?.textContent ?? '',
+      comparable: document.querySelector('#article-diff-toggle')?.disabled === false,
+      exportFormats: Array.from(document.querySelectorAll('#article-panel [data-export]')).map((node) => node.dataset.export ?? ''),
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+  })()`);
+  await target.webContents.executeJavaScript("document.querySelector('#article-diff-toggle')?.click(); true");
+  await settlePaint();
+  const removedBlocks: number = await target.webContents.executeJavaScript(
+    "document.querySelectorAll('#article-render .article-removed').length",
+  );
+  await target.webContents.executeJavaScript("document.querySelector('#article-close')?.click(); true");
+  await waitForRenderer(target, "document.documentElement.dataset.article === undefined", 4_000).catch(() => undefined);
+  await settlePaint();
+  return { ...opened, reopenLabel, removedBlocks };
 }
 
 async function exerciseComposerFileDrop(

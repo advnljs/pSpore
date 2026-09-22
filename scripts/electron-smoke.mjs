@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -27,6 +28,8 @@ let succeeded = false;
 try {
   await seedWorkspaceSkills(temporaryHome);
   await seedWorkspaceSkills(ownedHome);
+  await seedArticle(temporaryHome);
+  await seedArticle(ownedHome);
   await run(process.execPath, [cli, "--home", temporaryHome, "init"]);
   daemon = spawn(process.execPath, [cli, "--home", temporaryHome, "daemon"], {
     cwd: root,
@@ -84,7 +87,7 @@ try {
     throw new Error("Electron-owned daemon did not clean up its runtime files on exit");
   }
   process.stdout.write(
-    `Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 desktop layouts, path-only file/directory drop references, dark/light themes, settings, typography, owned/external daemon, reconnect and IPC allowlist verified.\n`,
+    `Electron 43 smoke passed: 1920x1080, 1440x900 and 1180x720 desktop layouts, path-only file/directory drop references, dark/light themes, settings, typography, the document panel with its version diff and four exports, owned/external daemon, reconnect and IPC allowlist verified.\n`,
   );
   succeeded = true;
 } finally {
@@ -117,6 +120,70 @@ async function seedWorkspaceSkills(home) {
   await writeFile(join(skills, "smoke-mail", "SKILL.md"), "---\nname: smoke-mail\ndescription: 邮件: 发送与读取\n---\n\n# smoke-mail\n");
   await mkdir(join(skills, "smoke-draft"), { recursive: true, mode: 0o700 });
   await writeFile(join(skills, "smoke-draft", "SKILL_DRAFT.md"), "# draft\n");
+}
+
+/**
+ * A two-version article owned by the fixture session, so the document panel has
+ * something real to render: the store is on disk and the panel reads it through
+ * the daemon, which no synthetic renderer state can stand in for.
+ */
+async function seedArticle(home) {
+  const id = "art_5c0de0000001";
+  const directory = join(home, "workspace", "articles", id);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const first = [
+    "# 季度复盘",
+    "",
+    "## 一、结论",
+    "",
+    "营收同比增长 **23.4%**。",
+    "",
+    "- 华东区拉动",
+    "  - 新增两个服务点",
+    "- SaaS 订阅续约",
+    "",
+    "这一段在下一版会被删掉。",
+    "",
+  ].join("\n");
+  const second = [
+    "# 季度复盘",
+    "",
+    "## 一、结论",
+    "",
+    "营收同比增长 **23.4%**。",
+    "",
+    "- 华东区拉动",
+    "  - 新增两个服务点",
+    "- SaaS 订阅续约",
+    "",
+    "## 二、下季度动作",
+    "",
+    "1. 控制获客成本",
+    "2. 提升续费率",
+    "",
+  ].join("\n");
+  const now = "2026-09-22T02:00:00.000Z";
+  const version = (number, content) => ({
+    version: number,
+    createdAt: now,
+    chars: content.length,
+    sha256: createHash("sha256").update(content, "utf8").digest("hex"),
+  });
+  await writeFile(join(directory, "v0001.md"), first, { mode: 0o600 });
+  await writeFile(join(directory, "v0002.md"), second, { mode: 0o600 });
+  await writeFile(join(directory, "current.md"), second, { mode: 0o600 });
+  await writeFile(
+    join(directory, "meta.json"),
+    JSON.stringify({
+      id,
+      title: "季度复盘",
+      sessionId: "main",
+      createdAt: now,
+      updatedAt: now,
+      versions: [version(1, first), version(2, second)],
+    }),
+    { mode: 0o600 },
+  );
 }
 
 async function waitForDaemon(home, daemonExit) {
