@@ -104,7 +104,8 @@ preload 仅暴露：
 
 ## 输入框的文件与目录引用（2026-09-22）
 
-- 两条入口走同一条 `addComposerFileReferences()`：拖拽（`webUtils.getPathForFile`）与「附件」按钮（`pspore:desktop:composer:attach` → `dialog.showOpenDialog(['openFile','openDirectory','multiSelections'])`，主进程 `stat` 判定文件/目录）。渲染器自己没有任何路径来源，只有这两条。
+- 三条入口走同一条 `addComposerFileReferences()`：拖拽（`webUtils.getPathForFile`）、「选择文件」按钮、「选择文件夹」按钮。渲染器自己没有任何路径来源，只有这些。
+- **文件和目录必须是两个按钮、两次调用**：Linux 的 GTK 选择器只认 `openFile` 与 `openDirectory` 其中一个，同时给两个时静默按目录处理，于是「选文件」永远选不到文件。`pspore:desktop:composer:attach` 因此带 `kind` 参数。返回时仍用 `stat` 判定实际类型，因为符号链接可能答出另一种。
 - 只发送路径，不读内容。
 - bootstrap 多了一个 `places` 字段（`desktop` / `home`），由 Electron 主进程用 `app.getPath()` 解析——本地化的目录名（例如「桌面」）因此不需要渲染器去猜。字段是可选的：`DaemonBridge` 不知道 Electron，只有主进程能填。
 - 首页第三条示例点击后会把桌面目录挂成引用，让"把目录交给它"这件事在被解释之前就出现在屏幕上。

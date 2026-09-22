@@ -87,6 +87,11 @@ export interface DesktopAttachment {
   kind: "file" | "directory";
 }
 
+export function decodeAttachmentKind(value: unknown): DesktopAttachment["kind"] {
+  if (value !== "file" && value !== "directory") throw new Error("Attachment kind must be file or directory");
+  return value;
+}
+
 export type DesktopFrame =
   | { version: 1; kind: "connection"; connection: DesktopConnectionState }
   | { version: 1; kind: "snapshot"; snapshot: KernelState; cursors: Record<string, number> }
@@ -159,8 +164,13 @@ export interface DesktopApi {
   saveIndexing(settings: DesktopIndexingSettingsUpdate): Promise<DesktopIndexingSaveResult>;
   /** Opens a native directory chooser; resolves to undefined when cancelled. */
   pickIndexDirectory(): Promise<string | undefined>;
-  /** Opens a native chooser for files and directories; the renderer has no path of its own. */
-  pickAttachments(): Promise<DesktopAttachment[]>;
+  /**
+   * Opens a native chooser; the renderer has no path of its own. Files and
+   * directories are separate calls because the GTK chooser on Linux honours
+   * only one of the two, and silently answers with directories when asked for
+   * both — so "attach a file" would never reach a file.
+   */
+  pickAttachments(kind: DesktopAttachment["kind"]): Promise<DesktopAttachment[]>;
   /** Resolve only an operating-system-backed File supplied by a user drag. */
   getPathForFile(file: unknown): string;
   exportArticle(request: ArticleExportRequest): Promise<ArticleExportResult>;

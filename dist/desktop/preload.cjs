@@ -35,8 +35,8 @@ const api = Object.freeze({
   pickIndexDirectory() {
     return ipcRenderer.invoke(INDEXING_PICK_CHANNEL);
   },
-  pickAttachments() {
-    return ipcRenderer.invoke(ATTACH_CHANNEL);
+  pickAttachments(kind) {
+    return ipcRenderer.invoke(ATTACH_CHANNEL, kind);
   },
   getPathForFile(file) {
     return webUtils.getPathForFile(file);

@@ -192,7 +192,8 @@ const elements = {
     settingsApiKeyState: byId("settings-api-key-state"),
     settingsKeyCopyPath: byId("settings-key-copy-path"),
     settingsCookiePath: byId("settings-cookie-path"),
-    attach: byId("attach-button"),
+    attachFile: byId("attach-file-button"),
+    attachDirectory: byId("attach-directory-button"),
     settingsHeaderList: byId("settings-header-list"),
     settingsHeaderAdd: byId("settings-header-add"),
     settingsCookieState: byId("settings-cookie-state"),
@@ -333,7 +334,8 @@ function bindStaticActions() {
     elements.settingsIndexingAdd.addEventListener("click", () => void addIndexingDirectory());
     bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
     elements.settingsHeaderAdd.addEventListener("click", () => addCustomHeaderRow("", false));
-    elements.attach.addEventListener("click", () => void chooseAttachments());
+    elements.attachFile.addEventListener("click", () => void chooseAttachments("file"));
+    elements.attachDirectory.addEventListener("click", () => void chooseAttachments("directory"));
     elements.settingsOverlay.addEventListener("keydown", (event) => {
         if (event.key === "Escape" && !savingSettings) {
             event.preventDefault();
@@ -446,11 +448,14 @@ function bindComposerFileDrop() {
  * Dragging is not always possible — a folder the user reaches through a file
  * manager's tree, a window that cannot be arranged side by side — and the
  * renderer has no path of its own to offer.
+ *
+ * Files and directories are separate buttons because they are separate dialogs:
+ * the GTK chooser answers a request for both with directories only.
  */
-async function chooseAttachments() {
+async function chooseAttachments(kind) {
     let chosen;
     try {
-        chosen = await window.pspore.pickAttachments();
+        chosen = await window.pspore.pickAttachments(kind);
     }
     catch (error) {
         store.setNotice(`无法打开选择器：${toError(error).message}`);

@@ -937,6 +937,7 @@ select {
 .article-header-actions,
 .article-export,
 .article-versions { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.article-export { gap: 4px; }
 .article-versions { flex-wrap: wrap; }
 .article-version {
   border: 1px solid var(--border-soft);
@@ -954,7 +955,19 @@ select {
 .settings-header-list:empty { display: none; }
 .settings-header-row { display: grid; grid-template-columns: minmax(0, 12em) minmax(0, 1fr) auto; gap: 8px; align-items: center; }
 .settings-header-row input { min-width: 0; }
-.article-export-label { color: var(--faint); font: 600 11px/1 var(--font-mono); letter-spacing: 0.1em; padding-right: 2px; }
+/* Sits in the same row as the format buttons, so it carries their height and
+   size rather than floating above their baseline. */
+.article-export-label {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  min-height: 34px;
+  padding-right: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
 .segmented { display: inline-flex; border: 1px solid var(--border-soft); border-radius: 999px; background: var(--surface-soft); padding: 2px; gap: 2px; }
 .segment {
   border: 0;

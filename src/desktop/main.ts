@@ -25,6 +25,7 @@ import {
   DESKTOP_INDEXING_GET_CHANNEL,
   DESKTOP_ATTACH_CHANNEL,
   DESKTOP_INDEXING_PICK_CHANNEL,
+  decodeAttachmentKind,
   type DesktopAttachment,
   type DesktopPlaces,
   DESKTOP_INDEXING_SAVE_CHANNEL,
@@ -77,7 +78,8 @@ interface SmokeReport {
     truncationNoticeVisible: boolean;
     truncationRetryOffered: boolean;
     legacyComposerModes: number;
-    attachButtonOffered: boolean;
+    attachButtonsOffered: number;
+    attachTooltips: string[];
     virtualIndices: number[];
     scrollDistance: number;
     renderedMessages: number;
@@ -165,6 +167,8 @@ interface SmokeReport {
     /** Unchanged blocks keep their element when a new version lands. */
     reusedAcrossVersions: boolean;
     exportLabel: string;
+    /** Another session's document must not be left behind when the session changes. */
+    clearedOnSessionChange: boolean;
     exportFormats: string[];
     /** The panel takes its column without pushing the workspace into a scrollbar. */
     documentOverflow: number;
@@ -458,17 +462,24 @@ function installIpc(
     const request = decodeArticleExportRequest(candidate);
     return exportArticleFile(new ArticleStore(articleRoot), request, target);
   });
-  ipcMain.handle(DESKTOP_ATTACH_CHANNEL, async (event) => {
+  ipcMain.handle(DESKTOP_ATTACH_CHANNEL, async (event, candidate: unknown) => {
     assertTrustedSender(event, target.webContents);
+    const kind = decodeAttachmentKind(candidate);
     const result = await dialog.showOpenDialog(target, {
-      title: "选择要引用的文件或目录",
+      title: kind === "directory" ? "选择要引用的文件夹" : "选择要引用的文件",
+      // One kind per call: the GTK chooser honours only one of openFile and
+      // openDirectory, and answers with directories when given both.
       // Only the path is ever sent; nothing here is read or uploaded.
-      properties: ["openFile", "openDirectory", "multiSelections"],
+      properties: kind === "directory"
+        ? ["openDirectory", "multiSelections"]
+        : ["openFile", "multiSelections"],
     });
     if (result.canceled) return [];
     const attachments: DesktopAttachment[] = [];
     for (const path of result.filePaths.slice(0, MAX_ATTACHMENTS)) {
       try {
+        // The chooser is asked for one kind, but a symlink can still answer
+        // with the other, so the reference says what the path actually is.
         attachments.push({ path, kind: (await stat(path)).isDirectory() ? "directory" : "file" });
       } catch {
         // Gone between choosing and answering; the renderer simply gets fewer.
@@ -610,7 +621,11 @@ async function runSmoke(
     await waitForRenderer(target, "Boolean(document.querySelector('#message-queue [data-queue-mode=direct]'))", 5_000);
     directQueueVisibleBeforeToolCompletion = true;
     // A tool is running and nothing is streaming yet: the state that used to
-    // leave the conversation looking dead.
+    // leave the conversation looking dead. Waited for rather than sampled: the
+    // queue control appears a render before the activity line catches up, so a
+    // loaded machine reads the frame that still says "waiting".
+    await waitForRenderer(target, "document.querySelector('#run-activity')?.dataset.phase === 'tool'", 5_000)
+      .catch(() => undefined);
     runActivity.toolPhase = await target.webContents.executeJavaScript(
       "document.querySelector('#run-activity')?.dataset.phase ?? 'hidden'",
     );
@@ -681,7 +696,13 @@ async function runSmoke(
       truncationRetryOffered: false,
       legacyComposerModes: document.querySelectorAll('#composer-mode, .mode-select').length,
     // Dragging is not always possible, so a chooser has to be reachable too.
-    attachButtonOffered: Boolean(document.querySelector('#attach-button')),
+    attachButtonsOffered: [
+      document.querySelector('#attach-file-button'),
+      document.querySelector('#attach-directory-button'),
+    ].filter(Boolean).length,
+    // Hovering has to say which is which; the icons alone do not.
+    attachTooltips: ['#attach-file-button', '#attach-directory-button']
+      .map((id) => document.querySelector(id)?.title ?? ''),
       virtualIndices: Array.from(document.querySelectorAll('#transcript > .message')).map((node) => Number(node.dataset.virtualIndex)),
       scrollDistance: transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1,
       renderedMessages: document.querySelectorAll('#transcript > .message').length,
@@ -1211,7 +1232,14 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.mainVisual.streamingVisible) failures.push("streaming delta is not visible in the main capture");
     if (!report.mainVisual.thinkingVisible || !report.mainVisual.thinkingSeparate) failures.push("thinking was not rendered separately from response text");
     if (!report.mainVisual.thinkingHiddenAfterCompletion) failures.push("thinking did not hide after message completion");
-    if (!report.mainVisual.attachButtonOffered) failures.push("composer offers no way to choose a file or directory");
+    // One dialog each: the GTK chooser answers a request for both with
+    // directories only, so a single button could never attach a file.
+    if (report.mainVisual.attachButtonsOffered !== 2) {
+      failures.push("composer does not offer separate file and folder choosers");
+    }
+    if (report.mainVisual.attachTooltips.some((tooltip) => tooltip.length < 4)) {
+      failures.push(`an attach button has no tooltip: ${JSON.stringify(report.mainVisual.attachTooltips)}`);
+    }
     // Text already on screen has to stay selectable while the reply continues.
     if (report.selection.historyBefore.length < 12) failures.push("smoke could not select a settled message to copy from");
     if (report.selection.historyAfter !== report.selection.historyBefore) {
@@ -1318,6 +1346,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (article.lineViewRows !== article.diffRows) failures.push("line granularity changed which lines the revision shows");
     if (article.lineViewInlineMarks !== 0) failures.push("line granularity still marked changes inside a line");
     if (!article.reusedAcrossVersions) failures.push("switching versions rebuilt blocks the new version had not changed");
+    if (!article.clearedOnSessionChange) failures.push("another session's document was left in the panel");
     if (article.exportFormats.join(",") !== "txt,md,docx,pdf") failures.push("document panel does not offer all four exports");
     if (article.documentOverflow > 0) failures.push("document panel pushed the workspace into a horizontal scrollbar");
     if (!report.probe.document.modalContained) failures.push("approval modal escapes the viewport");
@@ -1353,6 +1382,7 @@ async function exerciseArticlePanel(target: BrowserWindow): Promise<SmokeReport[
     lineViewInlineMarks: 0,
     reusedAcrossVersions: false,
     exportLabel: "",
+    clearedOnSessionChange: false,
     exportFormats: [],
     documentOverflow: 0,
   };
@@ -1423,10 +1453,29 @@ async function exerciseArticlePanel(target: BrowserWindow): Promise<SmokeReport[
     await new Promise((resolve) => setTimeout(resolve, 400));
     return document.querySelector('#article-render')?.firstElementChild === first;
   })()`);
+  // Switching session has to take the document with it. The panel keeps the
+  // current text to diff the next version against and a pool of rendered
+  // blocks; carried across, they become the previous session's article showing
+  // underneath a new one being written.
+  const clearedOnSessionChange: boolean = await target.webContents.executeJavaScript(`(async () => {
+    const rows = Array.from(document.querySelectorAll('#session-list button'));
+    const current = document.querySelector('#session-title')?.textContent ?? '';
+    const other = rows.find((row) => !(row.textContent ?? '').includes(current));
+    if (!other) return false;
+    other.click();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const cleared = document.querySelectorAll('#article-render .article-block').length === 0
+      && document.documentElement.dataset.article === undefined
+      && document.querySelector('#open-article-button')?.hidden === true;
+    const back = rows.find((row) => (row.textContent ?? '').includes(current));
+    back?.click();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return cleared;
+  })()`);
   await target.webContents.executeJavaScript("document.querySelector('#article-close')?.click(); true");
   await waitForRenderer(target, "document.documentElement.dataset.article === undefined", 4_000).catch(() => undefined);
   await settlePaint();
-  return { ...opened, ...revision, ...lineView, reopenLabel, reusedAcrossVersions };
+  return { ...opened, ...revision, ...lineView, reopenLabel, reusedAcrossVersions, clearedOnSessionChange };
 }
 
 async function exerciseComposerFileDrop(

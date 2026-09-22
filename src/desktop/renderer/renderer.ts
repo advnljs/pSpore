@@ -277,7 +277,8 @@ const elements = {
   settingsApiKeyState: byId<HTMLElement>("settings-api-key-state"),
   settingsKeyCopyPath: byId<HTMLButtonElement>("settings-key-copy-path"),
   settingsCookiePath: byId<HTMLElement>("settings-cookie-path"),
-  attach: byId<HTMLButtonElement>("attach-button"),
+  attachFile: byId<HTMLButtonElement>("attach-file-button"),
+  attachDirectory: byId<HTMLButtonElement>("attach-directory-button"),
   settingsHeaderList: byId<HTMLElement>("settings-header-list"),
   settingsHeaderAdd: byId<HTMLButtonElement>("settings-header-add"),
   settingsCookieState: byId<HTMLElement>("settings-cookie-state"),
@@ -417,7 +418,8 @@ function bindStaticActions(): void {
   elements.settingsIndexingAdd.addEventListener("click", () => void addIndexingDirectory());
   bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
   elements.settingsHeaderAdd.addEventListener("click", () => addCustomHeaderRow("", false));
-  elements.attach.addEventListener("click", () => void chooseAttachments());
+  elements.attachFile.addEventListener("click", () => void chooseAttachments("file"));
+  elements.attachDirectory.addEventListener("click", () => void chooseAttachments("directory"));
   elements.settingsOverlay.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !savingSettings) {
       event.preventDefault();
@@ -521,11 +523,14 @@ function bindComposerFileDrop(): void {
  * Dragging is not always possible — a folder the user reaches through a file
  * manager's tree, a window that cannot be arranged side by side — and the
  * renderer has no path of its own to offer.
+ *
+ * Files and directories are separate buttons because they are separate dialogs:
+ * the GTK chooser answers a request for both with directories only.
  */
-async function chooseAttachments(): Promise<void> {
+async function chooseAttachments(kind: "file" | "directory"): Promise<void> {
   let chosen: Array<{ path: string; kind: "file" | "directory" }>;
   try {
-    chosen = await window.pspore.pickAttachments();
+    chosen = await window.pspore.pickAttachments(kind);
   } catch (error) {
     store.setNotice(`无法打开选择器：${toError(error).message}`);
     render();

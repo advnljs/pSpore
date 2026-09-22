@@ -258,6 +258,7 @@ export class ArticlePanel {
       this.#writing = false;
       this.#reopenSession = "";
       this.#reopenRetries = 0;
+      this.#forget();
       this.close();
     }
     if (!sessionId || this.#reopenSession === sessionId) return;
@@ -269,6 +270,35 @@ export class ArticlePanel {
       return;
     }
     void this.#refreshReopen(sessionId);
+  }
+
+  /**
+   * Drops every trace of the document that was open.
+   *
+   * The panel keeps the current text to diff the next version against, and a
+   * pool of rendered blocks to reuse. Both belong to one article in one session:
+   * carried across, they turn into the previous session's article appearing
+   * underneath a new one being written.
+   */
+  #forget(): void {
+    this.#paintSequence += 1;
+    this.#articleId = "";
+    this.#loadedVersion = 0;
+    this.#titleText = "";
+    this.#baseline = "";
+    this.#committed = "";
+    this.#versionsKnown = [];
+    this.#reopenId = "";
+    this.#reopenTitle = "";
+    this.#nodes = new Map();
+    this.#render.replaceChildren();
+    this.#versions.replaceChildren();
+    this.#summary.hidden = true;
+    this.#status.textContent = "";
+    this.#version.textContent = "";
+    this.#title.textContent = "文稿";
+    this.#view = "read";
+    this.#syncViews(false);
   }
 
   onEvent(event: EventEnvelope): void {
@@ -337,10 +367,16 @@ export class ArticlePanel {
       limit,
     }));
     if (token !== this.#token || text === undefined) return;
+    // Only a draft of the article already on screen can be shown against it.
+    // A draft with no id is a brand new document, and one with a different id
+    // belongs to another document — aligning either against what is displayed
+    // would leave the wrong article underneath it.
+    const baseline = articleId !== undefined && articleId === this.#articleId ? this.#committed : "";
+    if (baseline === "" && this.#articleId !== "") this.#forget();
     if (articleId) this.#articleId = articleId;
     if (title) this.#titleText = title;
     this.#title.textContent = this.#titleText || "正在撰写";
-    this.#renderLive(text);
+    this.#renderLive(text, baseline);
     this.#status.textContent = `${text.length} 字 · 撰写中`;
   }
 
@@ -521,8 +557,8 @@ export class ArticlePanel {
    * model starts writing — so by the time the version landed there was nothing
    * left to patch, and the whole document was drawn again.
    */
-  #renderLive(text: string): void {
-    const aligned = alignArticleDraft(this.#committed, text);
+  #renderLive(text: string, baseline: string): void {
+    const aligned = alignArticleDraft(baseline, text);
     this.#paintSequence += 1;
     this.#commit(
       blockEntries([

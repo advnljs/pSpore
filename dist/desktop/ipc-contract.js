@@ -16,6 +16,11 @@ export const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
  * it once the bridge reconnects. Never used for a command that was already sent.
  */
 export const DAEMON_NOT_CONNECTED_MESSAGE = "pSpore daemon is not connected";
+export function decodeAttachmentKind(value) {
+    if (value !== "file" && value !== "directory")
+        throw new Error("Attachment kind must be file or directory");
+    return value;
+}
 export function decodeDesktopIndexingSettingsUpdate(value) {
     return decodeIndexingSettingsUpdate(value, "desktop indexing settings");
 }

@@ -1,5 +1,20 @@
 # Overall Progress
 
+## 2026-09-22 — 附件按钮拆分、新会话串文稿修复、导出 Label 对齐（`0.1.28`，本地包待试用）
+
+- 阶段目标（用户三条）：附件按钮只能选目录，要拆成两个按钮（附件图标 / 文件夹图标）并带 hover tooltip；新开 session 打开 artifact 会出现上一个 session 的内容；导出 Label 太小且和按钮不对齐。
+- 完成内容：
+  - **附件拆成两个按钮**。根因：Linux 的 GTK 选择器只认 `openFile` 和 `openDirectory` 其中一个，同时给两个时静默按目录处理——所以「选文件」永远选不到文件。IPC 改为带 `kind` 参数，主进程按 kind 只传一种 property，标题也分别是「选择要引用的文件」「选择要引用的文件夹」。两个按钮用与顶栏同风格的 24×24 描边 SVG（回形针 / 文件夹），`title` + `aria-label` 给出 hover 提示。返回时仍用 `stat` 判定实际类型（符号链接可能答出另一种）。
+  - **新会话串上一个会话文稿的修复**。这是上一轮引入的：面板保留上一版正文用于对齐、保留渲染块缓存池用于复用，但会话切换时只 `close()` 没清状态，于是新会话里草稿仍然对着**上一个会话**的文稿做对齐，上一篇的段落就挂在新草稿下面。新增 `#forget()`：切会话时清掉 articleId/版本/正文/基线/块池/版本芯片/标题/状态并重置视图。同一会话内换成另一篇文稿也会触发——草稿带 `id` 才可能是「当前这篇的下一版」，不带 `id`（create）或 id 不同一律不做对齐。
+  - **导出 Label** 从 11px 提到 13px（与格式按钮一致）、`min-height: 34px` 与按钮同高、`white-space: nowrap`（之前被挤成「导/出」两行）。实测 label 与按钮中线都在 185px。
+  - 顺手修掉 todo 里那条偶发失败：smoke 的「运行活动」探针改为等 `data-phase` 变成 `tool` 再读，不再在 `tool.started` 之后立刻采样。
+- 修改文件：`src/desktop/renderer/{article-panel.ts,renderer.ts,index.html,styles.css}`、`src/desktop/{main.ts,ipc-contract.ts,preload.cjs}`、memory-bank、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过，**269/269**，build 通过。
+  - `npm run test:electron`：本机实跑通过。新增断言：输入框提供两个选择器入口且各自有 tooltip；**切换会话后面板不得留下另一个会话的文稿**。后者已反向验证——临时去掉 `#forget()` 调用后 smoke 立刻报 `another session's document was left in the panel`。
+  - GUI 实机（`1920×1080`）：两个按钮的 tooltip / aria-label / SVG 均正确；新建会话切过去后面板已清空（0 块、版本空、入口隐藏），在新会话里写一篇文稿，流式中与提交后都查不到上一会话的 `龙门吊` / `轮补充` 段落；导出 Label 单行且与 TXT/MD/DOCX 同高同中线。
+- 当前状态：版本 `0.1.28`，已重新打包。**尚未 push、未打 tag、未发 Release**。
+
 ## 2026-09-22 — 按 diff 流式更新文稿、附件选择器、首页模板（`0.1.28`，本地包待试用）
 
 - 阶段目标（用户五条）：文稿输出新版时仍然是「清空重写」，要按 diff 更新并流式展示；重新打开对话时文稿那一行要高亮；第三个首页示例改成模板，提示可以拖目录进来分析，并且点击后默认呈现「桌面已被拖入」的效果；输入框加一个附件按钮，可以选文件或目录。
