@@ -591,8 +591,33 @@ async function runConfigCommand(home, args) {
             throw new CliError("config clear-cookie does not accept arguments");
         update = settingsUpdate(current, { clearCookie: true });
     }
+    else if (action === "header") {
+        const name = args[1];
+        if (!name || args.length !== 2)
+            throw new CliError("config header usage: config header NAME (the value is read securely)");
+        const value = await readSecretInput(`${name} value`);
+        if (!value)
+            throw new CliError("Header value cannot be empty");
+        const others = current.customHeaders.filter((header) => header.name.toLowerCase() !== name.toLowerCase());
+        update = settingsUpdate(current, {
+            customHeaders: [...others.map((header) => ({ name: header.name })), { name, value }],
+        });
+    }
+    else if (action === "clear-header") {
+        const name = args[1];
+        if (!name || args.length !== 2)
+            throw new CliError("config clear-header usage: config clear-header NAME");
+        if (!current.customHeaders.some((header) => header.name.toLowerCase() === name.toLowerCase())) {
+            throw new CliError(`No custom header named ${name}`);
+        }
+        update = settingsUpdate(current, {
+            customHeaders: current.customHeaders
+                .filter((header) => header.name.toLowerCase() !== name.toLowerCase())
+                .map((header) => ({ name: header.name })),
+        });
+    }
     else {
-        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | permissions | compact | key | clear-key | cookie | clear-cookie");
+        throw new CliError("config usage: show | set | provider | model | endpoint | thinking | permissions | compact | key | clear-key | cookie | clear-cookie | header | clear-header");
     }
     const saved = await service.save(update);
     printModelSettings(saved);
@@ -692,6 +717,9 @@ function printModelSettings(settings) {
         `Compact keep recent tokens: ${settings.autoCompactionKeepRecentTokens}`,
         `API key: ${settings.hasApiKey ? "configured (hidden)" : "not configured"} — ${settings.apiKeyPath}`,
         `Cookie: ${settings.hasCookie ? "configured (hidden)" : "not configured"} — ${settings.cookiePath}`,
+        settings.customHeaders.length === 0
+            ? "Custom headers: none"
+            : `Custom headers: ${settings.customHeaders.map((header) => `${header.name} (${header.hasValue ? "configured" : "missing value"})`).join(", ")}`,
         `Config file: ${settings.configPath}`,
         `Derived model catalog: ${settings.modelsPath}`,
     ].join("\n") + "\n");
@@ -812,6 +840,7 @@ function settingsUpdate(settings, changes) {
         autoCompactionKeepRecentTokens: changes.autoCompactionKeepRecentTokens ?? settings.autoCompactionKeepRecentTokens,
         ...(changes.apiKey ? { apiKey: changes.apiKey } : {}),
         ...(changes.cookie ? { cookie: changes.cookie } : {}),
+        ...(changes.customHeaders ? { customHeaders: changes.customHeaders } : {}),
         clearApiKey: changes.clearApiKey ?? false,
         clearCookie: changes.clearCookie ?? false,
     };
@@ -1170,7 +1199,7 @@ function requireNoArgs(args, command) {
         throw new CliError(`${command} does not accept positional arguments`);
 }
 function helpText() {
-    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config compact on|off [RESERVE] [KEEP] [TRIGGER]\n                   Configure automatic context compaction thresholds\n  config indexing ...\n                   show | on | off | add DIR | remove DIR | interval MINUTES | ext a,b,c\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  sessions         List persistent root sessions\n  session new [TITLE]\n                   Create a persistent root session\n  session delete ID\n                   Delete a root session and its stored transcript\n  prompt [--session ID] TEXT\n                   Send normally; if busy, continue queuing and wait\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List installed, bundled, and workspace skills, and why any is not loaded\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
+    return `pSpore ${PSPORE_VERSION} — Linux local agent core\n\nUsage: ${resolveInvokedName(process.argv[1])} [--home PATH] <command>\n\nCommands:\n  setup            Guided model setup (provider, model, thinking, API key, cookie)\n  init             Initialize private config/workspace/state directories\n  service install  Install, enable, and start the systemd user service\n  service status   Show system service, autostart, and linger state\n  service logs     Show recent system service logs\n  service restart  Restart the full background service\n  service stop     Stop it; service uninstall also removes the unit\n  daemon           Run the service process in the foreground (diagnostics/systemd)\n  tui              Open the reconnecting terminal shell; service stays running after exit\n  desktop          Open the secure Electron 43 shell\n  config wizard    Same guided setup as the setup command\n  config show      Show model settings without exposing the API key or cookie\n  config set ...   Configure DeepSeek, OpenAI, or a custom OpenAI endpoint\n  config permissions MODE\n                   Set the approval policy: ask_risky | ask_all | allow_all (bypass) | deny\n  config compact on|off [RESERVE] [KEEP] [TRIGGER]\n                   Configure automatic context compaction thresholds\n  config indexing ...\n                   show | on | off | add DIR | remove DIR | interval MINUTES | ext a,b,c\n  config key       Read an API key from hidden TTY input or stdin\n  config clear-key Remove the current provider's managed API key\n  config cookie    Read an LLM proxy Cookie header from hidden TTY input or stdin\n  config clear-cookie Remove the current provider's managed Cookie header\n  config header NAME\n                   Add or replace one custom request header; the value is read securely\n  config clear-header NAME\n                   Remove one custom request header and its stored value\n  sessions         List persistent root sessions\n  session new [TITLE]\n                   Create a persistent root session\n  session delete ID\n                   Delete a root session and its stored transcript\n  prompt [--session ID] TEXT\n                   Send normally; if busy, continue queuing and wait\n  jobs             List loaded cron jobs\n  runs             List durable automation runs\n  notifications    List durable local notifications\n  agents           List child agents and their current status\n  agent spawn TEXT Spawn a bounded shared-read child agent\n  agent send ID TEXT\n                   Send a queued message to a child agent\n  agent join ID... Wait for one or more child agents\n  agent cancel ID  Cancel a child agent and its descendants\n  mcp list         List configured MCP health without connecting\n  mcp tools        List schemas activated in this service process\n  mcp discover ID  Lazily connect and activate one trusted server\n  mcp ping ID      Check one trusted MCP server connection\n  resources        List trusted skills and host plugins\n  skills           List installed, bundled, and workspace skills, and why any is not loaded\n  plugins          List trusted host plugins and activation state\n  resource inspect PATH\n                   Inspect one directory under workspace/staging without executing it\n  resource install PATH SHA256\n                   Trust and install only the exact inspected content digest\n  resource disable KIND NAME SHA256\n                   Revoke trust without deleting installed content\n  schedule put FILE\n                   Atomically create/update a cron job from JSON\n  run JOB_ID       Trigger one job now and wait for completion\n  cancel RUN_ID    Cancel a queued or active run\n  status           Show service and session status\n  doctor           Check Node, config, model, shell, ripgrep, resource trust, MCP, and service\n  version          Print pinned runtime versions\n  help             Show this help\n`;
 }
 class CliError extends Error {
     constructor(message) {

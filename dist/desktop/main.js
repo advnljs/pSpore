@@ -610,8 +610,17 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     const dialogRect = dialog?.getBoundingClientRect();
     const settings = await window.pspore.getSettings();
     const provider = document.querySelector('#settings-provider');
+    // Checked before the provider is switched: making Base URL required is this
+    // probe's doing, not something the panel was filled with.
+    const form = document.querySelector('#settings-form');
+    const invalidFields = Array.from(form?.elements ?? [])
+      .filter((field) => field.willValidate && !field.checkValidity())
+      .map((field) => field.id);
     provider.value = 'custom-openai';
     provider.dispatchEvent(new Event('change'));
+    // Adding a row is the only way to see the header editor holding anything.
+    document.querySelector('#settings-header-add')?.click();
+    const headerRows = document.querySelectorAll('#settings-header-list .settings-header-row').length;
     return {
       dialogContained: Boolean(dialogRect && dialogRect.left >= 0 && dialogRect.top >= 0 && dialogRect.right <= innerWidth && dialogRect.bottom <= innerHeight),
       backgroundInert: Boolean(document.querySelector('#app-shell')?.inert),
@@ -636,7 +645,11 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
       autoCompactionControls: document.querySelector('#settings-auto-compaction')?.checked === settings.autoCompactionEnabled
         && Number(document.querySelector('#settings-compaction-trigger')?.value) === settings.autoCompactionTriggerTokens
         && Number(document.querySelector('#settings-compaction-reserve')?.value) === settings.autoCompactionReserveTokens
-        && Number(document.querySelector('#settings-compaction-keep-recent')?.value) === settings.autoCompactionKeepRecentTokens
+        && Number(document.querySelector('#settings-compaction-keep-recent')?.value) === settings.autoCompactionKeepRecentTokens,
+      headerRowsAfterAdd: headerRows,
+      headerValueInputType: document.querySelector('#settings-header-list .settings-header-value')?.type ?? '',
+      formAcceptsPersistedValues: invalidFields.length === 0,
+      invalidFields
     };
   })()`);
     await target.webContents.executeJavaScript("document.querySelector('#settings-close')?.click()");
@@ -856,6 +869,16 @@ function assertSmokeReport(report, fixture) {
         failures.push("custom OpenAI controls are not enabled correctly");
     if (!report.settings.autoCompactionControls)
         failures.push("auto-compaction controls do not reflect persisted settings");
+    if (!report.settings.formAcceptsPersistedValues) {
+        // The browser refuses to submit a form with an invalid field, so this makes
+        // the save button do nothing at all.
+        failures.push(`settings panel rejects its own persisted values: ${report.settings.invalidFields.join(", ")}`);
+    }
+    if (report.settings.headerRowsAfterAdd < 1)
+        failures.push("settings panel does not offer a custom request header row");
+    // A header value can be a proxy token, so it is masked like the key and cookie.
+    if (report.settings.headerValueInputType !== "password")
+        failures.push("custom header value is not masked");
     const expectedResponsive = [
         ["medium", report.responsive.medium, 1_440, 900],
         ["compact", report.responsive.compact, 1_180, 720],
@@ -1035,10 +1058,25 @@ function assertSmokeReport(report, fixture) {
             failures.push("document panel opened part-way down the article instead of at its title");
         if (!article.comparable)
             failures.push("document panel could not compare against the version it replaced");
-        if (!article.diffSummary.includes("+2 段"))
+        if (!article.diffSummary.includes("+3 段"))
             failures.push(`document panel summarised the change as "${article.diffSummary}"`);
-        if (article.removedBlocks < 1)
-            failures.push("comparing against the previous version left out the removed paragraph");
+        if (article.exportLabel !== "导出")
+            failures.push("export formats are offered without a label saying what they are");
+        // The revision view, not a one-line count of what changed.
+        if (article.diffRows < 10)
+            failures.push(`revision view drew ${article.diffRows} lines instead of the whole document`);
+        if (article.removedRows < 1)
+            failures.push("revision view did not show the line the new version dropped");
+        if (article.addedRows < 2)
+            failures.push("revision view did not show the lines the new version added");
+        if (article.inlineMarks < 1)
+            failures.push("revision view marked whole lines instead of the words that changed");
+        if (article.lineViewRows !== article.diffRows)
+            failures.push("line granularity changed which lines the revision shows");
+        if (article.lineViewInlineMarks !== 0)
+            failures.push("line granularity still marked changes inside a line");
+        if (!article.reusedAcrossVersions)
+            failures.push("switching versions rebuilt blocks the new version had not changed");
         if (article.exportFormats.join(",") !== "txt,md,docx,pdf")
             failures.push("document panel does not offer all four exports");
         if (article.documentOverflow > 0)
@@ -1071,7 +1109,14 @@ async function exerciseArticlePanel(target) {
         scrollTop: -1,
         diffSummary: "",
         comparable: false,
-        removedBlocks: 0,
+        diffRows: 0,
+        removedRows: 0,
+        addedRows: 0,
+        inlineMarks: 0,
+        lineViewRows: 0,
+        lineViewInlineMarks: 0,
+        reusedAcrossVersions: false,
+        exportLabel: "",
         exportFormats: [],
         documentOverflow: 0,
     };
@@ -1083,7 +1128,7 @@ async function exerciseArticlePanel(target) {
     await waitForRenderer(target, "document.documentElement.dataset.article === 'open'", 6_000);
     // The version it replaced is fetched after the first paint, so the compare
     // control only becomes usable once that lands.
-    await waitForRenderer(target, "document.querySelector('#article-diff-toggle')?.disabled === false", 6_000)
+    await waitForRenderer(target, "document.querySelector('#article-view-token')?.disabled === false", 6_000)
         .catch(() => undefined);
     await settlePaint();
     const opened = await target.webContents.executeJavaScript(`(() => {
@@ -1095,18 +1140,47 @@ async function exerciseArticlePanel(target) {
       renderedBlocks: document.querySelectorAll('#article-render .article-block').length,
       scrollTop: stage ? stage.scrollTop : -1,
       diffSummary: document.querySelector('#article-diff-summary')?.textContent ?? '',
-      comparable: document.querySelector('#article-diff-toggle')?.disabled === false,
+      comparable: document.querySelector('#article-view-token')?.disabled === false,
+      exportLabel: document.querySelector('#article-export-label')?.textContent ?? '',
       exportFormats: Array.from(document.querySelectorAll('#article-panel [data-export]')).map((node) => node.dataset.export ?? ''),
       documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
     };
   })()`);
-    await target.webContents.executeJavaScript("document.querySelector('#article-diff-toggle')?.click(); true");
+    // Reading the revision: the rows the diff drew, and the marks inside the line
+    // that was rewritten rather than replaced.
+    await target.webContents.executeJavaScript("document.querySelector('#article-view-token')?.click(); true");
     await settlePaint();
-    const removedBlocks = await target.webContents.executeJavaScript("document.querySelectorAll('#article-render .article-removed').length");
+    const revision = await target.webContents.executeJavaScript(`(() => ({
+    diffRows: document.querySelectorAll('#article-render .article-diff-line').length,
+    removedRows: document.querySelectorAll('#article-render .article-diff-line[data-change="remove"]').length,
+    addedRows: document.querySelectorAll('#article-render .article-diff-line[data-change="add"]').length,
+    inlineMarks: document.querySelectorAll('#article-render .article-diff-text ins, #article-render .article-diff-text del').length
+  }))()`);
+    await target.webContents.executeJavaScript("document.querySelector('#article-view-line')?.click(); true");
+    await settlePaint();
+    const lineView = await target.webContents.executeJavaScript(`(() => ({
+    lineViewRows: document.querySelectorAll('#article-render .article-diff-line').length,
+    lineViewInlineMarks: document.querySelectorAll('#article-render .article-diff-text ins, #article-render .article-diff-text del').length
+  }))()`);
+    await target.webContents.executeJavaScript("document.querySelector('#article-view-read')?.click(); true");
+    await settlePaint();
+    // A version lands on top of the one already drawn: the blocks it did not
+    // touch have to be the same elements, not fresh copies of the same words.
+    const reusedAcrossVersions = await target.webContents.executeJavaScript(`(async () => {
+    const stage = document.querySelector('#article-render');
+    const first = stage?.firstElementChild;
+    if (!first) return false;
+    document.querySelector('.article-version[aria-pressed="false"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    const back = document.querySelectorAll('.article-version');
+    back[back.length - 1]?.click();
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    return document.querySelector('#article-render')?.firstElementChild === first;
+  })()`);
     await target.webContents.executeJavaScript("document.querySelector('#article-close')?.click(); true");
     await waitForRenderer(target, "document.documentElement.dataset.article === undefined", 4_000).catch(() => undefined);
     await settlePaint();
-    return { ...opened, reopenLabel, removedBlocks };
+    return { ...opened, ...revision, ...lineView, reopenLabel, reusedAcrossVersions };
 }
 async function exerciseComposerFileDrop(target, outputDirectory) {
     const fixtureRoot = join(outputDirectory, "file-drop-fixture");

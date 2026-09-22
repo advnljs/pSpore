@@ -1,5 +1,27 @@
 # Overall Progress
 
+## 2026-09-22 — 文稿修订视图、就地打补丁、自定义请求头（`0.1.28`，本地包待试用）
+
+- 阶段目标（用户四条）：文稿面板要真正的 inline diff（可切行级），不是一行增删统计；导出按钮前加「导出」Label；输出新版时接着上一版内容做 diff 改动 + 动画，而不是清空重下；设置里支持自定义请求头；首页示例换成更快出结果、更能体现工具执行的，第一条展示 artifact。
+- 完成内容：
+  - **修订视图**：`src/articles/diff.ts` 新增 `diffArticleLines()`。先裁掉公共首尾再对中间做 LCS（超预算退化为整段替换）；`token` 粒度下把"一串删除紧接一串新增"按位配对，逐 token 求 LCS 并只在相似度 ≥ 0.4 时标到行内——否则两句不相干的话会被标成一堆零碎字符。分词规则：拉丁串与空白各成一个 token，其余（含 CJK）逐字，中英都能得到合理的行内标记。
+  - 面板头部的「对照上一版」换成三段式 `正文 / 修订 / 行级`。修订视图按行渲染 Markdown 源码，带行号与 `+ − ` 槽位，改写的行用 `<ins>`/`<del>` 标出变化的字；行级只标整行。无上一版（v1）时两个修订段禁用。
+  - 导出按钮前加「导出」Label（`aria-describedby` 指向它）。
+  - **就地打补丁**：`#paint` 改为键控——块按"渲染出来的内容"取键（不含 diff 结论，所以一个块从"新增"变成"未变"仍复用同一元素），未变的块保留 DOM，消失的块先折叠动画再摘除，新块脉冲进场。`reconcileChildren` 从 renderer.ts 抽到 `src/desktop/renderer/dom-reconcile.ts` 共用。
+  - **流式草稿也走同一套键控渲染**：这是"接着上一版改"能不能成立的关键。草稿原本 `replaceChildren` 重画，模型一开始写就把上一版清空了，等版本落地时已经无可复用。改完后草稿与提交共用 `blockEntries()`。但草稿会经过每个块的半成品形态，于是再加一个 512 条的块缓存池：暂时不匹配的元素先留在池里，块写完整后原样取回。实测一次完整"撰写→提交"后 **18 个块复用 17 个**（恰好等于只改了 1 段的理论上限）；未加池时只有 2 个。
+  - **自定义请求头**：`LlmSettings.customHeaders` / `LlmSettingsUpdate.customHeaders`。名字必须是 HTTP token（≤63 字符）、不能是 `Cookie`、不能重名、最多 16 个；值 ≤4096 字符且**拒绝控制字符**（CR/LF 会让一个粘贴进来的字符串给每次请求加自己的头）。值与 API Key、Cookie 一样一头一个文件存在 `credentials/<provider>.header-<name>`（0600），模型目录里只写名字和 `!cat -- '<path>'`。字段缺省表示"不动已存的头"，给出则表示"全集就是这些"，所以旧客户端仍能保存其它设置。GUI 设置面板新增可增删的请求头编辑器（值用 password 输入框遮蔽），CLI 新增 `config header NAME` / `config clear-header NAME`，`config show` 列出已配置的头。
+  - **首页示例**换成三条：整理本机配置成可导出的说明文档（走 shell + article，落到文稿面板）、看最占内存的 10 个进程、读 `~/.bashrc` 挑问题。三条都在默认策略下无需审批、秒级出结果。
+- 实机验证中发现并修复的两个缺陷：
+  1. **（本轮引入）「文稿」入口在启动时可能永远不出现。** 上一轮加的重试依赖"下一帧再试"，但 `#reopenInFlight` 会把连接建立时那两帧全部吃掉，而会话空闲后不再有帧，于是永远停在未查询状态。改为失败后自己用定时器重试（300 ms，最多 8 次）。smoke 里守护进程在 bootstrap 前就已连上，所以测不到。
+  2. **（既有）设置面板根本保存不了。** 三个压缩 token 输入框写的是 `step="1024"` 配 `min="1"`，合法值只有 1、1025、2049…，而持久化的默认值 100000 / 16384 / 20000 全都不合法；浏览器因此拒绝提交表单，点「保存并应用」毫无反应。守护进程侧接受 1..1000000 的任意整数，改为 `step="1"`。smoke 新增断言：设置面板必须接受它自己刚填进去的值。
+- 修改文件：`src/articles/diff.ts`、`src/desktop/renderer/{article-panel.ts,renderer.ts,markdown-view.ts,motion.ts,dom-reconcile.ts(新),index.html,styles.css}`、`src/desktop/main.ts`、`src/settings/{llm-settings.ts,llm-settings-service.ts}`、`src/cli/main.ts`、`scripts/electron-smoke.mjs`、`test/unit/{article.test.ts,desktop-settings.test.ts,cli-config.test.ts}`、memory-bank、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过，**265/265** 测试通过，build 通过。新增：行/词 diff 5 项（含"不相干的行不标行内"与行级不标行内）、自定义请求头 1 项（值不进模型目录、留空保留、移出即删文件、Cookie 被拒、CR/LF 被拒、非 token 名被拒、新名无值被拒）。
+  - `npm run test:electron`：本机实跑通过。smoke 新增断言：导出 Label 为「导出」、修订视图画出整篇（56 行）且有增行/删行/行内标记、行级视图行数相同但行内标记为 0、切换版本后未改动的块仍是同一个元素、设置面板接受自己的持久化值、请求头编辑器可增行且值输入框被遮蔽。
+  - GUI 实机（`1920×1080`，真实守护进程 + 本地流式 mock）：修订视图截图确认 —— 第 50 行 `−` 红底、`14` 带删除线，紧跟 `+` 绿底、`15` 高亮，其余行灰显带行号；行级视图 56 行、0 个行内标记；一次真实"撰写→提交"后 18 块复用 17 块且无残留 inline style。
+  - 自定义请求头端到端：在真实设置面板里加一行 `X-Route: edge-cn-2` 并保存 → `credentials/custom-openai.header-x-route` 为 0600、9 字节，`models.json` 只写 `"X-Route": "!cat -- '…'"` → 随后真实发起一次对话，mock 服务端收到 `x-route=edge-cn-2`。
+- 当前状态：版本 `0.1.28`，已重新打包供试用。**尚未 push、未打 tag、未发 Release**。
+
 ## 2026-09-22 — 流式输出期间可以复制历史与已输出内容（`0.1.28`，本地包待试用）
 
 - 阶段目标：用户反馈"流式输出过程中鼠标勾选复制会一直刷新勾选区域"。先让历史消息在流式期间可复制，能做到流式消息里已输出的部分也可复制更好。同时收尾上一轮留下的三条遗留。

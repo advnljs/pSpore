@@ -1,6 +1,12 @@
 import { MAX_COMPACTION_TOKENS } from "./compaction-settings.js";
 import { MODEL_APIS } from "./model-api.js";
 export { MODEL_APIS } from "./model-api.js";
+/** Header names reserved for settings that have their own field. */
+export const RESERVED_HEADER_NAMES = ["cookie"];
+export const MAX_CUSTOM_HEADERS = 16;
+export const MAX_HEADER_VALUE_CHARS = 4_096;
+/** RFC 7230 token characters, minus the ones that would make an awkward file name. */
+const HEADER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 export const PROVIDER_OPTIONS = ["deepseek", "openai", "custom-openai"];
 export const PERMISSION_MODES = ["ask_risky", "ask_all", "allow_all", "deny"];
@@ -31,7 +37,7 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         "provider", "model", "baseUrl", "api", "thinking", "customModel", "permissionMode",
         "clearApiKey", "clearCookie",
     ], [
-        "apiKey", "cookie", "autoCompactionEnabled", "autoCompactionTriggerTokens",
+        "apiKey", "cookie", "customHeaders", "autoCompactionEnabled", "autoCompactionTriggerTokens",
         "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens",
     ], label);
     const provider = enumeration(input["provider"], PROVIDER_OPTIONS, `${label}.provider`);
@@ -63,6 +69,7 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         throw new Error(`${label} cannot set and clear the API key together`);
     if (cookie && clearCookie)
         throw new Error(`${label} cannot set and clear the cookie together`);
+    const customHeaders = optionalCustomHeaders(input["customHeaders"], `${label}.customHeaders`);
     const autoCompactionEnabled = optionalBooleanValue(input["autoCompactionEnabled"], `${label}.autoCompactionEnabled`);
     const autoCompactionTriggerTokens = optionalBoundedPositiveInteger(input["autoCompactionTriggerTokens"], `${label}.autoCompactionTriggerTokens`, MAX_COMPACTION_TOKENS);
     const autoCompactionReserveTokens = optionalBoundedPositiveInteger(input["autoCompactionReserveTokens"], `${label}.autoCompactionReserveTokens`, MAX_COMPACTION_TOKENS);
@@ -81,9 +88,58 @@ export function decodeLlmSettingsUpdate(value, label = "LLM settings") {
         ...(autoCompactionKeepRecentTokens === undefined ? {} : { autoCompactionKeepRecentTokens }),
         ...(apiKey ? { apiKey } : {}),
         ...(cookie ? { cookie } : {}),
+        ...(customHeaders === undefined ? {} : { customHeaders }),
         clearApiKey,
         clearCookie,
     };
+}
+/**
+ * A header name that is not a token, or a value carrying CR/LF, would let a
+ * pasted string add headers of its own to every request. Both are rejected
+ * here rather than sanitised, so the setting a client saved is the one sent.
+ */
+export function decodeCustomHeaders(value, label) {
+    if (!Array.isArray(value))
+        throw new Error(`${label} must be an array`);
+    if (value.length > MAX_CUSTOM_HEADERS)
+        throw new Error(`${label} allows at most ${MAX_CUSTOM_HEADERS} headers`);
+    const headers = [];
+    const seen = new Set();
+    for (const [index, entry] of value.entries()) {
+        const path = `${label}[${index}]`;
+        const header = object(entry, path);
+        exactShape(header, ["name"], ["value"], path);
+        const name = header["name"];
+        if (typeof name !== "string" || !HEADER_NAME.test(name)) {
+            throw new Error(`${path}.name must be a header token of at most 63 characters`);
+        }
+        const lowered = name.toLowerCase();
+        if (RESERVED_HEADER_NAMES.includes(lowered))
+            throw new Error(`${path}.name is configured by its own setting`);
+        if (seen.has(lowered))
+            throw new Error(`${path}.name is listed twice`);
+        seen.add(lowered);
+        const raw = header["value"];
+        if (raw === undefined) {
+            headers.push({ name });
+            continue;
+        }
+        if (typeof raw !== "string")
+            throw new Error(`${path}.value must be a string`);
+        if (raw.length > MAX_HEADER_VALUE_CHARS)
+            throw new Error(`${path}.value is longer than ${MAX_HEADER_VALUE_CHARS} characters`);
+        if (/[\u0000-\u001f\u007f]/.test(raw))
+            throw new Error(`${path}.value cannot contain control characters`);
+        if (raw.trim() === "")
+            throw new Error(`${path}.value cannot be blank`);
+        headers.push({ name, value: raw });
+    }
+    return headers;
+}
+function optionalCustomHeaders(value, label) {
+    if (value === undefined)
+        return undefined;
+    return decodeCustomHeaders(value, label);
 }
 function object(value, path) {
     if (typeof value !== "object" || value === null || Array.isArray(value))

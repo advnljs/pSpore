@@ -30,6 +30,7 @@ test("desktop settings persist model endpoint and API key without embedding the 
       configPath: paths.config,
       apiKeyPath: join(paths.credentials, "deepseek.api-key"),
       cookiePath: join(paths.credentials, "deepseek.cookie"),
+      customHeaders: [],
       modelsPath: join(paths.agentDir, "models.json"),
     });
 
@@ -232,6 +233,75 @@ test("permission mode round-trips through shared settings and reaches the daemon
     });
     assert.equal(restored.permissionMode, "ask_all");
     assert.equal(JSON.parse(await readFile(paths.config, "utf8")).permissions.mode, "ask_all");
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
+test("custom request headers are stored beside the API key, not inside the model catalog", async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-desktop-headers-"));
+  try {
+    const { paths } = await initializePsporeHome(home);
+    const service = new LlmSettingsService(home, paths);
+    const base = {
+      provider: "deepseek" as const,
+      model: "deepseek-v4-flash",
+      baseUrl: "",
+      api: "provider-default" as const,
+      thinking: "off" as const,
+      customModel: false,
+      permissionMode: "ask_risky" as const,
+      clearApiKey: false,
+      clearCookie: false,
+    };
+    const token = "proxy-route-token-that-must-not-enter-models-json";
+    const saved = await service.save({ ...base, customHeaders: [{ name: "X-Route", value: token }] });
+    assert.deepEqual(saved.customHeaders, [
+      { name: "X-Route", hasValue: true, path: join(paths.credentials, "deepseek.header-x-route") },
+    ]);
+    const headerPath = join(paths.credentials, "deepseek.header-x-route");
+    assert.equal(await readFile(headerPath, "utf8"), token);
+    assert.equal((await stat(headerPath)).mode & 0o777, 0o600);
+    const catalog = await readFile(join(paths.agentDir, "models.json"), "utf8");
+    // The catalog names the header and says where to read it, never the value.
+    assert.doesNotMatch(catalog, new RegExp(token));
+    assert.match(catalog, /"X-Route"/);
+    assert.match(catalog, /deepseek\.header-x-route/);
+    assert.doesNotMatch(await readFile(paths.config, "utf8"), new RegExp(token));
+
+    // Listing a header without a value keeps whatever is stored, so a client
+    // that never sees the value can still save every other setting.
+    const kept = await service.save({ ...base, customHeaders: [{ name: "X-Route" }] });
+    assert.deepEqual(kept.customHeaders.map((header) => header.hasValue), [true]);
+    assert.equal(await readFile(headerPath, "utf8"), token);
+
+    // Leaving it out of the set removes both the header and its stored value.
+    const dropped = await service.save({ ...base, customHeaders: [] });
+    assert.deepEqual(dropped.customHeaders, []);
+    await assert.rejects(() => access(headerPath));
+    assert.doesNotMatch(await readFile(join(paths.agentDir, "models.json"), "utf8"), /X-Route/);
+
+    // Omitting the field entirely leaves stored headers alone.
+    await service.save({ ...base, customHeaders: [{ name: "X-Route", value: token }] });
+    const untouched = await service.save({ ...base });
+    assert.deepEqual(untouched.customHeaders.map((header) => header.name), ["X-Route"]);
+
+    await assert.rejects(
+      () => service.save({ ...base, customHeaders: [{ name: "Cookie", value: "a=b" }] }),
+      /own setting/,
+    );
+    await assert.rejects(
+      () => service.save({ ...base, customHeaders: [{ name: "X-Bad", value: "value\r\nX-Injected: 1" }] }),
+      /control characters/,
+    );
+    await assert.rejects(
+      () => service.save({ ...base, customHeaders: [{ name: "not a token", value: "x" }] }),
+      /header token/,
+    );
+    await assert.rejects(
+      () => service.save({ ...base, customHeaders: [{ name: "X-New" }] }),
+      /no stored value/,
+    );
   } finally {
     await rm(home, { recursive: true, force: true });
   }

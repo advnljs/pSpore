@@ -4,7 +4,7 @@ import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { parseConfig } from "../config/config.js";
 import { atomicWriteFile, atomicWriteJson } from "../storage/atomic.js";
 import { loadConfig } from "../storage/home.js";
-import { decodeLlmSettingsUpdate, PROVIDER_OPTIONS, } from "./llm-settings.js";
+import { decodeLlmSettingsUpdate, PROVIDER_OPTIONS, RESERVED_HEADER_NAMES, } from "./llm-settings.js";
 const DEFAULT_PROVIDER = "deepseek";
 const DEFAULT_MODEL = "deepseek-v4-flash";
 const MAX_MODELS_FILE_BYTES = 1_048_576;
@@ -66,8 +66,28 @@ export class LlmSettingsService {
             configPath: this.#paths.config,
             apiKeyPath,
             cookiePath,
+            customHeaders: await this.#customHeaders(provider, providerConfig),
             modelsPath: this.#modelsPath(),
         };
+    }
+    /**
+     * The header names live in the Pi catalog, which is what actually sends them;
+     * the values live one file each, so what comes back says a value exists
+     * without carrying it.
+     */
+    async #customHeaders(provider, providerConfig) {
+        const headers = record(providerConfig?.["headers"]) ?? {};
+        const settings = [];
+        for (const name of Object.keys(headers)) {
+            if (RESERVED_HEADER_NAMES.includes(name.toLowerCase()))
+                continue;
+            const path = this.#headerPath(provider, name);
+            settings.push({ name, hasValue: await exists(path), path });
+        }
+        return settings;
+    }
+    #headerPath(provider, name) {
+        return join(this.#paths.credentials, `${provider}.header-${name.toLowerCase()}`);
     }
     async save(update) {
         update = decodeLlmSettingsUpdate(update);
@@ -110,6 +130,35 @@ export class LlmSettingsService {
         else {
             delete headers["Cookie"];
         }
+        // A client that predates custom headers omits the field and keeps whatever
+        // is stored; one that sends it is describing the complete set.
+        const headerWrites = [];
+        const headerRemovals = [];
+        if (update.customHeaders) {
+            const kept = new Set(update.customHeaders.map((header) => header.name.toLowerCase()));
+            for (const name of Object.keys(headers)) {
+                if (RESERVED_HEADER_NAMES.includes(name.toLowerCase()))
+                    continue;
+                if (kept.has(name.toLowerCase()))
+                    continue;
+                headerRemovals.push(this.#headerPath(update.provider, name));
+                delete headers[name];
+            }
+            for (const header of update.customHeaders) {
+                const path = this.#headerPath(update.provider, header.name);
+                if (header.value === undefined && !(await exists(path))) {
+                    throw new Error(`Header ${header.name} has no stored value; send one with it.`);
+                }
+                if (header.value !== undefined)
+                    headerWrites.push({ path, value: header.value });
+                // Re-keying by the name as typed keeps a rename from leaving both behind.
+                for (const existing of Object.keys(headers)) {
+                    if (existing !== header.name && existing.toLowerCase() === header.name.toLowerCase())
+                        delete headers[existing];
+                }
+                headers[header.name] = credentialCommand(path);
+            }
+        }
         if (Object.keys(headers).length > 0)
             providerConfig["headers"] = headers;
         else
@@ -144,9 +193,11 @@ export class LlmSettingsService {
             },
         }, this.#home);
         await this.#validateModel(nextModels, update.provider, update.model);
-        if (update.apiKey || update.cookie) {
+        if (update.apiKey || update.cookie || headerWrites.length > 0) {
             await mkdir(this.#paths.credentials, { recursive: true, mode: 0o700 });
         }
+        for (const write of headerWrites)
+            await atomicWriteFile(write.path, write.value, 0o600);
         if (update.apiKey) {
             await atomicWriteFile(credentialPath, update.apiKey, 0o600);
         }
@@ -159,6 +210,8 @@ export class LlmSettingsService {
             await unlink(credentialPath).catch(ignoreMissingFile);
         if (update.clearCookie)
             await unlink(cookiePath).catch(ignoreMissingFile);
+        for (const path of headerRemovals)
+            await unlink(path).catch(ignoreMissingFile);
         return this.get();
     }
     async #readModels() {

@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 
-import { articleChangeCounts, diffArticleBlocks } from "../../src/articles/diff.js";
+import {
+  articleChangeCounts,
+  articleLineChangeCounts,
+  diffArticleBlocks,
+  diffArticleLines,
+} from "../../src/articles/diff.js";
 import { articleDraftFromUpdate } from "../../src/articles/draft.js";
 import { markdownToDocx } from "../../src/articles/docx.js";
 import { markdownToPdfHtml } from "../../src/articles/html.js";
@@ -28,6 +33,57 @@ describe("article diff and export text", () => {
     assert.deepEqual(diff.map((block) => block.kind), ["same", "remove", "add", "same"]);
     assert.equal(articleChangeCounts(diff).added, 1);
     assert.equal(articleChangeCounts(diff).removed, 1);
+  });
+
+  test("line diff marks the words that changed inside a rewritten line", () => {
+    const diff = diffArticleLines("# 报告\n\n营收增长 12%。\n", "# 报告\n\n营收增长 23%。\n");
+    assert.deepEqual(diff.map((line) => line.kind), ["same", "same", "remove", "add", "same"]);
+    const removed = diff.find((line) => line.kind === "remove");
+    const added = diff.find((line) => line.kind === "add");
+    // The pair is close enough to mark inside rather than replacing whole lines.
+    assert.deepEqual(removed?.segments, [
+      { kind: "same", text: "营收增长 " },
+      { kind: "remove", text: "12" },
+      { kind: "same", text: "%。" },
+    ]);
+    assert.deepEqual(added?.segments, [
+      { kind: "same", text: "营收增长 " },
+      { kind: "add", text: "23" },
+      { kind: "same", text: "%。" },
+    ]);
+    assert.deepEqual(articleLineChangeCounts(diff), { added: 1, removed: 1 });
+  });
+
+  test("line diff leaves unrelated lines as whole-line changes", () => {
+    const diff = diffArticleLines("原来写的是噪声治理。\n", "The schedule slipped by two weeks.\n");
+    const removed = diff.find((line) => line.kind === "remove");
+    const added = diff.find((line) => line.kind === "add");
+    // Marking a few incidental characters inside two different sentences would
+    // read as noise, so the pair stays whole.
+    assert.equal(removed?.segments, undefined);
+    assert.equal(added?.segments, undefined);
+  });
+
+  test("line granularity reports the same lines without marking inside them", () => {
+    const source = "# 报告\n\n营收增长 12%。\n";
+    const next = "# 报告\n\n营收增长 23%。\n";
+    const byLine = diffArticleLines(source, next, "line");
+    assert.deepEqual(byLine.map((line) => line.kind), ["same", "same", "remove", "add", "same"]);
+    assert.ok(byLine.every((line) => line.segments === undefined));
+  });
+
+  test("line diff numbers each line in the version it belongs to", () => {
+    const diff = diffArticleLines("一\n二\n三\n", "一\n新增\n二\n三\n");
+    assert.deepEqual(
+      diff.map((line) => `${line.kind}:${line.number}:${line.text}`),
+      ["same:1:一", "add:2:新增", "same:3:二", "same:4:三", "same:5:"],
+    );
+  });
+
+  test("a rewrite of everything still produces a usable diff", () => {
+    const diff = diffArticleLines("旧文。\n", "");
+    assert.deepEqual(articleLineChangeCounts(diff), { added: 0, removed: 1 });
+    assert.deepEqual(diff.map((line) => line.kind), ["remove", "same"]);
   });
 
   test("plain text drops markdown markers and keeps the words", () => {

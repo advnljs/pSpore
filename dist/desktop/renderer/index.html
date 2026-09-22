@@ -162,17 +162,22 @@
             </div>
             <div class="article-header-actions">
               <span id="article-version" class="count-pill">v1</span>
-              <button id="article-diff-toggle" class="ghost-button" type="button" aria-pressed="false">对照上一版</button>
+              <div id="article-views" class="segmented" role="group" aria-label="文稿视图">
+                <button id="article-view-read" class="segment" type="button" data-view="read" aria-pressed="true">正文</button>
+                <button id="article-view-token" class="segment" type="button" data-view="token" aria-pressed="false">修订</button>
+                <button id="article-view-line" class="segment" type="button" data-view="line" aria-pressed="false">行级</button>
+              </div>
               <button id="article-close" class="quiet-icon-button" type="button" aria-label="关闭文稿">×</button>
             </div>
           </header>
           <div class="article-toolbar">
             <div id="article-versions" class="article-versions" role="tablist" aria-label="文稿版本"></div>
-            <div class="article-export" aria-label="导出文稿">
-              <button class="ghost-button" type="button" data-export="txt">TXT</button>
-              <button class="ghost-button" type="button" data-export="md">MD</button>
-              <button class="ghost-button" type="button" data-export="docx">DOCX</button>
-              <button class="ghost-button" type="button" data-export="pdf">PDF</button>
+            <div class="article-export">
+              <span class="article-export-label" id="article-export-label">导出</span>
+              <button class="ghost-button" type="button" data-export="txt" aria-describedby="article-export-label">TXT</button>
+              <button class="ghost-button" type="button" data-export="md" aria-describedby="article-export-label">MD</button>
+              <button class="ghost-button" type="button" data-export="docx" aria-describedby="article-export-label">DOCX</button>
+              <button class="ghost-button" type="button" data-export="pdf" aria-describedby="article-export-label">PDF</button>
             </div>
           </div>
           <p id="article-diff-summary" class="article-diff-summary" hidden></p>
@@ -321,9 +326,9 @@
               <span><b>启用自动 compact</b><small>达到模型上下文上限前自动生成摘要并继续会话。</small></span>
             </label>
             <div class="field-grid two-columns">
-              <label><span>触发上下文 tokens</span><input id="settings-compaction-trigger" name="autoCompactionTriggerTokens" type="number" min="1" max="1000000" step="1024" required /></label>
-              <label><span>模型上限预留 tokens</span><input id="settings-compaction-reserve" name="autoCompactionReserveTokens" type="number" min="1" max="1000000" step="1024" required /></label>
-              <label><span>压缩后保留 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1024" required /></label>
+              <label><span>触发上下文 tokens</span><input id="settings-compaction-trigger" name="autoCompactionTriggerTokens" type="number" min="1" max="1000000" step="1" required /></label>
+              <label><span>模型上限预留 tokens</span><input id="settings-compaction-reserve" name="autoCompactionReserveTokens" type="number" min="1" max="1000000" step="1" required /></label>
+              <label><span>压缩后保留 tokens</span><input id="settings-compaction-keep-recent" name="autoCompactionKeepRecentTokens" type="number" min="1" max="1000000" step="1" required /></label>
             </div>
             <p class="settings-field-note">达到触发长度，或距离模型上限只剩预留量时（以更早者为准）自动 compact。保存后由系统服务重启应用到所有 session。</p>
             <p class="settings-path-note">派生模型目录<code id="settings-models-path">—</code></p>
@@ -381,6 +386,14 @@
               <input id="settings-clear-cookie" name="clearCookie" type="checkbox" />
               <span><b>清除已保存的 Cookie</b><small>不会删除 API Key。</small></span>
             </label>
+            <div class="settings-headers">
+              <div class="settings-headers-heading">
+                <span>自定义请求头</span>
+                <button id="settings-header-add" class="ghost-button" type="button">添加请求头</button>
+              </div>
+              <div id="settings-header-list" class="settings-header-list"></div>
+              <p id="settings-headers-empty" class="settings-field-note">除 Cookie 外，还可以给每次模型请求附加自定义 HTTP 头，例如反向代理要求的鉴权或路由标识。值与 API Key 一样单独存放在 <code>credentials/</code> 下，只有名字会写进模型目录。</p>
+            </div>
           </section>
 
           <footer class="settings-footer">

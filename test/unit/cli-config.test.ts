@@ -43,6 +43,7 @@ test("CLI config supports the same provider presets and custom OpenAI settings a
       configPath: join(home, "config.json"),
       apiKeyPath: join(home, "credentials", "openai.api-key"),
       cookiePath: join(home, "credentials", "openai.cookie"),
+      customHeaders: [],
       modelsPath: join(home, "state", "pi", "models.json"),
     });
 

@@ -8,6 +8,33 @@ export type { ModelApi } from "./model-api.js";
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ProviderOption = "deepseek" | "openai" | "custom-openai";
 
+/**
+ * One header added to every request to the model endpoint.
+ *
+ * The value is kept in its own file next to the API key and the cookie, and
+ * referenced from the Pi model catalog the same way, so it never sits in a
+ * config file and never travels back to a client.
+ */
+export interface CustomHeaderSetting {
+  name: string;
+  hasValue: boolean;
+  /** Absolute file the value is read from. Shown in clients; never the value itself. */
+  path: string;
+}
+
+/** A header to keep, set or replace. Omitting `value` keeps whatever is stored. */
+export interface CustomHeaderUpdate {
+  name: string;
+  value?: string;
+}
+
+/** Header names reserved for settings that have their own field. */
+export const RESERVED_HEADER_NAMES: readonly string[] = ["cookie"];
+export const MAX_CUSTOM_HEADERS = 16;
+export const MAX_HEADER_VALUE_CHARS = 4_096;
+/** RFC 7230 token characters, minus the ones that would make an awkward file name. */
+const HEADER_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,62}$/;
+
 export interface LlmSettings {
   version: 1;
   provider: ProviderOption;
@@ -30,6 +57,8 @@ export interface LlmSettings {
   apiKeyPath: string;
   /** Absolute file the `Cookie` header value is read from. */
   cookiePath: string;
+  /** Extra headers sent with every model request, newest configuration first. */
+  customHeaders: CustomHeaderSetting[];
   /** Absolute path of the derived Pi model catalog written from `config.json`. */
   modelsPath: string;
 }
@@ -49,6 +78,13 @@ export interface LlmSettingsUpdate {
   autoCompactionKeepRecentTokens?: number;
   apiKey?: string;
   cookie?: string;
+  /**
+   * The complete set of extra headers. Present means "make it look like this":
+   * a name that is absent is removed along with its stored value. Omitting the
+   * field entirely leaves the stored headers alone, so a client that predates
+   * them can still save every other setting.
+   */
+  customHeaders?: CustomHeaderUpdate[];
   clearApiKey: boolean;
   clearCookie: boolean;
 }
@@ -87,7 +123,7 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
       "clearApiKey", "clearCookie",
     ],
     [
-      "apiKey", "cookie", "autoCompactionEnabled", "autoCompactionTriggerTokens",
+      "apiKey", "cookie", "customHeaders", "autoCompactionEnabled", "autoCompactionTriggerTokens",
       "autoCompactionReserveTokens", "autoCompactionKeepRecentTokens",
     ],
     label,
@@ -114,6 +150,7 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
   const clearCookie = booleanValue(input["clearCookie"], `${label}.clearCookie`);
   if (apiKey && clearApiKey) throw new Error(`${label} cannot set and clear the API key together`);
   if (cookie && clearCookie) throw new Error(`${label} cannot set and clear the cookie together`);
+  const customHeaders = optionalCustomHeaders(input["customHeaders"], `${label}.customHeaders`);
   const autoCompactionEnabled = optionalBooleanValue(input["autoCompactionEnabled"], `${label}.autoCompactionEnabled`);
   const autoCompactionTriggerTokens = optionalBoundedPositiveInteger(
     input["autoCompactionTriggerTokens"],
@@ -144,9 +181,51 @@ export function decodeLlmSettingsUpdate(value: unknown, label = "LLM settings"):
     ...(autoCompactionKeepRecentTokens === undefined ? {} : { autoCompactionKeepRecentTokens }),
     ...(apiKey ? { apiKey } : {}),
     ...(cookie ? { cookie } : {}),
+    ...(customHeaders === undefined ? {} : { customHeaders }),
     clearApiKey,
     clearCookie,
   };
+}
+
+/**
+ * A header name that is not a token, or a value carrying CR/LF, would let a
+ * pasted string add headers of its own to every request. Both are rejected
+ * here rather than sanitised, so the setting a client saved is the one sent.
+ */
+export function decodeCustomHeaders(value: unknown, label: string): CustomHeaderUpdate[] {
+  if (!Array.isArray(value)) throw new Error(`${label} must be an array`);
+  if (value.length > MAX_CUSTOM_HEADERS) throw new Error(`${label} allows at most ${MAX_CUSTOM_HEADERS} headers`);
+  const headers: CustomHeaderUpdate[] = [];
+  const seen = new Set<string>();
+  for (const [index, entry] of value.entries()) {
+    const path = `${label}[${index}]`;
+    const header = object(entry, path);
+    exactShape(header, ["name"], ["value"], path);
+    const name = header["name"];
+    if (typeof name !== "string" || !HEADER_NAME.test(name)) {
+      throw new Error(`${path}.name must be a header token of at most 63 characters`);
+    }
+    const lowered = name.toLowerCase();
+    if (RESERVED_HEADER_NAMES.includes(lowered)) throw new Error(`${path}.name is configured by its own setting`);
+    if (seen.has(lowered)) throw new Error(`${path}.name is listed twice`);
+    seen.add(lowered);
+    const raw = header["value"];
+    if (raw === undefined) {
+      headers.push({ name });
+      continue;
+    }
+    if (typeof raw !== "string") throw new Error(`${path}.value must be a string`);
+    if (raw.length > MAX_HEADER_VALUE_CHARS) throw new Error(`${path}.value is longer than ${MAX_HEADER_VALUE_CHARS} characters`);
+    if (/[\u0000-\u001f\u007f]/.test(raw)) throw new Error(`${path}.value cannot contain control characters`);
+    if (raw.trim() === "") throw new Error(`${path}.value cannot be blank`);
+    headers.push({ name, value: raw });
+  }
+  return headers;
+}
+
+function optionalCustomHeaders(value: unknown, label: string): CustomHeaderUpdate[] | undefined {
+  if (value === undefined) return undefined;
+  return decodeCustomHeaders(value, label);
 }
 
 function object(value: unknown, path: string): Record<string, unknown> {

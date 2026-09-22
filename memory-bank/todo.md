@@ -3,6 +3,7 @@
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
 | P0 | 发布并远端复验 `v0.1.28` | Pending | 用户要求先在本地试用 `release-dist/pspore-desktop-0.1.28-linux-x64.zip` | 试用通过后再 push `main`。注意：`ci.yml` 的 `release` job 会在 `package.json` 版本尚无 tag 时**自动**打 tag 并派发 Release，所以在用户确认前不要 push |
+| P3 | Electron smoke 的「运行活动」断言偶发失败 | Pending | 无 | 见过一次 `run activity did not show the tool phase: waiting`，紧接着重跑即通过。探针在 `tool.started` 之后立刻读取，机器负载高时会读到仍是"等待模型响应"的那一帧。应改为等到 `#run-activity` 的 `data-phase` 变成 tool 再读 |
 | P3 | 流式消息完成的瞬间，其中的选区会丢 | Pending | 无 | 流式气泡与落库后的历史消息是两个节点，`transcript.item.finished` 到达时会换节点。若要保住，需要让完成后的历史节点复用流式气泡已渲染的块 |
 | P1 | 长文文稿面板与四种导出 | Done | 无 | 见 overall-progress 2026-09-22。未升版本，未发版 |
 | P2 | 文稿面板的 Electron 实机观感 | Done | 无 | 见 overall-progress 2026-09-22 第二条。Electron smoke 现在预置一篇两版文稿并断言入场、版本芯片、首屏定位、对照上一版与四个导出按钮；1920×1080 实机已人工复核 |

@@ -20,13 +20,13 @@
 |---|---|
 | `store.ts` | `~/.pspore/workspace/articles/<id>/`：`meta.json`、`v0001.md`…、`current.md`。id 为 `art_` + 12 位十六进制。单篇最多 400_000 个 UTF-16 码元、100 个版本。内容不变不追加版本。读和改都核对 session。路径经 realpath，拒绝逃出目录。NUL 换成 U+FFFD |
 | `tool.ts` | `create` / `update` / `read`。回执第一行固定 `article art_xxxxxxxxxxxx version N`，随后是标题、字数和版本变化。`read` 把正文给模型，广播侧会裁掉 |
-| `diff.ts` | 按空行切段，围栏代码整段保留。LCS；段落积超过 250_000 时退化为前后缀。渲染器可导入，无 Node |
+| `diff.ts` | 按空行切段，围栏代码整段保留。LCS；段落积超过 250_000 时退化为前后缀。另有 `diffArticleLines()`：先裁公共首尾再对中间 LCS，`token` 粒度把相邻的删除串/新增串按位配对、逐 token 求 LCS，只在相似度 ≥ 0.4 时标到行内。分词按拉丁串/空白成串、其余逐字，中英都成立。渲染器可导入，无 Node |
 | `preview.ts` / `draft.ts` | 从 Pi `toolcall_delta` 里取出正在写的 `content`。预览总线 120 ms 节流。事件只带 toolCallId、标题、id 和字数，正文留在进程内 |
 | `publish.ts` | 广播前去掉工具参数里的 `content` / `edits`，工具结果只留前 4 行，避免正文冲上 64 KiB 出站上限 |
 | `receipt.ts` | 解析回执，供面板和聊天卡片定位文稿 |
 | `plain.ts` / `html.ts` / `docx.ts` / `zip-write.ts` | txt 去掉 Markdown 标记，嵌套列表按两空格逐级缩进；pdf 用 HTML，列表项的首段直接内联进 `<li>`（包成 `<p>` 会让 ☑ 和文字分行、每项多一段行距）；docx 是自写的 WordprocessingML ZIP（`node:zlib`，无新依赖），`numbering.xml` 声明 9 级、字体用 Calibri/Consolas/宋体这类目标机上真实存在的名字，ZIP 条目写 1980-01-01 的合法 DOS 日期。`plain.ts` 与 `html.ts` 无 Node，可被渲染器导入；`docx.ts` 与 `zip-write.ts` 不行 |
 | `article-export.ts` | 保存对话框。pdf 用隐藏、关 JavaScript 的沙箱窗口 `printToPDF`，中文走系统字体 |
-| `article-panel.ts` | 流式重绘、版本芯片、对照上一版、新增段 GSAP 脉冲（最多 16 段，只动 opacity/位移）。`onSessionChanged()` 每帧调用且可重试；打开/切版本锚定顶部，提交新版本时保留贴底；无基线时禁用对照，打开第 N 版后补取第 N−1 版作基线 |
+| `article-panel.ts` | 三段视图 `正文/修订/行级`、版本芯片、导出。块按渲染内容取键并就地复用，新块 GSAP 脉冲、消失的块先折叠再摘除。`onSessionChanged()` 每帧调用，失败后自带定时重试；打开/切版本锚定顶部，提交新版本时保留贴底；无基线时禁用两个修订段，打开第 N 版后补取第 N−1 版作基线 |
 
 ## 对外接口
 
@@ -56,4 +56,5 @@
 - 渲染器不得导入 `store.ts`、`docx.ts`、`zip-write.ts`、`article-export.ts`。
 - 面板靠 `article.preview` / `tool.completed` 两个事件活着。这两个事件走的是通用广播路径，所以**任何让桌面端拒帧断连的协议缺陷都会静默掐掉整个面板的实时行为**：2026-09-22 实机验证发现 `transcript.item.started` 少了 `status`/`ts`，桌面端每条助手消息都断一次连，流式预览与 diff 动画从未到达过面板，而聊天靠重连快照看起来正常。`test/contract/pi-runtime-adapter.test.ts` 现在用桌面端自己的 `validateEventEnvelope` 逐条校验 adapter 发出的事件，守住这个边界。
 - 只调用工具、没有正文的助手轮次在聊天里折叠（`.message-silent`，`display:none`），保留虚拟列表槽位，不动绝对索引。
-- Electron smoke 在临时 home 里预置 `art_5c0de0000001`（两版，`sessionId: "main"`），断言面板入场、版本芯片、首屏定位、对照上一版与四个导出按钮。导出按钮不点击——每个都会拉起系统保存对话框。
+- Electron smoke 在临时 home 里预置 `art_5c0de0000001`（两版，`sessionId: "main"`，其中一行是改写而非替换，以便验证行内标记），断言面板入场、版本芯片、首屏定位、「导出」Label、修订视图的增/删行与行内标记、行级视图不标行内、切版本后未改动的块仍是同一元素。导出按钮不点击——每个都会拉起系统保存对话框。
+- **面板是"在上一版上打补丁"，不是重画**。块的键只包含渲染出来的内容，不含 diff 结论，所以一个块从"新增"变成"未变"仍复用同一元素。关键在于**流式草稿也必须走同一套键控渲染**：草稿一旦 `replaceChildren`，模型刚开始写就把上一版清空了，等版本落地已无可复用。草稿会经过每个块的半成品形态，因此还需要一个 512 条的块缓存池，暂时不匹配的元素留在池里、块写完整后原样取回（实测：有池 18 块复用 17，无池只复用 2）。折叠退场的元素带 `data-leaving`，复用时必须清掉 GSAP 留下的 inline style。

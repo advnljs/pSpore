@@ -43,6 +43,7 @@ import {
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
+import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
 import {
   animateMessagesIn,
@@ -274,6 +275,8 @@ const elements = {
   settingsApiKeyState: byId<HTMLElement>("settings-api-key-state"),
   settingsKeyCopyPath: byId<HTMLButtonElement>("settings-key-copy-path"),
   settingsCookiePath: byId<HTMLElement>("settings-cookie-path"),
+  settingsHeaderList: byId<HTMLElement>("settings-header-list"),
+  settingsHeaderAdd: byId<HTMLButtonElement>("settings-header-add"),
   settingsCookieState: byId<HTMLElement>("settings-cookie-state"),
   settingsCookieCopyPath: byId<HTMLButtonElement>("settings-cookie-copy-path"),
   settingsIndexingEnabled: byId<HTMLInputElement>("settings-indexing-enabled"),
@@ -409,6 +412,7 @@ function bindStaticActions(): void {
   bindPathCopy(elements.settingsKeyCopyPath, elements.settingsApiKeyPath);
   elements.settingsIndexingAdd.addEventListener("click", () => void addIndexingDirectory());
   bindPathCopy(elements.settingsCookieCopyPath, elements.settingsCookiePath);
+  elements.settingsHeaderAdd.addEventListener("click", () => addCustomHeaderRow("", false));
   elements.settingsOverlay.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !savingSettings) {
       event.preventDefault();
@@ -753,6 +757,60 @@ function populateSettings(settings: DesktopLlmSettings): void {
   configureProviderFields(false);
   resetSecretField(elements.settingsApiKey, elements.settingsKeyReveal, elements.settingsClearKey, settings.hasApiKey, "API Key");
   resetSecretField(elements.settingsCookie, elements.settingsCookieReveal, elements.settingsClearCookie, settings.hasCookie, "Cookie");
+  renderCustomHeaders(settings.customHeaders);
+}
+
+/**
+ * One row per extra header. A stored value is never sent back here, so the row
+ * says it exists and leaves the field blank: typing replaces it, leaving it
+ * alone keeps it, and removing the row deletes both the header and its file.
+ */
+function renderCustomHeaders(headers: readonly DesktopLlmSettings["customHeaders"][number][]): void {
+  elements.settingsHeaderList.replaceChildren();
+  for (const header of headers) addCustomHeaderRow(header.name, header.hasValue);
+}
+
+function addCustomHeaderRow(name: string, hasValue: boolean): void {
+  const row = element("div", "settings-header-row");
+  const nameField = document.createElement("input");
+  nameField.type = "text";
+  nameField.className = "settings-header-name";
+  nameField.value = name;
+  nameField.maxLength = 63;
+  nameField.placeholder = "X-Example";
+  nameField.spellcheck = false;
+  nameField.setAttribute("aria-label", "请求头名称");
+  const valueField = document.createElement("input");
+  valueField.type = "password";
+  valueField.className = "settings-header-value";
+  valueField.maxLength = 4_096;
+  valueField.autocomplete = "new-password";
+  valueField.spellcheck = false;
+  valueField.placeholder = hasValue ? "已配置，留空保留" : "值";
+  valueField.dataset["stored"] = hasValue ? "true" : "false";
+  valueField.setAttribute("aria-label", "请求头值");
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "quiet-text-button";
+  remove.textContent = "移除";
+  remove.addEventListener("click", () => row.remove());
+  row.append(nameField, valueField, remove);
+  elements.settingsHeaderList.append(row);
+  if (!hasValue) nameField.focus();
+}
+
+function collectCustomHeaders(): Array<{ name: string; value?: string }> {
+  const headers: Array<{ name: string; value?: string }> = [];
+  for (const row of Array.from(elements.settingsHeaderList.querySelectorAll<HTMLElement>(".settings-header-row"))) {
+    const name = row.querySelector<HTMLInputElement>(".settings-header-name")?.value.trim() ?? "";
+    const field = row.querySelector<HTMLInputElement>(".settings-header-value");
+    if (!name) continue;
+    const value = field?.value ?? "";
+    // A renamed row has no stored value under its new name, so it must carry one.
+    if (value) headers.push({ name, value });
+    else headers.push({ name });
+  }
+  return headers;
 }
 
 /**
@@ -807,6 +865,7 @@ async function saveSettings(): Promise<void> {
     autoCompactionKeepRecentTokens: elements.settingsCompactionKeepRecent.valueAsNumber,
     ...(elements.settingsApiKey.value ? { apiKey: elements.settingsApiKey.value } : {}),
     ...(elements.settingsCookie.value ? { cookie: elements.settingsCookie.value } : {}),
+    customHeaders: collectCustomHeaders(),
     clearApiKey: elements.settingsClearKey.checked,
     clearCookie: elements.settingsClearCookie.checked,
   };
@@ -1506,36 +1565,6 @@ function sizeSpacer(spacer: HTMLElement, height: number): HTMLElement {
 }
 
 /**
- * Replaces `parent`'s children with `next` by moving only what is out of place.
- *
- * `replaceChildren` detaches every child even when the same nodes go straight
- * back, and a detached node takes the reader's selection with it. During a reply
- * the transcript re-renders on every frame, so that turned "select some earlier
- * text and copy it" into something that only worked once the reply had stopped.
- */
-function reconcileChildren(parent: HTMLElement, next: readonly HTMLElement[]): void {
-  // Dropped children go first. Inserting around one that is on its way out
-  // would move every node after it, which costs the selection just as surely as
-  // rebuilding the list: scrolling one message out of the window used to detach
-  // every message below it.
-  const wanted = new Set<Node>(next);
-  let cursor = parent.firstChild;
-  while (cursor) {
-    const following = cursor.nextSibling;
-    if (!wanted.has(cursor)) parent.removeChild(cursor);
-    cursor = following;
-  }
-  cursor = parent.firstChild;
-  for (const node of next) {
-    if (cursor === node) {
-      cursor = cursor.nextSibling;
-      continue;
-    }
-    parent.insertBefore(node, cursor);
-  }
-}
-
-/**
  * True while the reader is holding a selection inside the transcript.
  *
  * Following the tail then would drag the viewport out from under them mid-drag,
@@ -1614,10 +1643,16 @@ function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: SessionView
   elements.messageQueue.replaceChildren(...directNodes, ...queuedNodes);
 }
 
+/**
+ * What a first conversation should look like: each one runs real tools, comes
+ * back in seconds, and needs no approval under the default policy. The first
+ * ends in the document panel, because a written deliverable is the part of this
+ * app nothing else on the screen explains.
+ */
 const MAIN_SESSION_EXAMPLES = [
-  "整理 ~/Downloads：按类型归档最近一周的文件，先给出计划",
-  "找出这台机器上占用磁盘最多的 10 个目录",
-  "每天 09:00 汇总昨天的系统日志异常，并写入长期记忆",
+  "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
+  "看看现在最占内存的 10 个进程，说说哪些可以关掉",
+  "读一下 ~/.bashrc，指出其中可能有问题或过时的设置",
 ] as const;
 
 function emptyTranscript(isChild: boolean): HTMLElement {

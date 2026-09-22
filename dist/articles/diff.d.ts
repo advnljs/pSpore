@@ -17,4 +17,28 @@ export declare function articleChangeCounts(diff: readonly ArticleBlockDiff[]): 
     added: number;
     removed: number;
 };
+export type ArticleLineGranularity = "line" | "token";
+export interface ArticleTextSegment {
+    kind: ArticleBlockChange;
+    text: string;
+}
+export interface ArticleLineDiff {
+    kind: ArticleBlockChange;
+    text: string;
+    /**
+     * Present when this line was paired with its counterpart and the two are
+     * close enough that marking the difference inside them says more than marking
+     * the whole line. A removed line carries its `same`/`remove` segments, an
+     * added line its `same`/`add` ones.
+     */
+    segments?: readonly ArticleTextSegment[];
+    /** 1-based line number in the version this line belongs to. */
+    number: number;
+}
+export declare function splitArticleLines(source: string): string[];
+export declare function diffArticleLines(before: string, after: string, granularity?: ArticleLineGranularity): ArticleLineDiff[];
+export declare function articleLineChangeCounts(diff: readonly ArticleLineDiff[]): {
+    added: number;
+    removed: number;
+};
 //# sourceMappingURL=diff.d.ts.map

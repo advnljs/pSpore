@@ -298,6 +298,32 @@ export function slideArticlePanel(panel: HTMLElement): void {
 }
 
 /** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */
+/**
+ * Folds blocks that a new version dropped out of the flow, then hands them back
+ * so the caller can detach them.
+ *
+ * The panel patches the version it already has on screen rather than redrawing
+ * it, so a removed paragraph is the one thing that would otherwise vanish
+ * between two frames with nothing to show what happened.
+ */
+export function collapseArticleRemovals(targets: readonly HTMLElement[], finish: () => void): void {
+  if (!canAnimate() || targets.length === 0) {
+    finish();
+    return;
+  }
+  engine!.to(targets, {
+    autoAlpha: 0,
+    height: 0,
+    marginBottom: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    duration: 0.28,
+    ease: EASE_IN,
+    overwrite: "auto",
+    onComplete: finish,
+  });
+}
+
 export function pulseArticleChanges(targets: readonly Element[]): void {
   if (!canAnimate() || targets.length === 0) return;
   engine!.fromTo(

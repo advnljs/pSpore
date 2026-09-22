@@ -55,3 +55,11 @@
 - `LlmSettingsService.get()` 以 `config.json` 为准；只有当 `config.model` 没有端点字段（0.1.15 之前写入的 home）时，才回退读取 `state/pi/models.json`。`save()` 仍然写两份：`config.json` 是事实源，`models.json` 是 Pi 运行时派生目录。
 - `LlmSettings` 增加 `configPath`、`apiKeyPath`、`cookiePath`、`modelsPath`。GUI 设置面板在「模型/自动压缩/凭据」三处显示这些绝对路径并提供复制按钮，CLI `config show` 与 TUI `/config`、wizard 的 key/cookie 步骤同样显示。secret 值本身仍然不会出现在任何输出中。
 - 凭据文件路径记录在 `config.json` 而不是密钥内容；密钥仍只存在于 `credentials/<provider>.{api-key,cookie}`（`0600`），`models.json` 仍只引用 `!cat -- <path>` 命令。
+
+## 自定义请求头（2026-09-22）
+
+- `LlmSettings.customHeaders` / `LlmSettingsUpdate.customHeaders`。名字必须是 HTTP token（≤63 字符）、不能是 `Cookie`、不能重名，最多 16 个；值 ≤4096 字符并**拒绝控制字符**——CR/LF 会让一个粘贴进来的字符串给每次请求再加几个自己的头。
+- 值与 API Key、Cookie 同级对待：一头一个文件 `credentials/<provider>.header-<小写名>`（0600），模型目录里只写名字与 `!cat -- '<path>'`，值不进 `config.json` 也不进 `models.json`，更不会随 `get()` 回到客户端。
+- 字段缺省 = 不动已存的头（旧客户端仍能保存其它设置）；给出 = 全集就是这些，没列出的名字连同它的值文件一起删除。
+- 入口：GUI 设置面板的「自定义请求头」编辑器（值用 password 输入框遮蔽）、CLI `config header NAME` / `config clear-header NAME`，`config show` 会列出已配置的头。
+- 设置表单的数字输入框曾写成 `step="1024"` 配 `min="1"`，持久化的默认值全部不合法，浏览器直接拒绝提交——点保存毫无反应。守护进程侧接受 1..1000000 任意整数，输入框必须与之一致；smoke 现在断言"设置面板必须接受它自己刚填进去的值"。
