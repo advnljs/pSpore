@@ -1,5 +1,31 @@
 # Overall Progress
 
+## 2026-09-22 — 流式输出期间可以复制历史与已输出内容（`0.1.28`，本地包待试用）
+
+- 阶段目标：用户反馈"流式输出过程中鼠标勾选复制会一直刷新勾选区域"。先让历史消息在流式期间可复制，能做到流式消息里已输出的部分也可复制更好。同时收尾上一轮留下的三条遗留。
+- 根因（四层，逐层实测定位）：
+  1. `renderConversation` 用 `transcript.replaceChildren(...)` 重写整棵子树。即使节点对象是缓存复用的，`replaceChildren` 也会先全部摘下再挂回，**选区随之塌陷**。流式期间每帧都走这条路，所以选区最多活一帧。
+  2. 流式气泡 `renderStreamingMessage()` 每个 token 都新建一个元素，正文整段重建——已经写出来的字也复制不了。
+  3. 贴底跟随在用户拖选期间仍然生效，视口在拖动过程中不断下移，勾选区域跟着变。
+  4. 虚拟窗口会把滚出范围的消息从 DOM 摘掉；高度测量校正后窗口会挪动一格，正好把读者按住的那条消息摘走。
+- 完成内容：
+  - `reconcileChildren()`：只移动位置不对的节点。**先删后排**——先摘掉所有不再需要的子节点，再按顺序归位；否则删掉队首一个节点会让它后面的每个节点都被 `insertBefore` 搬移一次，代价和整棵重建一样（这一点是实测 MutationObserver 抓出来的，第一版实现就踩了）。虚拟 padding 改为两个常驻元素、只改高度，避免每帧结构性变化。
+  - `src/ui/shared/markdown-stream.ts`（新，DOM 无关）：把解析后的块序列化成 key，`commonBlockPrefix()` 求公共前缀。`createMarkdownSurface()`（`markdown-view.ts`）据此只重建解析结果真正变了的块——流式追加 token 时通常只有最后一块变，前面的 DOM 连同其中的选区原样保留。
+  - 流式气泡改为建一次、就地更新：思考正文写进同一个 Text 节点（只增不减，偏移仍然有效），正文走上面的 surface，思考区与正文区用 `hidden` 开关而不是增删。
+  - 读者按住选区时：贴底跟随让位（`hasTranscriptSelection()`），虚拟窗口保留该条消息（`VirtualHeightIndex.range(..., keep)`，超出 40 条的旧滚动历史仍然放手，避免把中间几千条一起渲染）。
+  - 顺带：`article-panel` 导出加重入保护（保存对话框是模态的但面板不是，连点两次会排队开两个对话框并写两次文件）。
+- 遗留项收尾：
+  - **网关重放序号缺口（P2）**：新增集成测试，用真实 `LocalGateway` + 真实 `DaemonBridge` + 真实 `ProtocolClient`，在一次"durable + 4 个 transient + durable"的运行中途断线重连再跑一轮，断言没有 `Event gap`/`Rejected`。**通过**——桌面端 hello 之后把游标直接推到 `latestSeq`（快照即权威），transient 事件占用的序号不会被读成丢失。上一轮观察到的那次 `Event gap` 是 `transcript.item.started` 缺陷引发的重连风暴的连带现象。todo 据此关闭。
+  - **WPS「缺失字体」（P4）**：确认无解——文档写 Calibri/Consolas 是为了 Windows Word，Linux 上没有这两个 family 就会提示；反过来写 Linux 字体名则 Word 缺失。正文 CJK 已是两边都有的 `宋体`。保留在 todo 作为已知现象。
+  - 上一轮回复里说"宋体改动缺少 WPS 截图"——复核发现不成立：`:97` 上那张 WPS 截图用的 `out4.docx` 就是两处字体都改完、重新构建后生成的，嵌套列表与中文都正确。
+- 修改文件：`src/desktop/renderer/{renderer.ts,markdown-view.ts,article-panel.ts}`、`src/ui/shared/{markdown-stream.ts(新),virtual-list.ts}`、`src/desktop/main.ts`、`test/unit/{markdown-stream.test.ts(新),virtual-list.test.ts}`、`test/integration/local-gateway.test.ts`、`src/version.ts`、`package.json`、`package-lock.json`（仅版本号）、memory-bank、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过，**259/259** 测试通过，build 通过。新增 markdown 流式块复用 5 项、虚拟窗口 `keep` 1 项、网关重连 1 项。
+  - `npm run test:electron`：本机实跑通过。smoke 新增选区断言：在真实 Chromium 里选中一条已完成消息 → 发一个 token → 选区文本逐字不变且 `scrollTop` 未动；再选中流式消息已写出的第一段 → 再发 token → 选区文本不变。**这两条断言在修复前都失败**，是本轮的回归护栏。
+  - GUI 实机（`1920×1080`，真实守护进程 + 本地 OpenAI 兼容 mock 流式回复）：用 `xdotool` 真实按下拖动跨越一条历史消息，期间 `aria-busy=true`、流式正文从 422 字增长到 446 字，选区稳定在 148 字；`Ctrl+C` 后点进输入框 `Ctrl+V`，粘贴出的 148 字与选中内容逐字一致。
+- 当前状态：版本已升到 `0.1.28`，已在本地打包供用户试用：`release-dist/pspore-desktop-0.1.28-linux-x64.zip`（157M，含 `创建桌面快捷方式.sh`）、`-overlay.zip`（37M）、可直接运行的 `release-dist/pspore-desktop-0.1.28-linux-x64/`、CLI `release-dist/pspore-0.1.28-linux-x64`。包内 `app.asar` 已核对含 `PSPORE_VERSION = "0.1.28"`、`reconcileChildren`、`createMarkdownSurface`、`commonBlockPrefix`、`message-silent`。**尚未 push、未打 tag、未发 Release**——按用户要求先本地试用。
+- 遗留问题：导出保存对话框在缺 xdg-desktop-portal 的环境里不返回，面板会一直停在「正在导出…」（已加重入保护，但状态本身仍是准确的）；见 `todo.md`。
+
 ## 2026-09-22 — 文稿面板实机验证与修复（未升版本）
 
 - 阶段目标：在有 GUI 的本机对上一阶段（文稿面板与四种导出）做真实验证，修掉验证中发现的问题。

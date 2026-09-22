@@ -122,6 +122,15 @@ interface SmokeReport {
     /** Skills found but not loaded, each listed with its reason. */
     unloadedSkills: string[];
   };
+  /** Copying while a reply streams: the transcript must stop destroying the reader's selection. */
+  selection: {
+    historyBefore: string;
+    historyAfter: string;
+    /** The tail pin stands down while a selection is held, so the drag stays put. */
+    scrollHeldDuringSelection: boolean;
+    streamingBefore: string;
+    streamingAfter: string;
+  };
   indexingPanel: {
     phase: string;
     phaseLabel: string;
@@ -522,6 +531,13 @@ async function runSmoke(
   };
   let fixtureState: ReturnType<typeof createDesktopSmokeState> | undefined;
   let directQueueVisibleBeforeToolCompletion = false;
+  const selection: SmokeReport["selection"] = {
+    historyBefore: "",
+    historyAfter: "",
+    scrollHeldDuringSelection: false,
+    streamingBefore: "",
+    streamingAfter: "",
+  };
   // Nothing is running yet, so the activity line must be absent. Checked here
   // rather than by faking a settle later: the real daemon's session is idle.
   runActivity.hiddenWhenIdle = await target.webContents.executeJavaScript(
@@ -600,8 +616,8 @@ async function runSmoke(
       composerVisible: Boolean(composerRect && composerRect.top >= 0 && composerRect.bottom <= innerHeight),
       streamingVisible: Boolean(document.querySelector('.message.streaming')),
       streamingActive: transcript?.getAttribute('aria-busy') === 'true',
-      thinkingVisible: Boolean(document.querySelector('.thinking-stream')),
-      thinkingSeparate: Boolean(document.querySelector('.thinking-stream') && document.querySelector('.message.streaming > .message-body')),
+      thinkingVisible: Boolean(document.querySelector('.thinking-stream:not([hidden])')),
+      thinkingSeparate: Boolean(document.querySelector('.thinking-stream:not([hidden])') && document.querySelector('.message.streaming > .message-body:not([hidden])')),
       thinkingHiddenAfterCompletion: false,
       truncationNoticeVisible: Boolean(document.querySelector('#transcript .message-truncated button')),
       truncationRetryOffered: false,
@@ -741,11 +757,70 @@ async function runSmoke(
       transcript.dispatchEvent(new Event('scroll'));
     })()`);
     await settlePaint();
-    sendFrame(target, smokeEvent(20, "transcript.item.finished", {
+
+    // Copying out of a conversation that is still being written. Every frame
+    // used to rebuild the transcript, so a selection survived for one frame at
+    // most — the reader had to wait for the reply to finish before they could
+    // take anything out of it.
+    const streamDelta = async (seq: number, text: string) => {
+      sendFrame(target, {
+        version: 1,
+        kind: "delta",
+        streamId: "desktop-smoke",
+        fromSeq: seq,
+        seq,
+        sessionId: "main",
+        itemId: "smoke-item-1",
+        channel: "text",
+        text,
+      });
+      await settlePaint();
+    };
+    // A second paragraph, so the streaming body has a block that later tokens
+    // do not touch. Without one there is nothing in it that could be kept.
+    await streamDelta(20, "\n\n第二段：证据编号与耗时。");
+    selection.historyBefore = await target.webContents.executeJavaScript(`(() => {
+      const body = Array.from(document.querySelectorAll('#transcript > .message:not(.streaming) .message-body'))
+        .find((node) => (node.textContent ?? '').trim().length > 24);
+      if (!body) return '';
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      const active = getSelection();
+      if (!active) return '';
+      active.removeAllRanges();
+      active.addRange(range);
+      return active.toString();
+    })()`);
+    const scrollBeforeDelta: number = await target.webContents.executeJavaScript(
+      "document.querySelector('#transcript')?.scrollTop ?? -1",
+    );
+    await streamDelta(21, " 历史选区期间仍在输出。");
+    selection.historyAfter = await target.webContents.executeJavaScript("getSelection()?.toString() ?? ''");
+    const scrollAfterDelta: number = await target.webContents.executeJavaScript(
+      "document.querySelector('#transcript')?.scrollTop ?? -1",
+    );
+    selection.scrollHeldDuringSelection = scrollBeforeDelta >= 0 && scrollBeforeDelta === scrollAfterDelta;
+    selection.streamingBefore = await target.webContents.executeJavaScript(`(() => {
+      const first = document.querySelector('.message.streaming .message-body:not([hidden]) > *');
+      if (!first) return '';
+      const range = document.createRange();
+      range.selectNodeContents(first);
+      const active = getSelection();
+      if (!active) return '';
+      active.removeAllRanges();
+      active.addRange(range);
+      return active.toString();
+    })()`);
+    await streamDelta(22, " 又一批 token。");
+    selection.streamingAfter = await target.webContents.executeJavaScript("getSelection()?.toString() ?? ''");
+    await target.webContents.executeJavaScript("getSelection()?.removeAllRanges(); true");
+    await settlePaint();
+
+    sendFrame(target, smokeEvent(23, "transcript.item.finished", {
       sessionId: "main",
       item: { id: "smoke-item-1", role: "assistant", text: "最终证据已归并。", status: "complete", ts: "2026-08-10T08:10:00.000Z" },
     }));
-    await waitForRenderer(target, "!document.querySelector('.thinking-stream')", 5_000);
+    await waitForRenderer(target, "!document.querySelector('.thinking-stream:not([hidden])')", 5_000);
     await settlePaint();
     mainVisual.tailDistanceAfterReturn = await target.webContents.executeJavaScript(`(() => {
       const transcript = document.querySelector('#transcript');
@@ -861,7 +936,7 @@ async function runSmoke(
       version: 1,
       kind: "snapshot",
       snapshot: createDesktopSmokeState(base.snapshot, true),
-      cursors: { ...base.cursors, "desktop-smoke": 20 },
+      cursors: { ...base.cursors, "desktop-smoke": 24 },
     });
     await waitForRenderer(target, "document.documentElement.dataset.approval === 'visible'", 5_000);
     // The overlay is marked visible a frame before focus moves into it, so
@@ -941,6 +1016,7 @@ async function runSmoke(
     integrations,
     runActivity,
     sessionRail,
+    selection,
     indexingPanel,
     articlePanel,
     responsive: { medium: mediumLayout, compact: compactLayout, compactInspector: compactInspectorLayout },
@@ -1053,6 +1129,16 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     if (!report.mainVisual.streamingVisible) failures.push("streaming delta is not visible in the main capture");
     if (!report.mainVisual.thinkingVisible || !report.mainVisual.thinkingSeparate) failures.push("thinking was not rendered separately from response text");
     if (!report.mainVisual.thinkingHiddenAfterCompletion) failures.push("thinking did not hide after message completion");
+    // Text already on screen has to stay selectable while the reply continues.
+    if (report.selection.historyBefore.length < 12) failures.push("smoke could not select a settled message to copy from");
+    if (report.selection.historyAfter !== report.selection.historyBefore) {
+      failures.push("a streaming token destroyed the selection held on an earlier message");
+    }
+    if (!report.selection.scrollHeldDuringSelection) failures.push("the transcript scrolled out from under a held selection");
+    if (report.selection.streamingBefore.length < 6) failures.push("smoke could not select the settled part of the streaming reply");
+    if (report.selection.streamingAfter !== report.selection.streamingBefore) {
+      failures.push("a streaming token destroyed the selection held on the part it had already written");
+    }
     if (!report.mainVisual.truncationNoticeVisible) failures.push("a message cut by the publishing ceiling offered no way to load it in full");
     if (!report.mainVisual.truncationRetryOffered) failures.push("a refused full-text load left its button stuck");
     if (report.mainVisual.legacyComposerModes !== 0) failures.push("legacy composer mode controls are still visible");

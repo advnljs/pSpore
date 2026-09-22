@@ -47,6 +47,7 @@ export class ArticlePanel {
   readonly #status: HTMLElement;
   readonly #diffToggle: HTMLButtonElement;
   readonly #reopen: HTMLButtonElement;
+  readonly #exportButtons: readonly HTMLButtonElement[];
   #open = false;
   #diffMode = false;
   #writing = false;
@@ -65,6 +66,7 @@ export class ArticlePanel {
   /** Session whose article list has been read. "" means the lookup still owes us an answer. */
   #reopenSession = "";
   #reopenInFlight = false;
+  #exporting = false;
 
   constructor(options: {
     sessionId: () => string;
@@ -97,7 +99,8 @@ export class ArticlePanel {
     this.#reopen.addEventListener("click", () => {
       if (this.#reopenId) void this.open(this.#reopenId);
     });
-    for (const button of Array.from(this.#panel.querySelectorAll<HTMLButtonElement>("[data-export]"))) {
+    this.#exportButtons = Array.from(this.#panel.querySelectorAll<HTMLButtonElement>("[data-export]"));
+    for (const button of this.#exportButtons) {
       button.addEventListener("click", () => {
         const format = button.dataset["export"];
         if (format === "txt" || format === "md" || format === "docx" || format === "pdf") void this.#export(format);
@@ -317,15 +320,29 @@ export class ArticlePanel {
     }
   }
 
+  /**
+   * One export at a time. The save dialog is modal to the window but the panel
+   * is not, and a second click while the first dialog is open would queue
+   * another one behind it and write the file twice.
+   */
   async #export(format: ArticleExportFormat): Promise<void> {
-    if (!this.#articleId || this.#loadedVersion < 1) return;
+    if (!this.#articleId || this.#loadedVersion < 1 || this.#exporting) return;
+    this.#exporting = true;
+    this.#syncExports();
     this.#status.textContent = "正在导出…";
     try {
       const result = await this.#exportArticle({ id: this.#articleId, version: this.#loadedVersion, format });
       this.#status.textContent = result.message;
     } catch (error) {
       this.#status.textContent = error instanceof Error ? error.message : "导出失败";
+    } finally {
+      this.#exporting = false;
+      this.#syncExports();
     }
+  }
+
+  #syncExports(): void {
+    for (const button of this.#exportButtons) button.disabled = this.#exporting;
   }
 
   async #refreshReopen(sessionId: string): Promise<void> {

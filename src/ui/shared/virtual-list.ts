@@ -23,6 +23,16 @@ export function isScrollNearEnd(
 }
 
 /**
+ * How far outside the viewport an item may be dragged back in by `keep`.
+ *
+ * Keeping one item means keeping everything between it and the viewport, since
+ * the window is contiguous. A reader holding a selection is looking at
+ * something near what is on screen; past this many items it is scrollback they
+ * have left behind, and the list stops paying to render the gap.
+ */
+const KEEP_SPAN_LIMIT = 40;
+
+/**
  * Variable-height list index backed by a Fenwick tree. Message measurements are
  * retained by stable key, while viewport lookup and height updates stay O(log n).
  */
@@ -71,16 +81,26 @@ export class VirtualHeightIndex {
     return true;
   }
 
-  range(scrollTop: number, viewportSize: number, overscan = 600): VirtualRange {
+  /**
+   * `keep` names one item that must stay in the window even if the viewport has
+   * moved off it — the item holding the reader's selection. Dropping its element
+   * would collapse the selection, and a growing message at the tail is enough to
+   * shift the window by an item while they are still dragging.
+   */
+  range(scrollTop: number, viewportSize: number, overscan = 600, keep?: number): VirtualRange {
     const count = this.#keys.length;
     const totalSize = this.totalSize();
     if (count === 0) return { start: 0, end: 0, paddingStart: 0, paddingEnd: 0, totalSize: 0 };
     const safeTop = Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0);
     const safeViewport = Math.max(0, Number.isFinite(viewportSize) ? viewportSize : 0);
     const safeOverscan = Math.max(0, Number.isFinite(overscan) ? overscan : 0);
-    const start = this.#indexAtOffset(Math.max(0, safeTop - safeOverscan));
+    let start = this.#indexAtOffset(Math.max(0, safeTop - safeOverscan));
     const last = this.#indexAtOffset(Math.min(totalSize, safeTop + safeViewport + safeOverscan));
-    const end = Math.min(count, last + 1);
+    let end = Math.min(count, last + 1);
+    if (keep !== undefined && Number.isInteger(keep) && keep >= 0 && keep < count) {
+      if (keep < start && start - keep <= KEEP_SPAN_LIMIT) start = keep;
+      if (keep >= end && keep - end < KEEP_SPAN_LIMIT) end = keep + 1;
+    }
     const paddingStart = this.#prefix(start);
     const paddingEnd = Math.max(0, totalSize - this.#prefix(end));
     return { start, end, paddingStart, paddingEnd, totalSize };

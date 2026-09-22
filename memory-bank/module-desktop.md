@@ -61,6 +61,9 @@ preload 仅暴露：
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - 设置弹层含“自动压缩”区，配置 `enabled/reserveTokens/keepRecentTokens`；旧客户端未发送这些可选 IPC 字段时保持当前值，避免 overlay 升级窗口重置配置。
 - transcript 只创建变高虚拟窗口中的消息节点，完成消息 DOM 使用 128 项 LRU 缓存；streaming frame 合并到下一 animation frame。renderer/store 返回不可变当前引用，不在每个 delta 上 `structuredClone` 全历史。
+- **transcript 的子节点只能用 `reconcileChildren()` 更新，不得用 `replaceChildren`**。`replaceChildren` 即使把同一批节点原样挂回去也会先全部摘下，读者的选区随之塌陷——流式期间每帧都会发生，于是"回复还在写的时候复制不了任何东西"。`reconcileChildren` 必须**先删后排**：先摘掉不再需要的子节点，再按顺序归位；反过来在一个将被删除的节点前插入，会把它后面的每个节点都搬移一次，代价与整棵重建相同。虚拟 padding 是两个常驻元素，只改高度。
+- 流式气泡建一次、就地更新（`createStreamingView`）。思考正文写进同一个 Text 节点；正文走 `createMarkdownSurface`，按 `src/ui/shared/markdown-stream.ts` 的块 key 公共前缀只重建解析结果真正变了的块，所以已经写出来的段落连同其中的选区都留在原地。思考区与正文区用 `hidden` 开关而不是增删——smoke 探针因此要用 `:not([hidden])` 选择它们。
+- 读者按住选区时，贴底跟随让位，虚拟窗口也会保住那条消息（`VirtualHeightIndex.range(..., keep)`）；超出 40 条的旧滚动历史仍然放手，否则要把中间几千条一起渲染。
 - transcript 使用显式 `followTail` 状态：首次进入/切换 session 默认贴底，滚离底部 24px 以上即暂停；浏览历史期间普通 render、异步高度测量与 streaming delta 都不得修改用户滚动位置，重新到达底部后才恢复自动跟随。高度测量回调必须读取最新状态，不能捕获上一帧的贴底布尔值。
 - reasoning 使用独立的“思考中”临时面板，正文仍走 Markdown renderer；两者可同时可见但不混排，`message.completed` 或 run 结束后面板自动移除，且不进入历史消息 DOM 缓存。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。

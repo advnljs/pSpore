@@ -7,6 +7,7 @@
  * inert text because the main process blocks all external navigation.
  */
 import { parseMarkdown, } from "../../ui/shared/markdown.js";
+import { blockKeysOf, commonBlockPrefix } from "../../ui/shared/markdown-stream.js";
 const ALIGNMENT_CLASS = {
     left: "md-align-left",
     center: "md-align-center",
@@ -34,6 +35,39 @@ export function appendMarkdownWithTrailing(container, source, trailing) {
         last.append(trailing);
     else
         container.append(trailing);
+}
+export function createMarkdownSurface(container) {
+    let keys = [];
+    let rendered = [];
+    return {
+        update(source, trailing) {
+            const blocks = parseMarkdown(source);
+            const next = blockKeysOf(blocks);
+            const shared = commonBlockPrefix(keys, next);
+            // Detached first: the caret lives inside the last block, which is the one
+            // block a token almost always rebuilds.
+            trailing?.remove();
+            for (let index = shared; index < rendered.length; index += 1)
+                rendered[index]?.remove();
+            rendered = rendered.slice(0, shared);
+            for (let index = shared; index < blocks.length; index += 1) {
+                const block = blocks[index];
+                if (!block)
+                    continue;
+                const node = renderBlock(block);
+                container.append(node);
+                rendered.push(node);
+            }
+            keys = next;
+            if (!trailing)
+                return;
+            const last = rendered.at(-1);
+            if (last && (last.tagName === "P" || last.classList.contains("md-h")))
+                last.append(trailing);
+            else
+                container.append(trailing);
+        },
+    };
 }
 function renderBlock(block) {
     switch (block.kind) {

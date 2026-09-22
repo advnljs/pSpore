@@ -2,11 +2,13 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 发布并远端复验 `v0.1.28` | Pending | 用户要求先在本地试用 `release-dist/pspore-desktop-0.1.28-linux-x64.zip` | 试用通过后再 push `main`。注意：`ci.yml` 的 `release` job 会在 `package.json` 版本尚无 tag 时**自动**打 tag 并派发 Release，所以在用户确认前不要 push |
+| P3 | 流式消息完成的瞬间，其中的选区会丢 | Pending | 无 | 流式气泡与落库后的历史消息是两个节点，`transcript.item.finished` 到达时会换节点。若要保住，需要让完成后的历史节点复用流式气泡已渲染的块 |
 | P1 | 长文文稿面板与四种导出 | Done | 无 | 见 overall-progress 2026-09-22。未升版本，未发版 |
 | P2 | 文稿面板的 Electron 实机观感 | Done | 无 | 见 overall-progress 2026-09-22 第二条。Electron smoke 现在预置一篇两版文稿并断言入场、版本芯片、首屏定位、对照上一版与四个导出按钮；1920×1080 实机已人工复核 |
-| P2 | 网关重放会给客户端制造无法解释的序号缺口 | Pending | 暂无用户可见影响：桌面端 hello 后把游标直接推到 `latestSeq`，忽略重放 | transient 事件占用 `seq` 但不进 `#replay`，任何真正依赖重放的客户端在断线重连后会看到 `Event gap`。修法是在 `#hello` 的重放循环里按 `seq - 上一条seq - 1` 给每条重放事件补 `skipped`，并让 `#write` 把连接自身的 `skippedEvents` 与帧上已有的 `skipped` 相加而不是覆盖。实测见过一次 `Event gap on kernel: expected 130, received 131`，但当时桌面端正因 `transcript.item.started` 缺陷反复重连，未能单独复现 |
-| P3 | 导出对话框不返回时面板停在「正在导出…」 | Pending | 无 | `exportArticleFile` 依赖 `dialog.showSaveDialog` 返回。在缺 xdg-desktop-portal 的环境里对话框不出现也不报错，面板状态永远停住。可给导出加超时或在对话框打开失败时给出可重试的提示 |
-| P4 | WPS 打开导出的 docx 会提示「缺失字体」 | Pending | 无法两边都满足 | 文档写的是 Calibri/Consolas（Windows Word 的默认与等宽），Linux 上没有这两个 family 就会提示；换成 Linux 上存在的名字则 Word 那边缺失。正文 CJK 已改为两边都有的 `宋体`。若要彻底消除，只能不指定字体、交给阅读器默认，但代码块会失去等宽 |
+| P2 | 网关重放会给客户端制造无法解释的序号缺口 | Done（判定为不存在） | 无 | `test/integration/local-gateway.test.ts` 用真实网关 + 真实 `DaemonBridge` 在运行中途断线重连，断言没有 `Event gap`。桌面端 hello 后把游标直接推到 `latestSeq`（快照即权威），transient 事件占用的序号不会被读成丢失。之前观察到的那次 `Event gap` 是 `transcript.item.started` 缺陷引发的重连风暴的连带现象。若将来新增依赖重放推进游标的客户端，需要重新评估 |
+| P3 | 导出对话框不返回时面板停在「正在导出…」 | Partly done | 无 | 已加重入保护（导出期间四个按钮禁用，不会排队开出第二个对话框并写两次文件）。状态文案本身是准确的——导出确实在进行中。缺 xdg-desktop-portal 的无桌面环境不是支持目标；若要进一步改善，可在对话框迟迟不返回时给出可取消的提示 |
+| P4 | WPS 打开导出的 docx 会提示「缺失字体」 | Won't fix | 无法两边都满足 | 文档写的是 Calibri/Consolas（Windows Word 的默认与等宽），Linux 上没有这两个 family 就会提示；换成 Linux 上存在的名字则 Word 那边缺失。正文 CJK 已改为两边都有的 `宋体`。若要彻底消除，只能不指定字体、交给阅读器默认，但代码块会失去等宽 |
 | P3 | TUI 没有文稿面板 | Pending | TUI 无 Markdown 渲染面 | 回执里已有 `current.md` 路径。若要做，可加只读预览，不必把正文再灌进转录 |
 | P0 | 将实现环境 Node.js 升级到 Pi 支持范围 | Done | 无；当前本机为 Node.js `v24.19.0` | 通过 `engines` 固定 Node.js 24 基线 |
 | P0 | 建立 Node.js/TypeScript 工程并锁定 Pi 版本 | Done | 无 | 已生成精确 npm lockfile与 ADR 0001 |

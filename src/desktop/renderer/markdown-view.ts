@@ -15,6 +15,7 @@ import {
   type MarkdownInline,
   type MarkdownListItem,
 } from "../../ui/shared/markdown.js";
+import { blockKeysOf, commonBlockPrefix } from "../../ui/shared/markdown-stream.js";
 
 const ALIGNMENT_CLASS: Record<Exclude<MarkdownAlignment, undefined>, string> = {
   left: "md-align-left",
@@ -42,6 +43,49 @@ export function appendMarkdownWithTrailing(container: HTMLElement, source: strin
   const last = container.lastElementChild;
   if (last && (last.tagName === "P" || last.classList.contains("md-h"))) last.append(trailing);
   else container.append(trailing);
+}
+
+/**
+ * A markdown body that can be re-rendered from a growing source without
+ * discarding the part that did not change.
+ *
+ * `appendMarkdown` builds the whole body at once, which is right for a message
+ * that is already complete. A streaming reply is re-rendered on every token,
+ * and replacing the DOM each time collapses any selection the reader is holding
+ * — so text they can already see is text they cannot copy until the reply ends.
+ * This keeps the blocks whose parse is unchanged and rebuilds only the tail.
+ */
+export interface MarkdownSurface {
+  update(source: string, trailing?: HTMLElement): void;
+}
+
+export function createMarkdownSurface(container: HTMLElement): MarkdownSurface {
+  let keys: string[] = [];
+  let rendered: HTMLElement[] = [];
+  return {
+    update(source: string, trailing?: HTMLElement): void {
+      const blocks = parseMarkdown(source);
+      const next = blockKeysOf(blocks);
+      const shared = commonBlockPrefix(keys, next);
+      // Detached first: the caret lives inside the last block, which is the one
+      // block a token almost always rebuilds.
+      trailing?.remove();
+      for (let index = shared; index < rendered.length; index += 1) rendered[index]?.remove();
+      rendered = rendered.slice(0, shared);
+      for (let index = shared; index < blocks.length; index += 1) {
+        const block = blocks[index];
+        if (!block) continue;
+        const node = renderBlock(block);
+        container.append(node);
+        rendered.push(node);
+      }
+      keys = next;
+      if (!trailing) return;
+      const last = rendered.at(-1);
+      if (last && (last.tagName === "P" || last.classList.contains("md-h"))) last.append(trailing);
+      else container.append(trailing);
+    },
+  };
 }
 
 function renderBlock(block: MarkdownBlock): HTMLElement {

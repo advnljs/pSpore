@@ -10,6 +10,7 @@ import {
   validateProtocolResult,
   validateServerHello,
 } from "../../src/desktop/validation.js";
+import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
 import { LocalGateway } from "../../src/gateway/local-gateway.js";
 import { initialKernelState } from "../../src/kernel/state.js";
 import { ProtocolClient } from "../../src/protocol/client.js";
@@ -64,6 +65,67 @@ describe("local UDS gateway", () => {
       (error: unknown) => error instanceof Error && Reflect.get(error, "code") === "revision_conflict",
     );
     assert.equal(calls, 1);
+  });
+
+  test("a reconnect in the middle of a run does not read transient events as lost", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-resume-"));
+    const socketPath = join(root, "daemon.sock");
+    const state = { ...initialKernelState(), revision: 3, daemon: { phase: "ready" as const } };
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-resume",
+      snapshot: () => state,
+      handleCommand: async () => ({}),
+    });
+    await gateway.start();
+    const bridge = new DaemonBridge({
+      socketPath,
+      stagingRoot: join(root, "staging"),
+      versions: { pspore: "0.1.0", pi: "0.84.1", electron: "43.3.0", node: "24.19.0" },
+      reconnectDelay: () => 1,
+      clientFactory: (cursors) => new ProtocolClient({ socketPath, clientId: "desktop-resume", cursors }),
+    });
+    const connectionMessages: string[] = [];
+    bridge.subscribe((frame) => {
+      if (frame.kind !== "connection") return;
+      if (typeof frame.connection.message === "string") connectionMessages.push(frame.connection.message);
+    });
+    cleanups.push(async () => {
+      await bridge.stop();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+    bridge.start();
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected");
+
+    // A run is a durable event with a burst of transient ones between each.
+    // Transient events take a sequence number but are never replayed, so a
+    // resume that trusted replay alone would see the numbers they used as loss.
+    const publishRun = (round: number) => {
+      gateway.publish({ id: `run-${round}`, ts: "2026-09-22T00:00:00.000Z", durable: true, type: "run.started", payload: { sessionId: "main", upstreamSessionId: "up" } });
+      for (let token = 0; token < 4; token += 1) {
+        gateway.publish({
+          id: `delta-${round}-${token}`,
+          ts: "2026-09-22T00:00:00.000Z",
+          durable: false,
+          type: "transcript.delta",
+          payload: { sessionId: "main", upstreamSessionId: "up", itemId: "item-1", kind: "text", delta: `${token}` },
+        });
+      }
+      gateway.publish({ id: `settled-${round}`, ts: "2026-09-22T00:00:00.000Z", durable: true, type: "run.settled", payload: { sessionId: "main", upstreamSessionId: "up" } });
+    };
+    publishRun(1);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    await bridge.stop();
+    bridge.start();
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected");
+    publishRun(2);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    assert.equal(bridge.bootstrap().connection.phase, "connected");
+    assert.deepEqual(connectionMessages.filter((message) => message.includes("Event gap")), []);
+    assert.deepEqual(connectionMessages.filter((message) => message.includes("Rejected")), []);
   });
 
   test("sheds transient events under backpressure without opening a sequence gap", async () => {

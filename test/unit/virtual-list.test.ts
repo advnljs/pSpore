@@ -36,3 +36,25 @@ test("virtual height index applies variable measurements without scanning the li
     totalSize: 550,
   });
 });
+
+test("virtual height index keeps the item a reader is selecting inside the window", () => {
+  const index = new VirtualHeightIndex(100);
+  index.sync(Array.from({ length: 200 }, (_, item) => `message-${item}`));
+  const without = index.range(10_000, 500, 0);
+  assert.equal(without.start, 100);
+
+  // Holding a selection a little above the viewport keeps that message rendered;
+  // dropping its element is what collapses the selection mid-drag.
+  const kept = index.range(10_000, 500, 0, 96);
+  assert.equal(kept.start, 96);
+  assert.equal(kept.end, without.end);
+  assert.equal(kept.paddingStart, 9_600);
+  assert.equal(kept.paddingStart + kept.paddingEnd + ((kept.end - kept.start) * 100), kept.totalSize);
+
+  // Far-away scrollback is let go rather than rendering the whole gap.
+  assert.equal(index.range(10_000, 500, 0, 2).start, without.start);
+  assert.equal(index.range(10_000, 500, 0, 199).end, without.end);
+  // Out-of-bounds and non-integer keeps are ignored.
+  assert.equal(index.range(10_000, 500, 0, -1).start, without.start);
+  assert.equal(index.range(10_000, 500, 0, 1.5).start, without.start);
+});

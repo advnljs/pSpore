@@ -9,7 +9,7 @@ import { composeMessageWithFileReferences, composerFileReference, composerFileRe
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
-import { appendMarkdown, appendMarkdownWithTrailing } from "./markdown-view.js";
+import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
 import { animateMessagesIn, animateTranscriptHero, crossfadeText, flipStatusChip, hideOverlayMotion, introChoreography, nudgeElement, popChips, pulseStatus, revealListItems, revealPanel, setReconnectingPulse, showOverlayMotion, toggleBannerMotion, tweenMetric, } from "./motion.js";
 import { CONNECTION_SETTLE_MS, DesktopStore } from "./store.js";
 const store = new DesktopStore();
@@ -70,6 +70,9 @@ const transcriptState = {
     items: [],
     hasStreaming: false,
     followTail: true,
+    spacerStart: virtualSpacer("start"),
+    spacerEnd: virtualSpacer("end"),
+    stream: undefined,
 };
 const THEME_STORAGE_KEY = "pspore.desktop.theme";
 /** Distance from the top that triggers loading the page before the tail. */
@@ -1247,6 +1250,7 @@ function renderConversation(snapshot) {
         transcriptState.items = [];
         transcriptState.hasStreaming = false;
         transcriptState.followTail = true;
+        transcriptState.stream = undefined;
     }
     transcriptState.sessionId = snapshot.selectedSessionId;
     transcriptState.end = offset + messages.length;
@@ -1281,15 +1285,20 @@ function renderConversation(snapshot) {
     }
     const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
     const viewportHeight = Math.max(1, transcript.clientHeight);
-    const shouldPin = transcriptState.followTail;
+    // A held selection outranks the tail: scrolling under a drag would keep
+    // changing what is selected, which is what made copying mid-reply impossible.
+    const shouldPin = transcriptState.followTail && !hasTranscriptSelection();
     const scrollTop = shouldPin
         ? Math.max(0, transcriptState.heights.totalSize() - viewportHeight)
         : transcript.scrollTop;
-    const range = transcriptState.heights.range(scrollTop, viewportHeight);
-    const content = [];
-    if (range.paddingStart > 0)
-        content.push(virtualSpacer(range.paddingStart, "start"));
+    // An item holding a selection stays rendered even when the window drifts off
+    // it: dropping its element is the one way left to collapse a selection the
+    // reader is still dragging.
+    const heldIndex = Number(selectedTranscriptNode()?.dataset["virtualIndex"] ?? Number.NaN);
+    const range = transcriptState.heights.range(scrollTop, viewportHeight, undefined, Number.isInteger(heldIndex) ? heldIndex : undefined);
+    const content = [sizeSpacer(transcriptState.spacerStart, range.paddingStart)];
     const visibleMessages = [];
+    const appeared = [];
     for (let index = range.start; index < range.end; index += 1) {
         const item = transcriptState.items[index];
         const isStreaming = hasStreaming && index === transcriptState.items.length;
@@ -1298,9 +1307,22 @@ function renderConversation(snapshot) {
         const key = isStreaming ? "$stream" : item?.key;
         if (!key)
             continue;
-        const node = isStreaming
-            ? renderStreamingMessage(streaming ?? "", thinking ?? "")
-            : cachedMessage(key, item?.message ?? { role: "assistant", text: "" }, item?.address ?? { index });
+        let node;
+        if (isStreaming) {
+            const stream = transcriptState.stream ?? createStreamingView();
+            if (transcriptState.stream !== stream) {
+                transcriptState.stream = stream;
+                appeared.push(stream.node);
+            }
+            stream.update(streaming ?? "", thinking ?? "");
+            node = stream.node;
+        }
+        else {
+            const before = transcriptState.nodes.get(key);
+            node = cachedMessage(key, item?.message ?? { role: "assistant", text: "" }, item?.address ?? { index });
+            if (before !== node)
+                appeared.push(node);
+        }
         node.dataset["virtualKey"] = key;
         node.dataset["virtualIndex"] = String(index);
         node.setAttribute("aria-posinset", String(index + 1));
@@ -1308,18 +1330,23 @@ function renderConversation(snapshot) {
         visibleMessages.push(node);
         content.push(node);
     }
-    if (range.paddingEnd > 0)
-        content.push(virtualSpacer(range.paddingEnd, "end"));
+    content.push(sizeSpacer(transcriptState.spacerEnd, range.paddingEnd));
+    // The bubble is kept for the next reply, so it is emptied when this one ends
+    // rather than left holding the blocks it last rendered.
+    if (!hasStreaming)
+        transcriptState.stream?.update("", "");
     transcript.setAttribute("aria-busy", String(hasStreaming));
-    transcript.replaceChildren(...content);
+    reconcileChildren(transcript, content);
     if (sessionChanged) {
         animateMessagesIn(visibleMessages.slice(-14), true);
     }
     else if (transcriptState.end > previousEnd) {
         // Compared at absolute positions: a history backfill grows the list without
-        // adding anything new at the tail, and must not replay the entrance.
+        // adding anything new at the tail, and must not replay the entrance. Only
+        // nodes built for this render are animated — one already on screen would be
+        // faded back in from nothing every time the tail grows.
         const firstAppended = transcriptState.items.length - (transcriptState.end - previousEnd);
-        animateMessagesIn(visibleMessages.filter((node) => Number(node.dataset["virtualIndex"]) >= firstAppended), false);
+        animateMessagesIn(visibleMessages.filter((node) => appeared.includes(node) && Number(node.dataset["virtualIndex"]) >= firstAppended), false);
     }
     if (shouldPin)
         transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
@@ -1355,18 +1382,84 @@ function scheduleTranscriptMeasurement() {
             const margin = Number.parseFloat(getComputedStyle(node).marginBottom) || 0;
             changed = transcriptState.heights.update(key, node.offsetHeight + margin) || changed;
         }
-        if (transcriptState.followTail) {
+        if (transcriptState.followTail && !hasTranscriptSelection()) {
             elements.transcript.scrollTo({ top: elements.transcript.scrollHeight, behavior: "auto" });
         }
         if (changed)
             scheduleTranscriptRender();
     });
 }
-function virtualSpacer(height, edge) {
+/**
+ * One padding element per edge, kept for the life of the transcript and resized
+ * in place. Recreating them would make every render a structural change, which
+ * is what used to detach the messages between them.
+ */
+function virtualSpacer(edge) {
     const spacer = element("div", `virtual-spacer ${edge}`);
-    spacer.style.height = `${Math.max(0, height)}px`;
+    spacer.style.height = "0px";
     spacer.setAttribute("aria-hidden", "true");
     return spacer;
+}
+function sizeSpacer(spacer, height) {
+    const next = `${Math.max(0, Math.round(height))}px`;
+    if (spacer.style.height !== next)
+        spacer.style.height = next;
+    return spacer;
+}
+/**
+ * Replaces `parent`'s children with `next` by moving only what is out of place.
+ *
+ * `replaceChildren` detaches every child even when the same nodes go straight
+ * back, and a detached node takes the reader's selection with it. During a reply
+ * the transcript re-renders on every frame, so that turned "select some earlier
+ * text and copy it" into something that only worked once the reply had stopped.
+ */
+function reconcileChildren(parent, next) {
+    // Dropped children go first. Inserting around one that is on its way out
+    // would move every node after it, which costs the selection just as surely as
+    // rebuilding the list: scrolling one message out of the window used to detach
+    // every message below it.
+    const wanted = new Set(next);
+    let cursor = parent.firstChild;
+    while (cursor) {
+        const following = cursor.nextSibling;
+        if (!wanted.has(cursor))
+            parent.removeChild(cursor);
+        cursor = following;
+    }
+    cursor = parent.firstChild;
+    for (const node of next) {
+        if (cursor === node) {
+            cursor = cursor.nextSibling;
+            continue;
+        }
+        parent.insertBefore(node, cursor);
+    }
+}
+/**
+ * True while the reader is holding a selection inside the transcript.
+ *
+ * Following the tail then would drag the viewport out from under them mid-drag,
+ * so the pin stands down until the selection collapses — which a click anywhere
+ * does.
+ */
+function hasTranscriptSelection() {
+    return selectedTranscriptNode() !== undefined;
+}
+/** The rendered message the reader's selection starts in, if it is in the transcript. */
+function selectedTranscriptNode() {
+    const selection = document.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0)
+        return undefined;
+    for (const node of [selection.anchorNode, selection.focusNode]) {
+        if (!node || !elements.transcript.contains(node))
+            continue;
+        const element = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+        const held = element?.closest("[data-virtual-index]");
+        if (held)
+            return held;
+    }
+    return undefined;
 }
 function messageVirtualKey(message, index) {
     return `${index}:${message.role}:${message.text.length}:${textFingerprint(message.text)}`;
@@ -1577,35 +1670,54 @@ function rememberFullText(key, value) {
 function fullTextKey(sessionId, address) {
     return "id" in address ? `${sessionId}\u0000id:${address.id}` : `${sessionId}\u0000at:${String(address.index)}`;
 }
-function renderStreamingMessage(value, thinking) {
+function createStreamingView() {
     const article = element("article", "message assistant streaming");
     const meta = element("div", "message-meta");
     const label = element("span");
-    label.textContent = value ? "pSpore · streaming" : "pSpore · thinking";
     meta.append(element("i", "role-dot"), label);
-    article.append(meta);
-    if (thinking) {
-        const reasoning = element("section", "thinking-stream");
-        reasoning.setAttribute("aria-label", "思考过程");
-        const heading = element("header");
-        const title = element("strong");
-        title.textContent = "思考中";
-        const hint = element("span");
-        hint.textContent = "回复完成后自动隐藏";
-        heading.append(title, hint);
-        const body = element("div", "thinking-stream-body");
-        body.append(text(thinking));
-        if (!value)
-            body.append(element("i", "stream-cursor"));
-        reasoning.append(heading, body);
-        article.append(reasoning);
-    }
-    if (value) {
-        const body = element("div", "message-body markdown");
-        appendMarkdownWithTrailing(body, value, element("i", "stream-cursor"));
-        article.append(body);
-    }
-    return article;
+    const reasoning = element("section", "thinking-stream");
+    reasoning.setAttribute("aria-label", "思考过程");
+    const heading = element("header");
+    const title = element("strong");
+    title.textContent = "思考中";
+    const hint = element("span");
+    hint.textContent = "回复完成后自动隐藏";
+    heading.append(title, hint);
+    const thinkingBody = element("div", "thinking-stream-body");
+    const thinkingText = document.createTextNode("");
+    thinkingBody.append(thinkingText);
+    reasoning.append(heading, thinkingBody);
+    const body = element("div", "message-body markdown");
+    const surface = createMarkdownSurface(body);
+    const cursor = element("i", "stream-cursor");
+    article.append(meta, reasoning, body);
+    let labelText = "";
+    return {
+        node: article,
+        update(value, thinking) {
+            const nextLabel = value ? "pSpore · streaming" : "pSpore · thinking";
+            if (labelText !== nextLabel) {
+                label.textContent = nextLabel;
+                labelText = nextLabel;
+            }
+            reasoning.hidden = thinking === "";
+            // Written into the same Text node: replacing it would move the selection
+            // out from under a reader holding one, and the value only ever grows.
+            if (thinkingText.nodeValue !== thinking)
+                thinkingText.nodeValue = thinking;
+            body.hidden = value === "";
+            if (value) {
+                surface.update(value, cursor);
+            }
+            else {
+                surface.update("");
+                if (thinking)
+                    thinkingBody.append(cursor);
+                else
+                    cursor.remove();
+            }
+        },
+    };
 }
 function renderActivities(activities) {
     tweenMetric(elements.activityCount, activities.length, String);
