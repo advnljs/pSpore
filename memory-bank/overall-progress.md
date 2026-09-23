@@ -1,5 +1,30 @@
 # Overall Progress
 
+## 2026-09-23 — 文稿面板开写即打开、局部修改也流式、慢机器不再"写完才出现"（未升版本）
+
+- 阶段目标（用户两条）：目标机上文稿面板要到输出完才打开，应直接打开并流式打印；变更时也是输出结束才刷新。
+- 复现与根因（真实 `deepseek-v4-flash`，临时 home + 真实 Electron + CDP 采样）：
+  1. **`update` 走 `edits` 时完全没有预览**：`articleDraftFromUpdate` 只认 `content`。实测正常 CPU 下一次 edits 修改期间 `previews=0`，面板到工具执行完才打开/刷新。
+  2. **慢机器上每次取稿都被下一个事件作废**：渲染器每来一个 `article.preview` 就 `++#token` 并重新取稿，返回时 token 已变即丢弃。取稿+重绘慢于 120 ms 事件间隔时，面板直到模型停笔才画。CDP 20× 降速写约 3500 字：78 个事件到达，面板前 6 秒空白、10 秒只画 2 次，状态行一直是「正在撰写…」。
+  3. 预览要等 `content` 非空才发，面板打开晚于调用开始；且半截的 `id`（如 `art_01234`）会被当作文稿 id，若提前发事件会让面板误清空。
+- 完成内容：
+  - `src/articles/edits.ts`（新）：提交与预览共用的 find/replace 规则。预览版跳过找不到的引文；最后一处替换写到一半时，若仍是原文前缀就不动原文（扩写段落不会先消失再重打），已分岔则按块顶替、没写到的旧块留着。`store.ts` 改用它，行为与错误文案不变。
+  - `draft.ts`/`preview.ts`：`action` 为 `create`/`update` 即发第一条预览（不等正文），`read` 忽略；取出 `find` 已闭合的 edits（靠解析出的键顺序判断），最后一处可能仍在写；id 必须完整合法。edits 按长度判等，避免每个 token 重比引文。
+  - `agent-application.ts`：`article.preview` 返回 `whole`（整篇已应用修改 / 下一版开头）、`baseVersion`、`edits`；base 正文按 toolCallId 缓存（最多 4 条）。
+  - `article-panel.ts`：事件只累加计数，单个读取循环保证只有一个取稿在飞行且总取最新，不因新事件作废进度；`update` 的草稿若不在屏上的那一版，先载入 `baseVersion` 再画；edits 按整篇 diff 画、只标变化块；流式时跟着笔滚动，读者滚轮/触摸/点击/按键即停止跟随；流式中关闭面板不再被后续预览弹开（提交时照常打开）；写入失败恢复显示已保存版本；空草稿不再显示「这一版还没有正文」。
+- 修改文件：`src/articles/{edits.ts(新),draft.ts,preview.ts,store.ts}`、`src/application/agent-application.ts`、`src/domain/runtime.ts`、`src/pi/pi-runtime-adapter.ts`、`src/desktop/renderer/article-panel.ts`、`test/unit/article.test.ts`、`test/integration/daemon.test.ts`、memory-bank、`dist/**`。
+- 验证方式与结果：
+  - `npm run check`：typecheck 通过，**278/278**，build 通过。新增单测覆盖开写即算数、半截 id、引文闭合判定、键序颠倒、`toolcall_end`、总线对 edits 增长的判定、严格/预览两种 edits 应用；新增集成测试经真实 UDS 调 `article.preview`，覆盖只开调用时显示 base、edits 应用、整篇重写带 `baseVersion`、create 空草稿、跨会话不可读。
+  - `npm run test:electron`：通过（1920×1080/1440×900/1180×720、文稿面板断言全部保留）。
+  - 真实模型 + Electron（`1920×1080`，Xvfb）采样：
+    - 20× 降速约 3500 字 create：第一个事件（正文 0 字）即打开面板，流式期间持续刷新 271→732→1328→1961→2332→2727→3028 字。
+    - 6× 降速、先关面板再让模型用 edits 改两处：第一个事件时面板打开并显示当前版本，三处修改依次出现（「修改中 · 已改 N 处」），滚动自动跟到被改的第三节，提交后块被复用。
+    - 重启桌面端（面板里没有这篇）后让模型整篇重写：200 ms 内载入当前版本，重写在其上推进，全程块数不塌（≥43），滚动跟笔。
+    - 流式中点关闭：后续 40 多个预览不再弹开，版本落成时打开。
+  - `npm run package:desktop`：重新生成 `release-dist/` 下 `0.1.28` 的全量/overlay zip、CLI 与 SHA-256（覆盖本地旧包，版本号未变）。本机 `pspore.service` 从 `release-dist` 运行，空闲时已 `systemctl --user restart` 到新包并确认 ready。临时 home 的 `pspore-506f0b2daf4d.service` 已卸载。
+- 当前状态：未升版本（`v0.1.28` 已在远端存在，本次 push `main` 不会触发发版）。
+- 遗留问题：目标机实机复验待做；默认 `ask_risky` 下读取内置 skill 文件要审批；Pi 流式参数解析 O(n²)。见 todo。
+
 ## 2026-09-22 — 文稿宽度可拖拽、开关过渡动画、tooltip 精简（`0.1.28`，本地包待试用）
 
 - 阶段目标（用户三条）：附件 tooltip 去掉「只发送路径，不读取内容」；artifact 宽度可以拖动；打开/关闭文稿要有过渡动画。

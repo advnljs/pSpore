@@ -7,11 +7,13 @@ import { afterEach, describe, test } from "node:test";
 
 import { defaultConfig } from "../../src/config/config.js";
 import { PsporeDaemon } from "../../src/daemon/daemon.js";
+import { ArticleStore } from "../../src/articles/store.js";
 import type {
   Accepted,
   AgentHandle,
   AgentRuntimePort,
   AgentSessionSpec,
+  ArticleDraftView,
   ResumeSessionSpec,
   RuntimeEvent,
   SessionMetadata,
@@ -533,6 +535,69 @@ describe("daemon vertical slice", () => {
     assert.match(await readFile(marker, "utf8"), /stop:daemon shutdown/);
   });
 
+  test("serves a streaming article call as the text the panel draws, edits applied to the version they revise", async () => {
+    const home = await configuredHome();
+    const runtime = new FakeRuntime();
+    const daemon = await PsporeDaemon.start({
+      home,
+      runtimeFactory: async () => runtime,
+      idFactory: sequence("article-daemon"),
+    });
+    const client = new ProtocolClient({ socketPath: daemon.paths.socket, clientId: "article-panel" });
+    cleanups.push(async () => {
+      await client.close();
+      await daemon.stop();
+      await rm(home, { recursive: true, force: true });
+    });
+    await client.connect();
+    const saved = await new ArticleStore(join(home, "workspace", "articles"))
+      .create({ sessionId: "main", title: "雨", content: "# 雨\n\n第一段。\n\n第二段。" });
+    const read = (toolCallId: string, sessionId = "main") => client.command<Record<string, unknown> | null>(
+      "article.preview",
+      { toolCallId, offset: 0, limit: MAX_PUBLISHED_STRING_CHARS },
+      { sessionId },
+    );
+
+    // Opened on the call alone: the version being revised is what shows.
+    runtime.drafts.set("call-open", { toolCallId: "call-open", sessionId: "main", action: "update", articleId: saved.id });
+    const opened = await read("call-open");
+    assert.equal(opened?.["whole"], true);
+    assert.equal(opened?.["baseVersion"], 1);
+    assert.equal(opened?.["edits"], 0);
+    assert.equal(opened?.["text"], "# 雨\n\n第一段。\n\n第二段。");
+
+    runtime.drafts.set("call-edit", {
+      toolCallId: "call-edit",
+      sessionId: "main",
+      action: "update",
+      articleId: saved.id,
+      edits: [{ find: "第二段。", replace: "改写后的第二" }],
+      editOpen: true,
+    });
+    const edited = await read("call-edit");
+    assert.equal(edited?.["whole"], true);
+    assert.equal(edited?.["edits"], 1);
+    assert.equal(edited?.["text"], "# 雨\n\n第一段。\n\n改写后的第二");
+
+    // A full draft is the start of the next version, with the version it replaces named.
+    runtime.drafts.set("call-rewrite", { toolCallId: "call-rewrite", sessionId: "main", action: "update", articleId: saved.id, content: "# 雨\n\n新" });
+    const rewrite = await read("call-rewrite");
+    assert.equal(rewrite?.["whole"], false);
+    assert.equal(rewrite?.["baseVersion"], 1);
+    assert.equal(rewrite?.["text"], "# 雨\n\n新");
+
+    runtime.drafts.set("call-new", { toolCallId: "call-new", sessionId: "main", action: "create", title: "新" });
+    const fresh = await read("call-new");
+    assert.equal(fresh?.["whole"], false);
+    assert.equal(fresh?.["length"], 0);
+    assert.equal("baseVersion" in (fresh ?? {}), false);
+
+    // Another session's draft, and an article of another session, stay unreadable.
+    assert.equal(await read("call-edit", "other"), null);
+    runtime.drafts.set("call-foreign", { toolCallId: "call-foreign", sessionId: "other", action: "update", articleId: saved.id, edits: [] });
+    assert.equal(await read("call-foreign", "other"), null);
+  });
+
   test("stays reachable for the desktop client when a session holds bytes that were never text", async () => {
     const home = await configuredHome();
     const runtime = new FakeRuntime();
@@ -773,6 +838,7 @@ describe("daemon vertical slice", () => {
 
 class FakeRuntime implements AgentRuntimePort {
   promptCalls = 0;
+  readonly drafts = new Map<string, ArticleDraftView>();
   readonly #listeners = new Map<string, Set<(event: RuntimeEvent) => void>>();
   readonly #snapshots = new Map<string, SessionView>();
   readonly #autoSettle: boolean;
@@ -785,6 +851,10 @@ class FakeRuntime implements AgentRuntimePort {
   constructor(autoSettle = true, persistenceRoot?: string) {
     this.#autoSettle = autoSettle;
     this.#persistenceRoot = persistenceRoot;
+  }
+
+  articlePreview(toolCallId: string): ArticleDraftView | undefined {
+    return this.drafts.get(toolCallId);
   }
 
   async create(spec: AgentSessionSpec): Promise<AgentHandle> {

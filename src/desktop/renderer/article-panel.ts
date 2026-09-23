@@ -146,6 +146,19 @@ interface LoadedArticle {
   text: string;
 }
 
+/** What `article.preview` hands back for the call being written. */
+interface ArticleDraftRead {
+  text: string;
+  /** The whole document with the edits so far applied, rather than the start of a new draft. */
+  whole: boolean;
+  /** Edits already applied to `text`. */
+  edits: number;
+  title?: string;
+  articleId?: string;
+  /** The saved version an update revises. */
+  baseVersion?: number;
+}
+
 /**
  * The document panel. Chat keeps a one-line receipt; this is where the article
  * is rendered, revised, and exported.
@@ -189,6 +202,15 @@ export class ArticlePanel {
   #preferredView: ArticleView = "read";
   #writing = false;
   #writingKey = "";
+  /** Preview events seen for the call being written, and how many of them are already drawn. */
+  #previewAsked = 0;
+  #previewShown = 0;
+  /** Token of the read loop that is running, or -1. */
+  #previewPump = -1;
+  /** Keep the block being written in view, until the reader scrolls on their own. */
+  #followPen = true;
+  /** A call the reader closed the panel on. Its drafts stay out of the way; its version still lands. */
+  #dismissedKey = "";
   #token = 0;
   #session = "";
   #articleId = "";
@@ -251,6 +273,12 @@ export class ArticlePanel {
     this.#reopen.addEventListener("click", () => {
       if (this.#reopenId) void this.open(this.#reopenId);
     });
+    // Scrolling or clicking into the document is the reader taking over from the pen.
+    for (const type of ["wheel", "touchstart", "pointerdown", "keydown"] as const) {
+      this.#stage.addEventListener(type, () => {
+        this.#followPen = false;
+      }, { passive: true });
+    }
     this.#resize = requiredElement("article-resize");
     this.#storedWidth = readStoredWidth();
     this.#applyWidth(0);
@@ -290,6 +318,7 @@ export class ArticlePanel {
       this.#session = sessionId;
       this.#token += 1;
       this.#writing = false;
+      this.#dismissedKey = "";
       this.#reopenSession = "";
       this.#reopenRetries = 0;
       this.#forget();
@@ -341,13 +370,12 @@ export class ArticlePanel {
     if (event.type === "article.preview") {
       const toolCallId = stringValue(payload["toolCallId"]);
       if (!toolCallId) return;
-      void this.#onPreview(toolCallId, stringValue(payload["title"]), stringValue(payload["articleId"]));
+      this.#onPreview(toolCallId, stringValue(payload["title"]));
       return;
     }
     if (event.type !== "tool.completed" || stringValue(payload["toolName"]) !== "article" || payload["isError"] === true) {
       if (event.type === "tool.completed" && stringValue(payload["toolName"]) === "article" && payload["isError"] === true) {
-        this.#writing = false;
-        this.#status.textContent = "这一版没有写入";
+        this.#onRejected();
       }
       return;
     }
@@ -375,6 +403,12 @@ export class ArticlePanel {
       this.#syncReopen();
       return;
     }
+    // Closing while a draft streams is a choice about that draft: the next
+    // preview must not throw the panel straight back open.
+    if (this.#writing) {
+      this.#dismissedKey = this.#writingKey;
+      this.#token += 1;
+    }
     this.#open = false;
     this.#writing = false;
     this.#closing = true;
@@ -394,35 +428,146 @@ export class ArticlePanel {
     this.#syncReopen();
   }
 
-  async #onPreview(toolCallId: string, title: string | undefined, articleId: string | undefined): Promise<void> {
-    const token = ++this.#token;
-    this.#writing = true;
-    // A draft has no saved version behind it, so there is nothing to compare it
-    // against until it lands. The reader's choice comes back with the version.
-    this.#view = "read";
-    this.#syncViews(false);
-    this.#writingKey = toolCallId;
+  /**
+   * A draft moved on. The panel opens on the first one — before any text has
+   * been read — and then keeps exactly one read in flight, always for the
+   * newest text.
+   *
+   * Every event used to start its own read and void the one before it. When a
+   * read and its repaint take longer than the gap between events, as on a slow
+   * machine, every read was voided by the next event and nothing was drawn
+   * until the model stopped writing.
+   */
+  #onPreview(toolCallId: string, title: string | undefined): void {
+    if (toolCallId === this.#dismissedKey) return;
+    if (!this.#writing || toolCallId !== this.#writingKey) {
+      // A new call supersedes whatever was being loaded or written before it.
+      this.#token += 1;
+      this.#writing = true;
+      this.#writingKey = toolCallId;
+      this.#previewAsked = 0;
+      this.#previewShown = 0;
+      this.#followPen = true;
+      // A draft has no saved version behind it, so there is nothing to compare it
+      // against until it lands. The reader's choice comes back with the version.
+      this.#view = "read";
+      this.#syncViews(false);
+      this.#status.textContent = "正在撰写…";
+    }
+    this.#previewAsked += 1;
     this.#show(title || this.#titleText || "正在撰写");
-    this.#status.textContent = "正在撰写…";
-    const text = await this.#readSlices((offset, limit) => this.#dispatch({
-      action: "article.preview",
-      sessionId: this.#sessionId(),
-      toolCallId,
-      offset,
-      limit,
-    }));
-    if (token !== this.#token || text === undefined) return;
+    this.#pumpPreview();
+  }
+
+  #pumpPreview(): void {
+    const token = this.#token;
+    if (this.#previewPump === token) return;
+    this.#previewPump = token;
+    void this.#drainPreview(token).finally(() => {
+      if (this.#previewPump === token) this.#previewPump = -1;
+    });
+  }
+
+  async #drainPreview(token: number): Promise<void> {
+    while (token === this.#token && this.#previewShown < this.#previewAsked) {
+      const asked = this.#previewAsked;
+      const draft = await this.#readDraft(this.#writingKey);
+      if (token !== this.#token) return;
+      this.#previewShown = asked;
+      if (!draft) continue;
+      // An update is drawn over the version it revises. If the panel is showing
+      // another article, or another version, that version goes up first.
+      if (
+        draft.articleId !== undefined
+        && draft.baseVersion !== undefined
+        && !(this.#articleId === draft.articleId && this.#loadedVersion === draft.baseVersion)
+      ) {
+        const base = await this.#load(draft.articleId, draft.baseVersion);
+        if (token !== this.#token) return;
+        if (base) this.#adoptBase(base);
+      }
+      this.#renderDraft(draft);
+    }
+  }
+
+  async #readDraft(toolCallId: string): Promise<ArticleDraftRead | undefined> {
+    let head: Record<string, unknown> = {};
+    let text: string | undefined;
+    try {
+      text = await this.#readSlices(async (offset, limit) => {
+        const slice = await this.#dispatch({
+          action: "article.preview",
+          sessionId: this.#sessionId(),
+          toolCallId,
+          offset,
+          limit,
+        });
+        if (offset === 0) head = asRecord(slice);
+        return slice;
+      });
+    } catch {
+      // The next event reads again; the version itself arrives with the result.
+      return undefined;
+    }
+    if (text === undefined) return undefined;
+    const title = stringValue(head["title"]);
+    const articleId = stringValue(head["articleId"]);
+    return {
+      text,
+      whole: head["whole"] === true,
+      edits: typeof head["edits"] === "number" ? head["edits"] : 0,
+      ...(title ? { title } : {}),
+      ...(articleId ? { articleId } : {}),
+      ...(typeof head["baseVersion"] === "number" ? { baseVersion: head["baseVersion"] } : {}),
+    };
+  }
+
+  /** Puts the version an update revises on screen, without the hand-off animation. */
+  #adoptBase(base: LoadedArticle): void {
+    if (this.#articleId !== base.id) this.#forget();
+    this.#articleId = base.id;
+    this.#loadedVersion = base.version;
+    this.#titleText = base.title;
+    this.#versionsKnown = [...base.versions];
+    this.#reopenId = base.id;
+    this.#reopenTitle = base.title;
+    this.#baseline = "";
+    this.#committed = base.text;
+    this.#version.textContent = `v${base.version}`;
+    this.#paintVersions();
+  }
+
+  #renderDraft(draft: ArticleDraftRead): void {
     // Only a draft of the article already on screen can be shown against it.
     // A draft with no id is a brand new document, and one with a different id
     // belongs to another document — aligning either against what is displayed
     // would leave the wrong article underneath it.
-    const baseline = articleId !== undefined && articleId === this.#articleId ? this.#committed : "";
+    const baseline = draft.articleId !== undefined && draft.articleId === this.#articleId ? this.#committed : "";
     if (baseline === "" && this.#articleId !== "") this.#forget();
-    if (articleId) this.#articleId = articleId;
-    if (title) this.#titleText = title;
+    if (draft.articleId) this.#articleId = draft.articleId;
+    if (draft.title) this.#titleText = draft.title;
     this.#title.textContent = this.#titleText || "正在撰写";
-    this.#renderLive(text, baseline);
-    this.#status.textContent = `${text.length} 字 · 撰写中`;
+    this.#renderLive(draft.text, baseline, draft.whole);
+    this.#status.textContent = !draft.whole
+      ? `${draft.text.length} 字 · 撰写中`
+      : draft.edits > 0 ? `修改中 · 已改 ${draft.edits} 处` : "修改中…";
+  }
+
+  /**
+   * The call failed, so what the panel drew from its arguments is a version
+   * that will never exist; the saved one goes back up.
+   */
+  #onRejected(): void {
+    if (this.#writing) {
+      this.#token += 1;
+      this.#writing = false;
+      if (this.#loadedVersion > 0) {
+        this.#view = this.#preferredView;
+        this.#syncViews(this.#baseline !== "");
+        this.#paint(this.#baseline, false, "keep");
+      }
+    }
+    this.#status.textContent = "这一版没有写入";
   }
 
   async #onCommitted(id: string, version: number, title: string | undefined): Promise<void> {
@@ -531,7 +676,8 @@ export class ArticlePanel {
     else commit();
   }
 
-  #commit(entries: readonly BlockEntry[], animate: boolean, anchor: ScrollAnchor): void {
+  /** `pen` is the entry being written, kept in view while a draft streams. */
+  #commit(entries: readonly BlockEntry[], animate: boolean, anchor: ScrollAnchor, pen = -1): void {
     const pinned = anchor === "keep" && this.#pinnedToEnd();
     const children: HTMLElement[] = [];
     const appeared: HTMLElement[] = [];
@@ -553,7 +699,8 @@ export class ArticlePanel {
       this.#nodes.set(entry.key, node);
       children.push(node);
     }
-    if (children.length === 0) {
+    // A draft with no text yet is not an empty version; the status line says it is being written.
+    if (children.length === 0 && !this.#writing) {
       const empty = document.createElement("p");
       empty.className = "article-empty";
       empty.textContent = "这一版还没有正文";
@@ -565,7 +712,9 @@ export class ArticlePanel {
       this.#nodes.delete(oldest);
     }
     reconcileChildren(this.#render, children);
+    const penNode = pen >= 0 ? children[pen] : undefined;
     if (anchor === "top") this.#stage.scrollTop = 0;
+    else if (penNode && this.#followPen) this.#reveal(penNode);
     else if (pinned) this.#stage.scrollTop = this.#stage.scrollHeight;
     if (animate) pulseArticleChanges(appeared.slice(0, MAX_PULSED_BLOCKS));
   }
@@ -602,18 +751,40 @@ export class ArticlePanel {
    * model starts writing — so by the time the version landed there was nothing
    * left to patch, and the whole document was drawn again.
    */
-  #renderLive(text: string, baseline: string): void {
-    const aligned = alignArticleDraft(baseline, text);
-    this.#paintSequence += 1;
-    this.#commit(
-      blockEntries([
+  #renderLive(text: string, baseline: string, whole: boolean): void {
+    let blocks: { source: string; changed: boolean }[];
+    let pen: number;
+    if (whole) {
+      // Edits leave the rest of the document where it stood: this is the next
+      // version entire, and the pen is in the last block it changes.
+      blocks = diffArticleBlocks(baseline, text)
+        .filter((block) => block.kind !== "remove")
+        .map((block) => ({ source: block.source, changed: block.kind === "add" }));
+      pen = blocks.findLastIndex((block) => block.changed);
+    } else {
+      const aligned = alignArticleDraft(baseline, text);
+      blocks = [
         ...aligned.written,
         // Not reached yet, so it is still what the document says.
         ...aligned.pending.map((source) => ({ source, changed: false })),
-      ]),
-      false,
-      "keep",
-    );
+      ];
+      pen = aligned.written.length - 1;
+    }
+    this.#paintSequence += 1;
+    this.#commit(blockEntries(blocks), false, "keep", pen);
+  }
+
+  /**
+   * Scrolls just far enough to keep the block being written on screen, newest
+   * line last. The stage is scrolled directly: `scrollIntoView` would also move
+   * the clipped panels around it.
+   */
+  #reveal(node: HTMLElement): void {
+    const margin = 24;
+    const stage = this.#stage.getBoundingClientRect();
+    const block = node.getBoundingClientRect();
+    if (block.bottom > stage.bottom - margin) this.#stage.scrollTop += block.bottom - (stage.bottom - margin);
+    else if (block.bottom < stage.top + margin) this.#stage.scrollTop -= stage.top + margin - block.top;
   }
 
   #paintVersions(): void {

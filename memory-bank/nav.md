@@ -37,6 +37,7 @@
 | `src/tools/core-tools.ts` | read/document/edit/search/shell 固定基础工具 |
 | `src/documents/` | 文档正文抽取：按魔数分派到 OOXML(zip)/OLE 复合文档/PDF/纯文本，`extract.ts` 是唯一入口 |
 | `src/articles/` | 长文文稿：版本文件、段落 diff、预览节流、txt/docx 转换。面板在 `src/desktop/renderer/article-panel.ts`，导出在 `src/desktop/article-export.ts` |
+| `src/articles/edits.ts` | `find/replace` 的唯一实现：提交用的 `applyArticleEdits`（严格、抛错）与流式预览用的 `previewArticleEdits`（跳过未匹配、最后一处替换可能写到一半）。无 Node，可被渲染器导入 |
 | `bundled-skills/article-canvas/` | 告诉模型长文用 `article` 工具，不要把正文贴进聊天 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
 | `src/automation/` | cron adapter、job parser、run ledger、scheduler 与 Daemon executor |

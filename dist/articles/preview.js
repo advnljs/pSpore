@@ -11,18 +11,14 @@ export class ArticlePreviewBus {
     #emittedAt = new Map();
     /**
      * Records the latest draft. Returns true when a preview event should go out:
-     * the first time this call has text, and at most once per interval after that.
-     * Identical repeats stay quiet so a token that did not extend `content` does
+     * the first time this call is seen, and at most once per interval after that.
+     * Identical repeats stay quiet so a token that did not extend the draft does
      * not wake the panel.
      */
     note(draft, now) {
         const previous = this.#drafts.get(draft.toolCallId);
         this.#drafts.set(draft.toolCallId, draft);
-        const changed = !previous
-            || previous.content !== draft.content
-            || previous.title !== draft.title
-            || previous.articleId !== draft.articleId;
-        if (!changed)
+        if (previous && sameDraft(previous, draft))
             return false;
         const last = this.#emittedAt.get(draft.toolCallId);
         if (last !== undefined && now - last < ARTICLE_PREVIEW_INTERVAL_MS)
@@ -38,5 +34,22 @@ export class ArticlePreviewBus {
         this.#drafts.delete(toolCallId);
         this.#emittedAt.delete(toolCallId);
     }
+}
+/**
+ * Arguments only ever grow while they stream, so an edit that kept its lengths
+ * kept its text; comparing lengths spares re-reading every quoted passage on
+ * every token.
+ */
+function sameDraft(before, after) {
+    return before.action === after.action
+        && before.title === after.title
+        && before.articleId === after.articleId
+        && before.content === after.content
+        && before.editOpen === after.editOpen
+        && (before.edits?.length ?? -1) === (after.edits?.length ?? -1)
+        && (before.edits ?? []).every((edit, index) => {
+            const next = after.edits?.[index];
+            return next !== undefined && next.find.length === edit.find.length && next.replace.length === edit.replace.length;
+        });
 }
 //# sourceMappingURL=preview.js.map

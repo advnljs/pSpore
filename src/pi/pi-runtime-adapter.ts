@@ -743,7 +743,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         toolCallId: draft.toolCallId,
         ...(draft.title === undefined ? {} : { title: draft.title }),
         ...(draft.articleId === undefined ? {} : { articleId: draft.articleId }),
-        chars: draft.content.length,
+        chars: draft.content?.length ?? 0,
       },
       true,
     );

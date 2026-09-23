@@ -2,7 +2,10 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 发布并远端复验 `v0.1.28` | Pending | 用户要求先在本地试用 `release-dist/pspore-desktop-0.1.28-linux-x64.zip` | 试用通过后再 push `main`。注意：`ci.yml` 的 `release` job 会在 `package.json` 版本尚无 tag 时**自动**打 tag 并派发 Release，所以在用户确认前不要 push |
+| P0 | 发布并远端复验 `v0.1.28` | Partly done | 无 | 2026-09-23 核对：origin 上已有 `v0.1.28` tag，`main` 与 origin 一致，说明已推送并由 CI 打 tag；Release 资产的远端下载校验尚未在本会话记录。注意：`ci.yml` 的 `release` job 会在 `package.json` 版本尚无 tag 时**自动**打 tag 并派发 Release——升版本后的 push 就等于发版 |
+| P1 | 在银河麒麟/飞腾目标机上复验文稿面板流式（开写即打开、edits 边写边改） | Pending | 本机只能用 CDP 20× CPU 降速模拟慢机器；需要带本轮修复的 ARM64 包 | 本轮未升版本，`main` push 后 `Package Linux ARM64` 会上传保留 14 天的预览 artifact，可直接拿去目标机试；要正式发行需先升 PATCH（`0.1.29`）再 push |
+| P2 | 默认 `ask_risky` 下读取内置 skill 文件也要审批 | Pending | 属于权限策略，需用户决定 | 实测：新会话里模型写文稿前先 `read` `workspace/skills/article-canvas/SKILL.md`，它是指向安装目录的符号链接，`fs.read` 目标落在工作区外，于是弹审批（探针未应答，300 s 后超时拒绝，见临时 home 的 `state/audit/approvals.jsonl`）。桌面端用户每个新会话写文稿前都会先看到一个审批框。可选方案：把 bundled skill 的安装目录视为只读可信根；或在会话提示里直接注入 skill 正文，免去这次读取 |
+| P3 | Pi 每个 `toolcall_delta` 都整段重解析累计的参数 JSON（O(n²)） | Pending | 上游 `@earendil-works/pi-ai` 的 `parseStreamingJson` | 本机实测 1.5K 字符逐字回放共 213 ms；几万字的文稿在飞腾上会占用可观的守护进程 CPU。只影响长文、不影响正确性。若目标机上仍嫌慢，可考虑向上游提增量解析，或在 adapter 侧只对 `article` 调用降频处理 |
 | P3 | 附件选择器「选中后回到输入框」缺实机点击证据 | Pending | 测试中途本机锁屏，合成点击进不了对话框 | 对话框本身已验证会弹出且标题、内容正确；返回路径是 `showOpenDialog` + `stat`，与索引目录选择器同一套 API。下次在未锁屏时挑一个目录，确认引用芯片出现 |
 | P3 | 流式消息完成的瞬间，其中的选区会丢 | Pending | 无 | 流式气泡与落库后的历史消息是两个节点，`transcript.item.finished` 到达时会换节点。若要保住，需要让完成后的历史节点复用流式气泡已渲染的块 |
 | P1 | 长文文稿面板与四种导出 | Done | 无 | 见 overall-progress 2026-09-22。未升版本，未发版 |

@@ -1,17 +1,20 @@
-import type { ArticleDraft } from "./preview.js";
+import type { ArticleDraft, ArticleDraftEdit } from "./preview.js";
+import { ARTICLE_ID_PATTERN } from "./store.js";
 
 /**
- * Pulls the article markdown out of a streaming tool-call update.
+ * Pulls the article being written out of a streaming tool-call update.
  *
- * Pi repairs partial JSON as tokens arrive, so `arguments.content` grows while
- * the model is still writing. Anything that is not an `article` call, or that
- * has not produced a content string yet, is ignored.
+ * Pi repairs partial JSON as tokens arrive, so the arguments grow while the
+ * model is still writing. A call counts as soon as it says it will write —
+ * `create` or `update` — so the panel can open before the first word of the
+ * body, and an `update` made of edits is followed as the edits arrive. `read`
+ * writes nothing and is ignored, as is anything that is not an `article` call.
  */
 export function articleDraftFromUpdate(
   sessionId: string,
   update: { type: string; contentIndex?: number; partial?: unknown },
   message: unknown,
-): Omit<ArticleDraft, "sessionId"> & { sessionId: string } | undefined {
+): ArticleDraft | undefined {
   if (update.type !== "toolcall_delta" && update.type !== "toolcall_end") return undefined;
   if (update.contentIndex === undefined) return undefined;
   const source = isRecord(update.partial) ? update.partial : isRecord(message) ? message : undefined;
@@ -22,16 +25,46 @@ export function articleDraftFromUpdate(
   if (!isRecord(block) || block["type"] !== "toolCall" || block["name"] !== "article") return undefined;
   if (typeof block["id"] !== "string" || block["id"].length === 0) return undefined;
   const args = isRecord(block["arguments"]) ? block["arguments"] : undefined;
-  if (!args || typeof args["content"] !== "string" || args["content"].length === 0) return undefined;
+  if (!args || args["action"] === "read") return undefined;
   const title = typeof args["title"] === "string" && args["title"].trim() ? args["title"].trim() : undefined;
-  const articleId = typeof args["id"] === "string" && args["id"].trim() ? args["id"].trim() : undefined;
+  // The id streams in like everything else; a prefix of one names no article.
+  const articleId = typeof args["id"] === "string" && ARTICLE_ID_PATTERN.test(args["id"].trim()) ? args["id"].trim() : undefined;
+  const body = typeof args["content"] === "string" ? args["content"] : undefined;
+  const written = Array.isArray(args["edits"]) ? writtenEdits(args["edits"], update.type === "toolcall_end") : undefined;
+  const action = args["action"] === "create" || args["action"] === "update"
+    ? args["action"]
+    : body !== undefined || written !== undefined ? (articleId ? "update" : "create") : undefined;
+  if (!action) return undefined;
   return {
     toolCallId: block["id"],
     sessionId,
-    content: args["content"],
+    action,
     ...(title ? { title } : {}),
     ...(articleId ? { articleId } : {}),
+    ...(body === undefined ? {} : { content: body }),
+    ...(written === undefined ? {} : { edits: written.edits, editOpen: written.open }),
   };
+}
+
+/**
+ * The edits whose `find` is whole. Key order is parse order, so once `replace`
+ * follows `find` the quote is closed; the last edit's replacement may still be
+ * arriving until the call ends.
+ */
+function writtenEdits(entries: readonly unknown[], ended: boolean): { edits: ArticleDraftEdit[]; open: boolean } {
+  const edits: ArticleDraftEdit[] = [];
+  let open = false;
+  entries.forEach((entry, position) => {
+    if (!isRecord(entry) || typeof entry["find"] !== "string" || entry["find"].length === 0) return;
+    if (typeof entry["replace"] !== "string") return;
+    if (position === entries.length - 1 && !ended) {
+      const keys = Object.keys(entry);
+      if (keys.indexOf("find") > keys.indexOf("replace")) return;
+      open = true;
+    }
+    edits.push({ find: entry["find"], replace: entry["replace"] });
+  });
+  return { edits, open };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

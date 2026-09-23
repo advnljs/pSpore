@@ -13,6 +13,7 @@ import {
 } from "../../src/articles/diff.js";
 import { articleDraftFromUpdate } from "../../src/articles/draft.js";
 import { markdownToDocx } from "../../src/articles/docx.js";
+import { applyArticleEdits, previewArticleEdits } from "../../src/articles/edits.js";
 import { markdownToPdfHtml } from "../../src/articles/html.js";
 import { markdownToPlainText } from "../../src/articles/plain.js";
 import { ArticlePreviewBus } from "../../src/articles/preview.js";
@@ -236,7 +237,7 @@ describe("article store", () => {
 describe("article preview", () => {
   test("throttles identical and too-frequent drafts", () => {
     const bus = new ArticlePreviewBus();
-    const draft = { toolCallId: "call", sessionId: "main", content: "甲" };
+    const draft = { toolCallId: "call", sessionId: "main", action: "create" as const, content: "甲" };
     assert.equal(bus.note(draft, 0), true);
     assert.equal(bus.note(draft, 1_000), false);
     assert.equal(bus.note({ ...draft, content: "甲乙" }, 50), false);
@@ -262,7 +263,102 @@ describe("article preview", () => {
     assert.equal(draft?.content, "# 标题");
     assert.equal(articleDraftFromUpdate("main", { type: "text_delta", contentIndex: 0 }, undefined), undefined);
   });
+
+  test("a writing call counts before it has any body, so the panel can open at once", () => {
+    const create = partialArticleCall({ action: "create", title: "周" });
+    assert.equal(create?.action, "create");
+    assert.equal(create?.content, undefined);
+    const update = partialArticleCall({ action: "update", id: "art_0123456789ab" });
+    assert.equal(update?.action, "update");
+    assert.equal(update?.articleId, "art_0123456789ab");
+    assert.equal(partialArticleCall({ action: "read", id: "art_0123456789ab" }), undefined);
+    // Nothing says what the call does yet.
+    assert.equal(partialArticleCall({ action: "upd" }), undefined);
+  });
+
+  test("an id still streaming names no article", () => {
+    const draft = partialArticleCall({ action: "update", id: "art_01234" });
+    assert.equal(draft?.action, "update");
+    assert.equal(draft?.articleId, undefined);
+  });
+
+  test("an edit is followed once its quote is closed, and its replacement as it arrives", () => {
+    // `find` is still being quoted: nothing can be placed yet.
+    assert.deepEqual(partialArticleCall({ action: "update", id: "art_0123456789ab", edits: [{ find: "旧的一" }] })?.edits, []);
+    const writing = partialArticleCall({
+      action: "update",
+      id: "art_0123456789ab",
+      edits: [{ find: "甲", replace: "乙" }, { find: "旧的一句话。", replace: "新的" }],
+    });
+    assert.deepEqual(writing?.edits, [{ find: "甲", replace: "乙" }, { find: "旧的一句话。", replace: "新的" }]);
+    assert.equal(writing?.editOpen, true);
+    // Written the other way round, the quote might still be growing.
+    const reversed = partialArticleCall({ action: "update", id: "art_0123456789ab", edits: [{ replace: "新的", find: "旧的" }] });
+    assert.deepEqual(reversed?.edits, []);
+    const ended = partialArticleCall(
+      { action: "update", id: "art_0123456789ab", edits: [{ replace: "新的", find: "旧的" }] },
+      "toolcall_end",
+    );
+    assert.deepEqual(ended?.edits, [{ find: "旧的", replace: "新的" }]);
+    assert.equal(ended?.editOpen, false);
+  });
+
+  test("an edit that grew wakes the panel, one that did not stays quiet", () => {
+    const bus = new ArticlePreviewBus();
+    const base = { toolCallId: "call", sessionId: "main", action: "update" as const, articleId: "art_0123456789ab" };
+    assert.equal(bus.note(base, 0), true);
+    assert.equal(bus.note({ ...base, edits: [], editOpen: false }, 200), true);
+    assert.equal(bus.note({ ...base, edits: [{ find: "甲", replace: "乙" }], editOpen: true }, 400), true);
+    assert.equal(bus.note({ ...base, edits: [{ find: "甲", replace: "乙" }], editOpen: true }, 600), false);
+    assert.equal(bus.note({ ...base, edits: [{ find: "甲", replace: "乙丙" }], editOpen: true }, 800), true);
+  });
 });
+
+describe("article edits", () => {
+  test("a commit replaces the first occurrence of each quote, in order, and refuses a missing one", () => {
+    assert.equal(applyArticleEdits("甲乙甲", [{ find: "甲", replace: "丙" }, { find: "甲", replace: "丁" }]), "丙乙丁");
+    assert.throws(() => applyArticleEdits("甲", [{ find: "乙", replace: "丙" }]), /could not find/);
+  });
+
+  test("a preview skips a quote it cannot place and counts the ones it applied", () => {
+    const preview = previewArticleEdits("甲乙", [{ find: "无", replace: "丙" }, { find: "乙", replace: "丁" }], false);
+    assert.equal(preview.text, "甲丁");
+    assert.equal(preview.applied, 1);
+  });
+
+  test("a replacement that has not departed from the text it replaces leaves that text alone", () => {
+    const base = "# 标题\n\n第一段。\n\n第二段。";
+    // Extending a paragraph: the old words are typed again first.
+    assert.equal(previewArticleEdits(base, [{ find: "第一段。", replace: "第一" }], true).text, base);
+    assert.equal(
+      previewArticleEdits(base, [{ find: "第一段。", replace: "第一段。新加的" }], true).text,
+      "# 标题\n\n第一段。新加的\n\n第二段。",
+    );
+    // Once finished, the same text is the replacement, however short.
+    assert.equal(previewArticleEdits(base, [{ find: "第一段。", replace: "第一" }], false).text, "# 标题\n\n第一\n\n第二段。");
+  });
+
+  test("a rewrite of several paragraphs keeps the ones it has not reached", () => {
+    const base = "开头。\n\n甲段。\n\n乙段。\n\n结尾。";
+    // One block written: it stands in for the first old one, the second is still there.
+    const first = previewArticleEdits(base, [{ find: "甲段。\n\n乙段。", replace: "新甲段" }], true);
+    assert.equal(first.text, "开头。\n\n新甲段\n\n乙段。\n\n结尾。");
+    // The block being typed now is the second one's replacement.
+    const second = previewArticleEdits(base, [{ find: "甲段。\n\n乙段。", replace: "新甲段。\n\n新" }], true);
+    assert.equal(second.text, "开头。\n\n新甲段。\n\n新\n\n结尾。");
+  });
+});
+
+function partialArticleCall(
+  args: Record<string, unknown>,
+  type: "toolcall_delta" | "toolcall_end" = "toolcall_delta",
+): ReturnType<typeof articleDraftFromUpdate> {
+  return articleDraftFromUpdate("main", {
+    type,
+    contentIndex: 0,
+    partial: { content: [{ type: "toolCall", id: "call-1", name: "article", arguments: args }] },
+  }, undefined);
+}
 
 function publishedArticleText(value: unknown): string {
   if (typeof value !== "object" || value === null) return "";

@@ -1,3 +1,5 @@
+import { type ArticleEdit } from "./edits.js";
+export type { ArticleEdit } from "./edits.js";
 /** `art_` plus 12 hex characters. Short enough to say, long enough not to guess. */
 export declare const ARTICLE_ID_PATTERN: RegExp;
 /** A long article, not a book. Past this the tool asks for a tighter draft. */
@@ -38,10 +40,6 @@ export interface ArticleDocument {
     offset: number;
     length: number;
     text: string;
-}
-export interface ArticleEdit {
-    find: string;
-    replace: string;
 }
 export declare class ArticleStore {
     #private;

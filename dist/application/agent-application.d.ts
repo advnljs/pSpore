@@ -1,4 +1,4 @@
-import type { ArticleStore } from "../articles/store.js";
+import { type ArticleStore } from "../articles/store.js";
 import type { AgentSessionHost } from "../agents/agent-manager.js";
 import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "../agents/types.js";
 import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";

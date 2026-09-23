@@ -236,11 +236,19 @@ export interface AgentRuntimePort {
   articlePreview?(toolCallId: string): ArticleDraftView | undefined;
 }
 
-/** A not-yet-saved article, addressed by the tool call that is writing it. */
+/**
+ * A not-yet-saved article, addressed by the tool call that is writing it: a
+ * full draft from the top, edits to the saved version, or — at the very start
+ * of the call — neither yet.
+ */
 export interface ArticleDraftView {
   toolCallId: string;
   sessionId: string;
+  action: "create" | "update";
   title?: string;
   articleId?: string;
-  content: string;
+  content?: string;
+  edits?: readonly { find: string; replace: string }[];
+  /** The last edit's replacement is still arriving. */
+  editOpen?: boolean;
 }

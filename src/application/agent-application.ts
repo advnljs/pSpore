@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
 
-import type { ArticleStore } from "../articles/store.js";
+import { previewArticleEdits } from "../articles/edits.js";
+import { MAX_ARTICLE_CHARS, type ArticleStore } from "../articles/store.js";
 import type { AgentSessionHost } from "../agents/agent-manager.js";
 import type { AgentMessage, AgentMessageMode, AgentRecord, AgentSpawnRequest } from "../agents/types.js";
 import type { JobDefinition, RunBudget, RunRecord } from "../automation/types.js";
 import type {
   AgentRuntimePort,
   AgentSessionSpec,
+  ArticleDraftView,
   RootSessionMetadata,
   RuntimeEvent,
   SessionId,
@@ -131,6 +133,8 @@ const MAX_TRANSCRIPT_PAGE = 500;
  * on its way out — a client asking for a long message pages through it instead.
  */
 const MAX_MESSAGE_SLICE = MAX_PUBLISHED_STRING_CHARS;
+/** Saved versions kept for updates still being streamed. One call is normal; a few cover parallel calls. */
+const DRAFT_BASE_CACHE = 4;
 
 export class AgentRunBudgetError extends Error {
   constructor(message: string) {
@@ -158,6 +162,8 @@ export class AgentApplication implements AgentSessionHost {
   readonly #sessionTails = new Map<SessionId, Promise<void>>();
   #automation: AutomationControl | undefined;
   #articles: ArticleStore | undefined;
+  /** The saved version each streaming `update` revises, by tool call. */
+  readonly #draftBases = new Map<string, { id: string; version: number; text: string }>();
   #agents: AgentControl | undefined;
   #mcp: McpControl | undefined;
   #resources: ResourceControl | undefined;
@@ -452,19 +458,64 @@ export class AgentApplication implements AgentSessionHost {
         if (!draft || draft.sessionId !== sessionId) return null;
         const offset = optionalBoundedIndex(payload["offset"], "payload.offset") ?? 0;
         const limit = optionalBoundedIndex(payload["limit"], "payload.limit", MAX_MESSAGE_SLICE) ?? MAX_MESSAGE_SLICE;
-        const start = Math.min(Math.max(0, offset), draft.content.length);
+        const body = await this.#draftBody(draft);
+        if (!body) return null;
+        const start = Math.min(Math.max(0, offset), body.text.length);
         return {
           toolCallId: draft.toolCallId,
           ...(draft.title === undefined ? {} : { title: draft.title }),
           ...(draft.articleId === undefined ? {} : { articleId: draft.articleId }),
+          whole: body.whole,
+          ...(body.baseVersion === undefined ? {} : { baseVersion: body.baseVersion }),
+          ...(body.whole ? { edits: body.edits } : {}),
           offset: start,
-          length: draft.content.length,
-          text: draft.content.slice(start, start + limit),
+          length: body.text.length,
+          text: body.text.slice(start, start + limit),
         };
       }
       default:
         throw new CommandError("unknown_command", `Unknown command type: ${command.type}`);
     }
+  }
+
+  /**
+   * What the panel shows for a draft. A full draft is the start of the next
+   * version and goes out as written. Edits are applied to the version they
+   * revise, so what goes out is that whole document as it will read (`whole`).
+   * An update also names the version it starts from, so a panel showing
+   * something else can put that version up first and draw the draft over it.
+   */
+  async #draftBody(draft: ArticleDraftView): Promise<{ text: string; whole: boolean; baseVersion?: number; edits: number } | undefined> {
+    const base = draft.action === "update" && draft.articleId !== undefined
+      ? await this.#draftBase(draft.toolCallId, draft.sessionId, draft.articleId)
+      : undefined;
+    const edits = draft.edits ?? [];
+    if (draft.action === "create" || (draft.content !== undefined && edits.length === 0)) {
+      return { text: draft.content ?? "", whole: false, edits: 0, ...(base ? { baseVersion: base.version } : {}) };
+    }
+    if (!base) return undefined;
+    const preview = previewArticleEdits(draft.content ?? base.text, edits, draft.editOpen === true);
+    return { text: preview.text, whole: true, baseVersion: base.version, edits: preview.applied };
+  }
+
+  /**
+   * The saved version an update revises. Tools run only after the model stops
+   * streaming, so it cannot change under a call still being written and one
+   * read serves every preview of that call.
+   */
+  async #draftBase(toolCallId: string, sessionId: SessionId, id: string): Promise<{ version: number; text: string } | undefined> {
+    const cached = this.#draftBases.get(toolCallId);
+    if (cached?.id === id) return cached;
+    const document = await this.#requireArticles().read({ sessionId, id, limit: MAX_ARTICLE_CHARS });
+    if (!document) return undefined;
+    const base = { id, version: document.version, text: document.text };
+    this.#draftBases.set(toolCallId, base);
+    while (this.#draftBases.size > DRAFT_BASE_CACHE) {
+      const oldest = this.#draftBases.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.#draftBases.delete(oldest);
+    }
+    return base;
   }
 
   #requireArticles(): ArticleStore {

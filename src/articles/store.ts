@@ -4,6 +4,9 @@ import { join, sep } from "node:path";
 
 import { atomicWriteFile, atomicWriteJson } from "../storage/atomic.js";
 import { articleChangeCounts, diffArticleBlocks } from "./diff.js";
+import { applyArticleEdits, type ArticleEdit } from "./edits.js";
+
+export type { ArticleEdit } from "./edits.js";
 
 /** `art_` plus 12 hex characters. Short enough to say, long enough not to guess. */
 export const ARTICLE_ID_PATTERN = /^art_[a-f0-9]{12}$/;
@@ -64,11 +67,6 @@ interface ArticleRecord {
   versions: ArticleVersionInfo[];
 }
 
-export interface ArticleEdit {
-  find: string;
-  replace: string;
-}
-
 export class ArticleStore {
   readonly #root: string;
   readonly #clock: () => Date;
@@ -119,7 +117,7 @@ export class ArticleStore {
       throw new Error(`No article ${input.id} in this session. Create one, or read the id from the previous article result.`);
     }
     const base = input.content === undefined ? current.content : cleanContent(input.content);
-    const next = input.edits && input.edits.length > 0 ? applyEdits(base, input.edits) : base;
+    const next = input.edits && input.edits.length > 0 ? applyArticleEdits(base, input.edits) : base;
     const content = cleanContent(next);
     const title = input.title === undefined ? current.record.title : cleanTitle(input.title);
     if (content === current.content && title === current.record.title) {
@@ -326,17 +324,6 @@ function cleanContent(content: string): string {
     throw new Error(`Article is longer than ${MAX_ARTICLE_CHARS} characters. Split it or cut it down.`);
   }
   return cleaned;
-}
-
-function applyEdits(content: string, edits: readonly ArticleEdit[]): string {
-  let next = content;
-  for (const edit of edits) {
-    if (!edit.find) throw new Error("Article edit is missing the text to find");
-    const index = next.indexOf(edit.find);
-    if (index < 0) throw new Error("Article edit could not find the text to replace. Read the article and quote it exactly.");
-    next = `${next.slice(0, index)}${edit.replace}${next.slice(index + edit.find.length)}`;
-  }
-  return next;
 }
 
 function parseRecord(raw: string, id: string): ArticleRecord | undefined {
