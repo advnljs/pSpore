@@ -5,9 +5,9 @@
 - 阶段目标：用户要求把最新版本推到 Release，且不要改动任何功能代码。
 - 完成内容：`v0.1.28` 已发布且不可覆盖，tag 停在 `3cdc4d4`，比 `main`（`fc293b2`，开写即打开、edits 流式）少一次提交。按不可变发版规则将版本从 `0.1.28` 升到 `0.1.29`（`package.json`、`package-lock.json`、`src/version.ts` 与对应 `dist/version.*`），不改功能源码。推送 `main` 后由 CI 的 Tag and release 打 annotated tag 并派发 Release desktop。
 - 修改文件：`package.json`、`package-lock.json`、`src/version.ts`、`dist/version.js`、`dist/version.d.ts`、`memory-bank/*`。
-- 验证方式与结果：待 push 后记录 CI 与 Release 远端结果。
-- 当前状态：版本已升到 `0.1.29`，准备提交并推送 `main`。
-- 遗留问题：Release 资产的远端下载校验待 workflow 成功后补记。
+- 验证方式与结果：提交 `542fdaa` 已推送 `main`。CI run `36371721940`（Check + Tag and release）与 ARM64 run `36371721939` 成功。annotated tag `v0.1.29` 指向 `542fdaa`。Release run `36371997615` 四个 job 全部成功。Release 非 draft、非 prerelease，12 项资产均带架构标签：<https://github.com/advnljs/pSpore/releases/tag/v0.1.29>。下载 x64 overlay 实测 `sha256sum --check` 通过，manifest 为 `appVersion 0.1.29 / electron 43.3.0 / x64`，包内 `app.asar` 含 `PSPORE_VERSION = "0.1.29"`、`baseVersion`、`article.preview`。
+- 当前状态：`v0.1.29` 已发布。功能代码相对 `fc293b2` 没有改动，只升了版本号。
+- 遗留问题：目标机实机复验仍待做。见 todo。
 
 ## 2026-09-23 — 文稿面板开写即打开、局部修改也流式、慢机器不再"写完才出现"（未升版本）
 
