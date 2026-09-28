@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-09-28 17:32 CST — v0.1.33 已发布并核验双架构回执误存防护
+
+- 阶段目标：发布文稿写稿上下文隔离与完成回执误存防护，核验实际下载资产。
+- 完成内容：修复提交 `f9cf281` 已 push，annotated `v0.1.33` 解引用到同一提交。CI `36403017157`、ARM64 预构建 `36403017154`、Release `36403513600` 全部成功；正式发布链也完成 ARM64 Electron 桌面验收与双架构资产校验。
+- 发布结果：<https://github.com/advnljs/pSpore/releases/tag/v0.1.33>，非 draft/prerelease，12 项 ARM64/x64 资产，发布时间 `2026-09-28T09:31:17Z`。
+- 独立远端复验：双架构 overlay SHA-256、manifest `0.1.33 / Electron 43.3.0` 与架构校验通过；包内 `writer.js`、`writer-context.js`、`tool.js`、`draft.js`、`publish.js`、`daemon.js`、`pi-runtime-adapter.js`、`version.js` 八项逐字匹配已验收构建，内置 article-canvas skill 也匹配。证据 `/tmp/pspore-release-0.1.33-verify/`。
+- 修改文件：本阶段仅同步 `memory-bank/{overall-progress,todo}.md`。
+- 当前状态：287 项测试、1920×1080/20× CPU/250 ms Electron 回执重试与正文持续刷新验收、本地打包和远端发布均完成；隔离桌面与 Daemon 已退出，生产服务未改动。用户原图及 `refer/` 未修改。
+- 遗留问题：目标机需升级后重新生成正文，已有的 31 字版本不会自动恢复为文章；未直接连接自研代理，不把参考上下文干扰假设当作已证实根因。回执校验仅拦截明确的短 UI 完成提示，不保证识别所有错误生成。
+
 ## 2026-09-28 17:21 CST — 写稿上下文隔离与完成回执误存防护（0.1.33 候选）
 
 - 阶段目标：继续处理用户截图中的文稿 v1 只有 31 字完成回执的问题；用户确认 overlay 升级成功后重新打开。

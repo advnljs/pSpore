@@ -2,13 +2,13 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 修复文稿 v1 仅含 31 字完成回执的问题，并发布 0.1.33 | In progress | 目标机仍需实测；未找到项目约定的真实模型测试凭据 | 参考上下文隔离与回执单次重试/失败不保存已实现；287 项测试、1920×1080/20× CPU Electron、x64 全量/overlay/CLI 打包通过。待提交与双架构 Release 核验 |
+| P0 | 修复文稿 v1 仅含 31 字完成回执的问题，并发布 0.1.33 | Done | 目标机仍需下项单独复验 | 287 项测试、1920×1080/20× CPU Electron、双架构构建与 Release 全部成功；远端 overlay SHA-256、八项核心文件与 skill 一致性通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.33 |
 | P0 | 让文稿正文使用普通文本流，并发布 0.1.32 | Done | 目标机仍需下项单独复验 | 284 项测试、1920×1080/20× CPU/250 ms Electron 验收、双架构构建与 Release 全部通过；远端双架构 overlay SHA-256、七项核心文件与 skill 0.1.2 一致性校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.32 |
 | P0 | 修复文稿打开后的刷新停顿并发布 `0.1.31` | Done | 目标机实际效果仍待下项复验 | 281 项测试与 Electron 主基准/慢 CPU/长文/漏通知/读失败恢复通过；CI `36394582634`、ARM64 `36394582691`、Release `36394997584` 成功，12 项资产。双架构 overlay SHA-256 与四项包内修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.31 |
 | P0 | 修复自建 OpenAI API 下文稿延迟展开并发布新 PATCH | Done | 无；目标机实际行为仍待下项复验 | `v0.1.30` 已发布；280 项测试、本地真实 Electron 20× CPU/250 ms 取稿/120 ms SSE、ARM64 CI GUI 通过。双架构 overlay SHA-256 与包内六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.30 |
 | P0 | 发布并远端复验 `v0.1.29` | Done | 无 | 2026-09-28：CI `36371721940`、ARM64 `36371721939`、Release `36371997615` 全部成功。tag `v0.1.29` 指向 `542fdaa`。x64 overlay 远端 `sha256sum --check` 通过，manifest `0.1.29 / electron 43.3.0 / x64`。https://github.com/advnljs/pSpore/releases/tag/v0.1.29 |
 | P0 | 发布并远端复验 `v0.1.28` | Partly done | 无 | 2026-09-23 核对：origin 上已有 `v0.1.28` tag。该 tag 停在 `3cdc4d4`，不含其后的文稿流式提交。Release 资产的远端下载校验未在当时补记 |
-| P1 | 在银河麒麟/飞腾目标机上复验文稿面板流式 | Pending | 尚未直接连接目标机；已确认 custom OpenAI 为自研代理 | 用户反馈 0.1.31 仍不流式、主对话正常。0.1.32 已发布，改为 article write 短指令 + 普通文本流；升级对应架构包并重启应用/Daemon、新建会话复验。https://github.com/advnljs/pSpore/releases/tag/v0.1.32 |
+| P1 | 在银河麒麟/飞腾目标机上复验文稿正文与流式 | Pending | 尚未直接连接目标机；已确认 custom OpenAI 为自研代理 | 用户反馈主聊天正常、article 卡顿；overlay 升级后截图显示 31 字完成回执。升级 0.1.33 后确认后台重启并重新生成实际正文，复验文本流和误存防护；旧 31 字版本不会自动补全文。https://github.com/advnljs/pSpore/releases/tag/v0.1.33 |
 | P2 | `publishedArticleValue` 的 edits-only 输入漏裁剪 | Done | 无 | 0.1.32 文本流工具的发布裁剪统一经过 publishedInput，edits-only 只保留 editCount；单测覆盖正文不进入广播 |
 | P2 | 默认 `ask_risky` 下读取内置 skill 文件也要审批 | Pending | 属于权限策略，需用户决定 | 实测：新会话里模型写文稿前先 `read` `workspace/skills/article-canvas/SKILL.md`，它是指向安装目录的符号链接，`fs.read` 目标落在工作区外，于是弹审批（探针未应答，300 s 后超时拒绝，见临时 home 的 `state/audit/approvals.jsonl`）。桌面端用户每个新会话写文稿前都会先看到一个审批框。可选方案：把 bundled skill 的安装目录视为只读可信根；或在会话提示里直接注入 skill 正文，免去这次读取 |
 | P3 | Pi 每个 `toolcall_delta` 都整段重解析累计的参数 JSON（O(n²)） | Pending | 上游 `@earendil-works/pi-ai` 的 `parseStreamingJson` | 本机实测 1.5K 字符逐字回放共 213 ms；几万字的文稿在飞腾上会占用可观的守护进程 CPU。只影响长文、不影响正确性。若目标机上仍嫌慢，可考虑向上游提增量解析，或在 adapter 侧只对 `article` 调用降频处理 |
