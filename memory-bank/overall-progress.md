@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-09-28 16:07 CST — v0.1.31 已发布并核验双架构升级包
+
+- 阶段目标：把文稿打开后持续刷新的修复发布为新版本。
+- 完成内容：修复提交 `82991fe` 已 push 到 main；annotated tag `v0.1.31` 指向同一提交。CI `36394582634`、ARM64 预构建 `36394582691`、Release `36394997584` 全部成功，含 ARM64 实际桌面验收与两个架构的打包/checksum 检查。
+- 发布结果：<https://github.com/advnljs/pSpore/releases/tag/v0.1.31>，非 draft/prerelease，12 项 x64/ARM64 资产，发布时间 `2026-09-28T08:07:06Z`。
+- 独立远端复验：下载两个架构的 overlay zip 与 SHA-256，全部校验通过；manifest 均为 `0.1.31 / Electron 43.3.0`、架构正确；包内 `preview.js`、`pi-runtime-adapter.js`、`article-panel.js`、`version.js` 四项与已验收的本地构建逐字一致。证据目录 `/tmp/pspore-release-0.1.31-verify/`。
+- 修改文件：本阶段仅同步 `memory-bank/{overall-progress,todo}.md`。
+- 当前状态：源码、构建和发布包一致；本地打包产物在 `release-dist/`，隔离 GUI 测试实例已退出，用户生产服务未改动。用户已有 `refer/` 未跟踪目录保留。
+- 遗留问题：内网目标机未直接连接；需升级 ARM64 包并重启应用/Daemon 复验。客户端可恢复已有草稿的漏通知/读取失败，仍不能展示尚未从服务端发出的正文。
+
 ## 2026-09-28 15:58 CST — 文稿打开后刷新停顿的恢复（0.1.31 候选）
 
 - 阶段目标：修复用户反馈的内网 custom OpenAI 下文稿已打开但只显示几个字、要到结束才刷新的问题，并发布新版本。
