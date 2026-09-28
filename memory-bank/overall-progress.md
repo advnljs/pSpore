@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-09-28 12:08 CST — v0.1.30 发布完成及双架构远端复验
+
+- 阶段目标：发布目标机 OpenAI 兼容 API 文稿提前打开的修复版本。
+- 完成内容：功能提交 `bb80ae4` 已推送并生成 annotated tag `v0.1.30`；测试脚本清理改进 `5a2aed0` 已随后 push（只影响开发验收脚本，不影响发布包中的功能代码）。
+- 远端验证：CI `36375755963`、ARM64 预构建 `36375755829`、后续 CI `36376060069` 均成功；Release `36376030155` 四个 job 全部成功，包含 ARM64 Electron 桌面 smoke、双架构打包及全部 checksum 校验。
+- Release：<https://github.com/advnljs/pSpore/releases/tag/v0.1.30>，非 draft、非 prerelease，12 项 x64/ARM64 资产，发布时间 `2026-09-28T04:07:18Z`。
+- 独立下载复验：两个架构的 overlay zip 均通过 `sha256sum --check`；manifest 均为 `appVersion 0.1.30 / electronVersion 43.3.0`，架构匹配。用本地 Electron 读取两份包内 app.asar 和 unpacked skill，核对 `tool.js`、`receipt.js`、`draft.js`、`article-panel.js`、`article-canvas/SKILL.md`、`version.js` 六项与本地已验收构建逐字相同。资产与提取证据：`/tmp/pspore-release-0.1.30-verify/`。
+- 修改文件：本阶段仅同步 `memory-bank/{overall-progress,todo,module-articles}.md`。
+- 当前状态：新 Release 已发布、下载包复验通过；本地最新构建已通过 GUI 验收，测试实例已退出，无生产服务变更；用户原有 `refer/` 保留。
+- 遗留问题：目标机自建 API 尚未直接连接，需升级并重启应用/后台服务、新会话复验。若服务端整包缓冲工具参数，仍只能先打开并按完成的小节刷新，无法显示尚未收到的正文。
+
 ## 2026-09-28 11:57 CST — OpenAI 缓冲工具参数时提前打开文稿（0.1.30 候选）
 
 - 阶段目标：继续修复目标机文稿等 LLM 输出结束才展开；用户补充目标机使用自建 OpenAI 格式 API，开发机正常。

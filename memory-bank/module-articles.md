@@ -28,7 +28,7 @@
 | 文件 | 职责 |
 |---|---|
 | `store.ts` | `~/.pspore/workspace/articles/<id>/`：`meta.json`、`v0001.md`…、`current.md`。id 为 `art_` + 12 位十六进制。单篇最多 400_000 个 UTF-16 码元、100 个版本。内容不变不追加版本。读和改都核对 session。路径经 realpath，拒绝逃出目录。NUL 换成 U+FFFD |
-| `tool.ts` | `create` / `update` / `read`。回执第一行固定 `article art_xxxxxxxxxxxx version N`，随后是标题、字数和版本变化。`read` 把正文给模型，广播侧会裁掉 |
+| `tool.ts` | `open` / `create` / `update` / `read`。open 返回独立 `article open` 回执，不存版本；其他回执第一行固定 `article art_xxxxxxxxxxxx version N`，随后是标题、字数和版本变化。`read` 把正文给模型，广播侧会裁掉 |
 | `diff.ts` | 按空行切段，围栏代码整段保留。LCS；段落积超过 250_000 时退化为前后缀。另有 `diffArticleLines()`：先裁公共首尾再对中间 LCS，`token` 粒度把相邻的删除串/新增串按位配对、逐 token 求 LCS，只在相似度 ≥ 0.4 时标到行内。分词按拉丁串/空白成串、其余逐字，中英都成立。渲染器可导入，无 Node |
 | `preview.ts` / `draft.ts` | 从 Pi `toolcall_delta` 里取出正在写的调用：`action` 为 `create`/`update` 即算数（不等正文），`read` 忽略；`content` 整篇草稿，或 `edits` 中 `find` 已写完整的那几处（键顺序即解析顺序：`replace` 出现在 `find` 之后才算引文闭合），最后一处的 `replace` 可能还在写（`editOpen`）。`id` 必须完整匹配 `art_` + 12 位十六进制，半截 id 不算。预览总线 120 ms 节流，edits 按长度判等（参数只增不减）。事件只带 toolCallId、标题、id 和字数，正文留在进程内 |
 | `edits.ts` | `applyArticleEdits`（提交：按序替换首次出现，找不到抛错）与 `previewArticleEdits`（预览：找不到跳过；写到一半的替换若仍是原文前缀则原文不动，已分岔则按块 1:1 顶替、没写到的旧块留着）。无 Node |
