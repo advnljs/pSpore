@@ -30,21 +30,48 @@ export const ARTICLE_PREVIEW_INTERVAL_MS = 120;
 export class ArticlePreviewBus {
   readonly #drafts = new Map<string, ArticleDraft>();
   readonly #emittedAt = new Map<string, number>();
+  readonly #pending = new Map<string, ReturnType<typeof setTimeout>>();
+
+  constructor(
+    private readonly publish: (draft: ArticleDraft) => void = () => {},
+    private readonly clock: () => number = Date.now,
+  ) {}
 
   /**
-   * Records the latest draft. Returns true when a preview event should go out:
+   * Records the latest draft. Returns true when a preview is published now:
    * the first time this call is seen, and at most once per interval after that.
    * Identical repeats stay quiet so a token that did not extend the draft does
-   * not wake the panel.
+   * not wake the panel. A suppressed change is published at the trailing edge,
+   * even when the provider pauses without sending another token.
    */
   note(draft: ArticleDraft, now: number): boolean {
     const previous = this.#drafts.get(draft.toolCallId);
     this.#drafts.set(draft.toolCallId, draft);
     if (previous && sameDraft(previous, draft)) return false;
     const last = this.#emittedAt.get(draft.toolCallId);
-    if (last !== undefined && now - last < ARTICLE_PREVIEW_INTERVAL_MS) return false;
-    this.#emittedAt.set(draft.toolCallId, now);
+    if (last !== undefined && now - last < ARTICLE_PREVIEW_INTERVAL_MS) {
+      // A gateway can deliver a burst and then go quiet. Flush its last draft
+      // without requiring another token to arrive and wake the panel.
+      if (!this.#pending.has(draft.toolCallId)) {
+        const timer = setTimeout(() => {
+          this.#pending.delete(draft.toolCallId);
+          const latest = this.#drafts.get(draft.toolCallId);
+          if (latest) this.#publish(latest, this.clock());
+        }, ARTICLE_PREVIEW_INTERVAL_MS - (now - last));
+        timer.unref();
+        this.#pending.set(draft.toolCallId, timer);
+      }
+      return false;
+    }
+    this.#publish(draft, now);
     return true;
+  }
+
+  #publish(draft: ArticleDraft, now: number): void {
+    clearTimeout(this.#pending.get(draft.toolCallId));
+    this.#pending.delete(draft.toolCallId);
+    this.#emittedAt.set(draft.toolCallId, now);
+    this.publish(draft);
   }
 
   get(toolCallId: string): ArticleDraft | undefined {
@@ -53,8 +80,16 @@ export class ArticlePreviewBus {
   }
 
   clear(toolCallId: string): void {
+    clearTimeout(this.#pending.get(toolCallId));
+    this.#pending.delete(toolCallId);
     this.#drafts.delete(toolCallId);
     this.#emittedAt.delete(toolCallId);
+  }
+
+  clearSession(sessionId: string): void {
+    for (const draft of this.#drafts.values()) {
+      if (draft.sessionId === sessionId) this.clear(draft.toolCallId);
+    }
   }
 }
 

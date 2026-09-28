@@ -263,6 +263,31 @@ describe("article store", () => {
 });
 
 describe("article preview", () => {
+  test("flushes the latest burst even if no more tokens arrive, and cancels completed calls", (context) => {
+    context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+    const published: string[] = [];
+    const bus = new ArticlePreviewBus((draft) => published.push(draft.content ?? ""));
+    const draft = { toolCallId: "burst", sessionId: "main", action: "create" as const, content: "开头" };
+    bus.note(draft, Date.now());
+    context.mock.timers.tick(20);
+    bus.note({ ...draft, content: "开头与中间" }, Date.now());
+    context.mock.timers.tick(20);
+    bus.note({ ...draft, content: "开头与中间以及最后一段" }, Date.now());
+    assert.deepEqual(published, ["开头"]);
+    context.mock.timers.tick(80);
+    assert.deepEqual(published, ["开头", "开头与中间以及最后一段"]);
+    bus.note({ ...draft, content: "不应迟到的预览" }, Date.now());
+    bus.clear("burst");
+    context.mock.timers.tick(120);
+    assert.equal(published.length, 2);
+    bus.note(draft, Date.now());
+    bus.note({ ...draft, content: "已中止" }, Date.now());
+    bus.clearSession("main");
+    context.mock.timers.tick(120);
+    assert.equal(published.length, 3);
+    assert.equal(bus.get("burst"), undefined);
+  });
+
   test("throttles identical and too-frequent drafts", () => {
     const bus = new ArticlePreviewBus();
     const draft = { toolCallId: "call", sessionId: "main", action: "create" as const, content: "甲" };

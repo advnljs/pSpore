@@ -40,7 +40,7 @@ import type {
   TranscriptPage,
 } from "../domain/runtime.js";
 import { articleDraftFromUpdate } from "../articles/draft.js";
-import { ArticlePreviewBus } from "../articles/preview.js";
+import { ArticlePreviewBus, type ArticleDraft } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
 import type { AutoCompactionConfig } from "../config/config.js";
 import type { SessionSkill } from "../plugins/types.js";
@@ -106,7 +106,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   readonly #clock: Clock;
   readonly #idFactory: IdFactory;
   readonly #autoCompaction: AutoCompactionConfig | undefined;
-  readonly #articlePreviews = new ArticlePreviewBus();
+  readonly #articlePreviews = new ArticlePreviewBus((draft) => this.#publishArticleDraft(draft), () => this.#clock().getTime());
   readonly #sessions = new Map<SessionId, SessionRecord>();
 
   private constructor(options: PiRuntimeAdapterOptions, modelRuntime: ModelRuntime) {
@@ -406,6 +406,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
 
   async dispose(sessionId: SessionId): Promise<void> {
     const record = this.#record(sessionId);
+    this.#articlePreviews.clearSession(sessionId);
     record.unsubscribe?.();
     record.listeners.clear();
     await record.runtime.dispose();
@@ -590,6 +591,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         this.#emit(record, "run.started", {}, false);
         break;
       case "agent_settled":
+        this.#articlePreviews.clearSession(record.spec.sessionId);
         this.#emit(record, "run.settled", {}, false);
         break;
       case "message_start": {
@@ -735,7 +737,12 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   #noteArticleDraft(record: SessionRecord, message: unknown, update: { type: string; contentIndex?: number; partial?: unknown }): void {
     const draft = articleDraftFromUpdate(record.spec.sessionId, update, message);
     if (!draft) return;
-    if (!this.#articlePreviews.note(draft, this.#clock().getTime())) return;
+    this.#articlePreviews.note(draft, this.#clock().getTime());
+  }
+
+  #publishArticleDraft(draft: ArticleDraft): void {
+    const record = this.#sessions.get(draft.sessionId);
+    if (!record) return;
     this.#emit(
       record,
       "article.preview",

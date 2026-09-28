@@ -18,7 +18,7 @@ export class PiRuntimeAdapter {
     #clock;
     #idFactory;
     #autoCompaction;
-    #articlePreviews = new ArticlePreviewBus();
+    #articlePreviews = new ArticlePreviewBus((draft) => this.#publishArticleDraft(draft), () => this.#clock().getTime());
     #sessions = new Map();
     constructor(options, modelRuntime) {
         this.#agentDir = options.agentDir;
@@ -294,6 +294,7 @@ export class PiRuntimeAdapter {
     }
     async dispose(sessionId) {
         const record = this.#record(sessionId);
+        this.#articlePreviews.clearSession(sessionId);
         record.unsubscribe?.();
         record.listeners.clear();
         await record.runtime.dispose();
@@ -470,6 +471,7 @@ export class PiRuntimeAdapter {
                 this.#emit(record, "run.started", {}, false);
                 break;
             case "agent_settled":
+                this.#articlePreviews.clearSession(record.spec.sessionId);
                 this.#emit(record, "run.settled", {}, false);
                 break;
             case "message_start": {
@@ -585,7 +587,11 @@ export class PiRuntimeAdapter {
         const draft = articleDraftFromUpdate(record.spec.sessionId, update, message);
         if (!draft)
             return;
-        if (!this.#articlePreviews.note(draft, this.#clock().getTime()))
+        this.#articlePreviews.note(draft, this.#clock().getTime());
+    }
+    #publishArticleDraft(draft) {
+        const record = this.#sessions.get(draft.sessionId);
+        if (!record)
             return;
         this.#emit(record, "article.preview", {
             toolCallId: draft.toolCallId,

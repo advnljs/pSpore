@@ -58,6 +58,12 @@ async function run() {
   let target;
   let succeeded = false;
   const rendererErrors = [];
+  let forwardPreviews = true;
+  let failPreviewReads = 0;
+  let failedPreviewReads = 0;
+  let activePreviewReads = 0;
+  let maxPreviewReads = 0;
+  let previewReads = 0;
   const report = { viewport: { width: 1920, height: 1080 }, cpuRate: 20, previewDelayMs: 250, stages: [] };
   try {
     const paths = await api.configure(home);
@@ -68,14 +74,27 @@ async function run() {
     const events = [];
     bridge.subscribe((frame) => {
       if (frame.kind === "event") events.push(frame.event);
+      if (!forwardPreviews && frame.kind === "event" && frame.event.type === "article.preview") return;
       if (target && !target.isDestroyed()) target.webContents.send("pspore:desktop:frame", frame);
     });
     bridge.start();
     await waitFor(() => bridge.bootstrap().connection.phase === "connected", "bridge");
     ipcMain.handle("pspore:desktop:bootstrap", () => bridge.bootstrap());
     ipcMain.handle("pspore:desktop:dispatch", async (_event, command) => {
-      if (command.action === "article.preview") await delay(report.previewDelayMs);
-      return bridge.dispatch(command);
+      if (command.action !== "article.preview") return bridge.dispatch(command);
+      previewReads++;
+      maxPreviewReads = Math.max(maxPreviewReads, ++activePreviewReads);
+      try {
+        await delay(report.previewDelayMs);
+        if (failPreviewReads > 0) {
+          failPreviewReads--;
+          failedPreviewReads++;
+          throw new Error("Transient draft read failure (fixture)");
+        }
+        return await bridge.dispatch(command);
+      } finally {
+        activePreviewReads--;
+      }
     });
     target = new BrowserWindow(desktopWindowOptions(resolve(root, "dist/desktop/preload.cjs")));
     target.setContentSize(1920, 1080);
@@ -157,11 +176,33 @@ async function run() {
     assert.ok(samples.length >= 3, "repeated preview events must not starve slow draft reads");
     report.liveSamples = samples;
     await capture("04-streaming-before-tool-end");
+    // Slow clients may lose transient events. After showing a few words,
+    // recover both a failed read and the new body with no further notification.
+    forwardPreviews = false;
+    failPreviewReads = 1;
+    toolChunk(revision, "gui-update", "通知丢失后仍持续刷新。", false);
+    await waitFor(async () => (await state()).text.includes("通知丢失后仍持续刷新"), "recover draft without another preview event");
+    assert.equal(failedPreviewReads, 1);
+    assert.deepEqual((await state()).versions, ["v1"]);
+    assert.equal(maxPreviewReads, 1, "recovery must share the single in-flight read");
+    await target.webContents.executeJavaScript(`window.articleMutations = 0;
+      window.articleObserver = new MutationObserver(() => window.articleMutations++);
+      window.articleObserver.observe(document.querySelector('#article-render'), { childList: true, subtree: true, attributes: true });`);
+    await delay(900);
+    assert.equal(await target.webContents.executeJavaScript("window.articleMutations"), 0, "unchanged drafts must not repaint during recovery polling");
+    await target.webContents.executeJavaScript("window.articleObserver.disconnect()");
+    await capture("04b-recovered-without-events");
+    forwardPreviews = true;
     toolChunk(revision, "gui-update", "\"}]}", false);
     finishTool(revision);
     finishText(await api.next());
     await waitFor(async () => (await state()).versions.includes("v2"), "revision committed");
     await capture("05-committed-revision");
+    await waitFor(() => activePreviewReads === 0, "finish outstanding read");
+    const readsAfterCommit = previewReads;
+    await delay(700);
+    assert.equal(previewReads, readsAfterCommit, "committed drafts must stop polling");
+    report.recovery = { failedPreviewReads, maxPreviewReads, recoveredBeforeCommit: true };
     const articles = new ArticleStore(join(paths.workspace, "articles"));
     assert.equal((await articles.read({ sessionId: "main", id: receipt.id, limit: 10_000 })).versions.length, 2);
 
@@ -201,12 +242,47 @@ async function run() {
     assert.deepEqual((await state()).versions, []);
     assert.equal((await articles.list("main")).length, 1);
     await capture("08-aborted-before-body");
+
+    // Exercise a full, growing Markdown document as well as short edits.
+    await prompt("持续输出长文");
+    const longDraft = await api.next();
+    toolChunk(longDraft, "gui-long", '{"action":"create","title":"长文持续刷新","content":"# 长文持续刷新\\n\\n开头');
+    await waitFor(async () => (await state()).text.includes("开头"), "first words of long draft");
+    const longSamples = [];
+    let longSending = true;
+    const longProducer = (async () => {
+      for (let section = 1; section <= 30; section++) {
+        const paragraph = `\n\n## 第${section}节\n\n${'长文中保留中文、引号"、路径 C:\\draft 和换行，持续检查正文刷新。'.repeat(12)}`;
+        toolChunk(longDraft, "gui-long", JSON.stringify(paragraph).slice(1, -1), false);
+        await delay(120);
+      }
+      longSending = false;
+    })();
+    while (longSending) {
+      await delay(100);
+      const current = await state();
+      assert.deepEqual(current.versions, []);
+      if (longSamples.at(-1) !== current.text.length) longSamples.push(current.text.length);
+    }
+    await longProducer;
+    await waitFor(async () => (await state()).text.includes("第30节"), "full long draft before tool end");
+    assert.ok(longSamples.length >= 3, "long content must keep painting before completion");
+    report.longSamples = longSamples;
+    await capture("09-long-draft-before-tool-end");
+    // Aborting a live draft stops recovery reads and creates no phantom version.
+    await bridge.dispatch({ action: "abort", sessionId: "main" });
+    await waitFor(async () => (await state()).status === "这一版没有写入", "abort live draft");
+    await waitFor(() => activePreviewReads === 0, "finish aborted read");
+    const readsAfterAbort = previewReads;
+    await delay(700);
+    assert.equal(previewReads, readsAfterAbort, "aborted drafts must stop polling");
+    assert.equal((await articles.list("main")).length, 1);
     assert.deepEqual(rendererErrors, []);
     assert.deepEqual(api.errors, []);
     assert.equal(bridge.bootstrap().connection.attempt, 0);
     await writeFile(join(home, "report.json"), JSON.stringify(report, null, 2));
     succeeded = true;
-    console.log(`Article GUI passed: 1920x1080, buffered API, 20x CPU slowdown, 250ms draft reads, ${samples.length} live edits. Evidence: ${home}`);
+    console.log(`Article GUI passed: 1920x1080, 20x CPU slowdown, 250ms reads, ${samples.length} live edits, ${longSamples.length} long-draft updates, lost-event/read-failure recovery. Evidence: ${home}`);
   } catch (error) {
     console.error(error);
     console.error(`Article GUI evidence: ${home}`);

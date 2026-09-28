@@ -42,6 +42,9 @@ const MAX_PULSED_BLOCKS = 16;
 const REOPEN_RETRY_MS = 300;
 const REOPEN_RETRY_LIMIT = 8;
 
+/** Recover a lost transient notification or failed read while a call is streaming. */
+const PREVIEW_RETRY_MS = 300;
+
 /** Blocks kept for reuse, on screen or not. Bounded so a long revision history cannot grow it forever. */
 const BLOCK_POOL_SIZE = 512;
 
@@ -208,6 +211,8 @@ export class ArticlePanel {
   #previewShown = 0;
   /** Token of the read loop that is running, or -1. */
   #previewPump = -1;
+  #previewRetry: number | undefined;
+  #lastDraft: ArticleDraftRead | undefined;
   /** Keep the block being written in view, until the reader scrolls on their own. */
   #followPen = true;
   /** A call the reader closed the panel on. Its drafts stay out of the way; its version still lands. */
@@ -374,6 +379,7 @@ export class ArticlePanel {
       this.#waitingForDraft = false;
       this.#status.textContent = "尚未写入新内容";
     }
+    if ((event.type === "run.settled" || event.type === "runtime.error") && this.#writing) this.#onRejected();
     if (event.type === "article.preview") {
       const toolCallId = stringValue(payload["toolCallId"]);
       if (!toolCallId) return;
@@ -479,6 +485,7 @@ export class ArticlePanel {
       this.#writingKey = toolCallId;
       this.#previewAsked = 0;
       this.#previewShown = 0;
+      this.#lastDraft = undefined;
       this.#followPen = true;
       // A draft has no saved version behind it, so there is nothing to compare it
       // against until it lands. The reader's choice comes back with the version.
@@ -494,9 +501,18 @@ export class ArticlePanel {
   #pumpPreview(): void {
     const token = this.#token;
     if (this.#previewPump === token) return;
+    window.clearTimeout(this.#previewRetry);
     this.#previewPump = token;
     void this.#drainPreview(token).finally(() => {
       if (this.#previewPump === token) this.#previewPump = -1;
+      if (token !== this.#token || !this.#writing) return;
+      // Preview events are transient and may be shed under backpressure. A
+      // single delayed read also recovers a failure after the last notification.
+      this.#previewRetry = window.setTimeout(() => {
+        if (token !== this.#token || !this.#writing) return;
+        this.#previewAsked += 1;
+        this.#pumpPreview();
+      }, PREVIEW_RETRY_MS);
     });
   }
 
@@ -507,6 +523,10 @@ export class ArticlePanel {
       if (token !== this.#token) return;
       this.#previewShown = asked;
       if (!draft) continue;
+      const previous = this.#lastDraft;
+      if (previous && previous.text === draft.text && previous.title === draft.title
+        && previous.articleId === draft.articleId && previous.baseVersion === draft.baseVersion
+        && previous.whole === draft.whole && previous.edits === draft.edits) continue;
       // An update is drawn over the version it revises. If the panel is showing
       // another article, or another version, that version goes up first.
       if (
@@ -519,6 +539,7 @@ export class ArticlePanel {
         if (base) this.#adoptBase(base);
       }
       this.#renderDraft(draft);
+      this.#lastDraft = draft;
     }
   }
 

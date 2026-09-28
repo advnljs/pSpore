@@ -2,6 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 修复文稿打开后的刷新停顿并发布 `0.1.31` | In progress | 目标机 API 尚不可直接访问 | 已补节流末次刷新和面板补取；正在验证通知丢失、读失败后无需等工具结束即可更新 |
 | P0 | 修复自建 OpenAI API 下文稿延迟展开并发布新 PATCH | Done | 无；目标机实际行为仍待下项复验 | `v0.1.30` 已发布；280 项测试、本地真实 Electron 20× CPU/250 ms 取稿/120 ms SSE、ARM64 CI GUI 通过。双架构 overlay SHA-256 与包内六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.30 |
 | P0 | 发布并远端复验 `v0.1.29` | Done | 无 | 2026-09-28：CI `36371721940`、ARM64 `36371721939`、Release `36371997615` 全部成功。tag `v0.1.29` 指向 `542fdaa`。x64 overlay 远端 `sha256sum --check` 通过，manifest `0.1.29 / electron 43.3.0 / x64`。https://github.com/advnljs/pSpore/releases/tag/v0.1.29 |
 | P0 | 发布并远端复验 `v0.1.28` | Partly done | 无 | 2026-09-23 核对：origin 上已有 `v0.1.28` tag。该 tag 停在 `3cdc4d4`，不含其后的文稿流式提交。Release 资产的远端下载校验未在当时补记 |

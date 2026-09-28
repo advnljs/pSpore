@@ -69,7 +69,7 @@
 | `scripts/linux/overlay-upgrade-gui.sh` | overlay 图形界面升级（打包为「图形界面升级.sh」）：zenity/kdialog 选目录 + 进度条，无对话框工具时回落终端 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收；并预置一篇两版文稿验收文稿面板（入场、版本芯片、首屏定位、对照上一版、四个导出按钮） |
-| `scripts/article-stream-smoke.mjs` | `npm run test:article-stream`：临时 home、本地 OpenAI SSE、真实 Daemon/Bridge/preload/renderer 的 1920×1080 文稿验证；20× CPU、250 ms 取稿、120 ms 参数分片，`PSPORE_KEEP_SMOKE=1` 保留截图和 report.json；自动结束隔离进程 |
+| `scripts/article-stream-smoke.mjs` | `npm run test:article-stream`：临时 home、本地 OpenAI SSE、真实 Daemon/Bridge/preload/renderer 的 1920×1080 文稿验证；20× CPU、250 ms 取稿、120 ms 参数分片、通知丢失/读取失败恢复、长文持续刷新与中止停止补取，`PSPORE_KEEP_SMOKE=1` 保留截图和 report.json；自动结束隔离进程 |
 | `test/fixtures/article-api.ts` / `test/integration/article-stream.test.ts` | 无真实凭据的本地 OpenAI 流服务；按测试阶段暂停 SSE，断言正文到达前的打开回执和工具执行前的预览 |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |

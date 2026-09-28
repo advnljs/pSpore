@@ -1,5 +1,19 @@
 # Overall Progress
 
+## 2026-09-28 15:58 CST — 文稿打开后刷新停顿的恢复（0.1.31 候选）
+
+- 阶段目标：修复用户反馈的内网 custom OpenAI 下文稿已打开但只显示几个字、要到结束才刷新的问题，并发布新版本。
+- 已复现的客户端缺口：①120 ms 节流没有尾端补发，最后一批草稿通知可能被吞；②面板依赖下一条瞬时通知，漏事件或最后一次取稿失败后不会再尝试。真实 Electron 对照把后续预览通知丢弃并注入一次读错误，旧渲染器 10 s 内无法恢复，新渲染器在工具完成前恢复。尚不能断定这就是内网目标机全部根因。
+- 完成内容：预览总线补发末次更新，完成/settled/dispose 清理计时器与草稿；面板在活跃调用读取循环空闲后 300 ms 补取，保持单个请求，相同正文不重绘；提交/中止/失败/关闭/切会话使补取失效。版本升为 `0.1.31`，无生产依赖变更。
+- 修改文件：`src/articles/preview.ts`、`src/pi/pi-runtime-adapter.ts`、`src/desktop/renderer/article-panel.ts`、`test/unit/article.test.ts`、`scripts/article-stream-smoke.mjs`、三个版本事实源、`dist/**` 及 memory-bank。
+- 验证方式与结果：
+  - `npm run check`：typecheck/build 通过，**281/281** 测试通过，无跳过。
+  - 真实 Electron 文稿验收：`1920×1080`、20× CPU、250 ms 取稿、120 ms SSE 分片；6 次局部修改刷新、约 13439 个可见字符长文有 7 次生成中采样变化，工具完成前显示第 30 节；丢通知/一次读失败后恢复、并发取稿最大 1、重复草稿 DOM 不重绘、提交与中止后停止补取全部通过。报告/截图：`/tmp/pspore-article-gui-zKXoVL/`；旧版失败证据：`/tmp/pspore-article-031-baseline-gui.log`。截图已人工复核。
+  - 最新构建 `node scripts/electron-smoke.mjs` 通过项目原有 PC 布局、双主题、版本 diff、导出控件、owned/external Daemon、重连与 IPC 验收。证据：`/tmp/pspore-electron-smoke-vsvgNs/` 与 `/tmp/pspore-electron-owned-smoke-hZkTU5/`。
+- 本地打包：`npm run package:desktop` 成功生成 x64 全量/overlay/SEA CLI 和可运行目录，三个 SHA-256 均通过；包内四项修复文件与已验收 dist 逐字一致。无凭据下载私有 aegis-searcher 返回 404，沿用脚本既有 best-effort 行为，未改变索引集成；正式发布仍以 CI 资产为准。
+- 当前状态：本地代码、GUI 与打包验收通过，尚未发布。隔离测试实例已正常退出；未改动用户生产服务，原有未跟踪的 `refer/` 保留。
+- 遗留问题：需升级并重启目标机应用与 Daemon 复验。API 尚未传出的字节无法被客户端显示；若真实接口缓冲整个 arguments，仍依赖分节调用。上游累计 JSON 参数重解析性能项继续留在 todo，未擅自升级/修改依赖。
+
 ## 2026-09-28 12:08 CST — v0.1.30 发布完成及双架构远端复验
 
 - 阶段目标：发布目标机 OpenAI 兼容 API 文稿提前打开的修复版本。

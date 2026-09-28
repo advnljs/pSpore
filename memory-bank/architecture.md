@@ -1,5 +1,11 @@
 # Architecture
 
+## 2026-09-28 变更：文稿预览通知与草稿读取解耦恢复
+
+- 预览事件仍只携带元数据、正文仍经切片命令读取，不新增协议或生产依赖。
+- `ArticlePreviewBus` 在 120 ms 窗口末尾补发最新草稿通知；adapter 在工具完成、会话 settled 和 dispose 时取消待发内容。
+- renderer 在活跃调用期间用既有单读取循环执行 300 ms 空闲补取，允许瞬时通知丢失或短暂读取失败；按草稿内容去重重绘，结束/关闭/切会话通过 token 使旧循环和计时器失效。
+
 ## 系统边界
 
 pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和事件序号的唯一写入者；TUI/Electron 是无权威状态客户端。模型循环复用 Pi SDK，OS 权限边界来自启动 Daemon 的用户，不提供默认 sandbox。

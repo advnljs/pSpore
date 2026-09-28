@@ -25,14 +25,19 @@ export interface ArticleDraft {
 export declare const ARTICLE_PREVIEW_INTERVAL_MS = 120;
 export declare class ArticlePreviewBus {
     #private;
+    private readonly publish;
+    private readonly clock;
+    constructor(publish?: (draft: ArticleDraft) => void, clock?: () => number);
     /**
-     * Records the latest draft. Returns true when a preview event should go out:
+     * Records the latest draft. Returns true when a preview is published now:
      * the first time this call is seen, and at most once per interval after that.
      * Identical repeats stay quiet so a token that did not extend the draft does
-     * not wake the panel.
+     * not wake the panel. A suppressed change is published at the trailing edge,
+     * even when the provider pauses without sending another token.
      */
     note(draft: ArticleDraft, now: number): boolean;
     get(toolCallId: string): ArticleDraft | undefined;
     clear(toolCallId: string): void;
+    clearSession(sessionId: string): void;
 }
 //# sourceMappingURL=preview.d.ts.map
