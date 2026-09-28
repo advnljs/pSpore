@@ -2,6 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 调查文稿 v1 仅含 31 字完成回执的问题 | Investigating | 截图无法确定目标机版本和实际 article action，版本确认已发出 | 当前 write 接受回执文本并保存的行为已用临时 HTTP/SSE 探针复现；历史 skill 的短回执规则是候选干扰，尚非确定根因。确认实际路径后验证正文上下文隔离与误存保护，不以固定字数判断有效正文 |
 | P0 | 让文稿正文使用普通文本流，并发布 0.1.32 | Done | 目标机仍需下项单独复验 | 284 项测试、1920×1080/20× CPU/250 ms Electron 验收、双架构构建与 Release 全部通过；远端双架构 overlay SHA-256、七项核心文件与 skill 0.1.2 一致性校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.32 |
 | P0 | 修复文稿打开后的刷新停顿并发布 `0.1.31` | Done | 目标机实际效果仍待下项复验 | 281 项测试与 Electron 主基准/慢 CPU/长文/漏通知/读失败恢复通过；CI `36394582634`、ARM64 `36394582691`、Release `36394997584` 成功，12 项资产。双架构 overlay SHA-256 与四项包内修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.31 |
 | P0 | 修复自建 OpenAI API 下文稿延迟展开并发布新 PATCH | Done | 无；目标机实际行为仍待下项复验 | `v0.1.30` 已发布；280 项测试、本地真实 Electron 20× CPU/250 ms 取稿/120 ms SSE、ARM64 CI GUI 通过。双架构 overlay SHA-256 与包内六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.30 |
