@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-09-28 16:55 CST — v0.1.32 已发布并核验双架构正文文本流
+
+- 阶段目标：把自研代理下 article 正文改走普通文本流的修复发布为新 PATCH，并核验实际下载包。
+- 完成内容：源码/构建/测试/记忆提交 `4b85592` 已 push 到 main，annotated `v0.1.32` 解引用到同一提交。CI `36399273957`、ARM64 预构建 `36399274103`、Release `36399692818` 全部成功；正式发布流程的 ARM64 PC Electron 验收、双架构打包与统一资产校验均通过。
+- 发布结果：<https://github.com/advnljs/pSpore/releases/tag/v0.1.32>，非 draft/prerelease，12 项 x64/ARM64 资产，发布时间 `2026-09-28T08:54:42Z`。
+- 独立远端复验：双架构 overlay SHA-256 通过；manifest 为 `0.1.32 / Electron 43.3.0`、架构正确；包内 `writer.js`、`tool.js`、`draft.js`、`publish.js`、`daemon.js`、`pi-runtime-adapter.js`、`version.js` 七项与本地已验收构建逐字一致，asar-unpacked 内 article-canvas 0.1.2 也与源码一致。证据 `/tmp/pspore-release-0.1.32-verify/`。
+- 修改文件：本阶段仅同步 `memory-bank/{overall-progress,todo}.md`。
+- 当前状态：代码、构建、发布包一致；284 项测试与 1920×1080/20× CPU/250 ms 文稿流式验收通过；本地全量/overlay/CLI 包位于 `release-dist/`。隔离桌面/Daemon 验收实例已退出，用户生产服务未改动；`refer/` 保留。
+- 遗留问题：未直接连接内网目标机。升级对应架构包后重启应用与 Daemon、新建会话，使模型加载 write 提示，再复验目标机自研代理；本地模拟及 ARM64 CI 不代表目标机已经验证。
+
 ## 2026-09-28 16:44 CST — 文稿正文普通文本流（0.1.32 候选）
 
 - 阶段目标：用户确认 custom OpenAI 后端为自研代理，主对话能流式但 article 仍卡到结束；继续修复并发新版。
