@@ -1,4 +1,16 @@
 import { ARTICLE_ID_PATTERN } from "./store.js";
+/** Private tool progress from the text writer; body stays in the preview bus. */
+export function articleDraftFromToolUpdate(sessionId, toolCallId, result) {
+    const details = isRecord(result) && isRecord(result["details"]) ? result["details"] : undefined;
+    const draft = details && isRecord(details["articleDraft"]) ? details["articleDraft"] : undefined;
+    if (!draft || (draft["action"] !== "create" && draft["action"] !== "update") || typeof draft["content"] !== "string")
+        return undefined;
+    return {
+        toolCallId, sessionId, action: draft["action"], content: draft["content"],
+        ...(typeof draft["title"] === "string" ? { title: draft["title"] } : {}),
+        ...(typeof draft["articleId"] === "string" && ARTICLE_ID_PATTERN.test(draft["articleId"]) ? { articleId: draft["articleId"] } : {}),
+    };
+}
 /**
  * Pulls the article being written out of a streaming tool-call update.
  *
@@ -25,7 +37,7 @@ export function articleDraftFromUpdate(sessionId, update, message) {
     if (typeof block["id"] !== "string" || block["id"].length === 0)
         return undefined;
     const args = isRecord(block["arguments"]) ? block["arguments"] : undefined;
-    if (!args || args["action"] === "read" || args["action"] === "open")
+    if (!args || args["action"] === "read" || args["action"] === "open" || args["action"] === "write")
         return undefined;
     const title = typeof args["title"] === "string" && args["title"].trim() ? args["title"].trim() : undefined;
     // The id streams in like everything else; a prefix of one names no article.

@@ -10,14 +10,16 @@ const ARTICLE_HEAD_LINES = 4;
 export function publishedArticleValue(toolName, value) {
     if (toolName !== "article" || !isRecord(value))
         return value;
-    if ("content" in value && typeof value["content"] === "string")
-        return publishedInput(value);
     if (Array.isArray(value["content"]))
         return publishedResult(value);
-    return value;
+    return publishedInput(value);
 }
 function publishedInput(value) {
     const next = { ...value };
+    if (typeof next["instruction"] === "string") {
+        next["instructionChars"] = next["instruction"].length;
+        delete next["instruction"];
+    }
     if (typeof next["content"] === "string") {
         next["contentChars"] = next["content"].length;
         delete next["content"];
@@ -32,8 +34,12 @@ function publishedResult(value) {
     const content = value["content"];
     if (!Array.isArray(content))
         return value;
+    const details = isRecord(value["details"]) ? { ...value["details"] } : undefined;
+    if (details)
+        delete details["articleDraft"];
     return {
         ...value,
+        ...(details ? { details } : {}),
         content: content.map((block) => {
             if (!isRecord(block) || typeof block["text"] !== "string")
                 return block;

@@ -39,7 +39,8 @@ import type {
   TranscriptMessageSlice,
   TranscriptPage,
 } from "../domain/runtime.js";
-import { articleDraftFromUpdate } from "../articles/draft.js";
+import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../articles/draft.js";
+import type { ArticleWriterModels } from "../articles/writer.js";
 import { ArticlePreviewBus, type ArticleDraft } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
 import type { AutoCompactionConfig } from "../config/config.js";
@@ -54,7 +55,7 @@ export interface PiRuntimeAdapterOptions {
   sessionRoot: string;
   modelRuntime?: ModelRuntime;
   resolveModel?: (ref: ModelRef | undefined, runtime: ModelRuntime) => Model<string> | undefined;
-  createTools?: (sessionId: SessionId) => readonly ToolDefinition[];
+  createTools?: (sessionId: SessionId, models: ArticleWriterModels) => readonly ToolDefinition[];
   createSkillPaths?: (sessionId: SessionId) => readonly string[] | Promise<readonly string[]>;
   /**
    * Skills already resolved outside Pi — the user's own workspace skills, which
@@ -508,7 +509,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       if (spec.model && !model) {
         throw new Error(`Configured model is unavailable: ${spec.model.provider}/${spec.model.model}`);
       }
-      const customTools = [...this.#createTools(spec.sessionId)];
+      const customTools = [...this.#createTools(spec.sessionId, this.#modelRuntime)];
       const enabledTools = spec.enabledTools ? [...spec.enabledTools] : customTools.map((tool) => tool.name);
       const result = await createAgentSessionFromServices({
         services,
@@ -631,14 +632,22 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
           false,
         );
         break;
-      case "tool_execution_update":
+      case "tool_execution_update": {
+        if (event.toolName === "article") {
+          const draft = articleDraftFromToolUpdate(record.spec.sessionId, event.toolCallId, event.partialResult);
+          if (draft) {
+            this.#articlePreviews.note(draft, this.#clock().getTime());
+            break;
+          }
+        }
         this.#emit(
           record,
           "tool.updated",
-          { toolCallId: event.toolCallId, toolName: event.toolName, partialResult: event.partialResult },
+          { toolCallId: event.toolCallId, toolName: event.toolName, partialResult: publishedArticleValue(event.toolName, event.partialResult) },
           true,
         );
         break;
+      }
       case "tool_execution_end":
         this.#articlePreviews.clear(event.toolCallId);
         this.#emit(

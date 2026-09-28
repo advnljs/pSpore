@@ -11,13 +11,16 @@ const ARTICLE_HEAD_LINES = 4;
 
 export function publishedArticleValue(toolName: string, value: unknown): unknown {
   if (toolName !== "article" || !isRecord(value)) return value;
-  if ("content" in value && typeof value["content"] === "string") return publishedInput(value);
   if (Array.isArray(value["content"])) return publishedResult(value);
-  return value;
+  return publishedInput(value);
 }
 
 function publishedInput(value: Record<string, unknown>): Record<string, unknown> {
   const next: Record<string, unknown> = { ...value };
+  if (typeof next["instruction"] === "string") {
+    next["instructionChars"] = next["instruction"].length;
+    delete next["instruction"];
+  }
   if (typeof next["content"] === "string") {
     next["contentChars"] = next["content"].length;
     delete next["content"];
@@ -32,8 +35,11 @@ function publishedInput(value: Record<string, unknown>): Record<string, unknown>
 function publishedResult(value: Record<string, unknown>): Record<string, unknown> {
   const content = value["content"];
   if (!Array.isArray(content)) return value;
+  const details = isRecord(value["details"]) ? { ...value["details"] } : undefined;
+  if (details) delete details["articleDraft"];
   return {
     ...value,
+    ...(details ? { details } : {}),
     content: content.map((block: unknown) => {
       if (!isRecord(block) || typeof block["text"] !== "string") return block;
       const head = block["text"].split("\n").slice(0, ARTICLE_HEAD_LINES).join("\n");

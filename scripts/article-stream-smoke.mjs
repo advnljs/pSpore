@@ -42,7 +42,7 @@ async function run() {
   app.disableHardwareAcceleration();
   // Keep Electron alive until the isolated daemon, API, and bridge have closed.
   app.on("window-all-closed", () => {});
-  const { articleApi, toolChunk, finishTool, finishText, waitFor } = await import(process.env.PSPORE_ARTICLE_FIXTURE);
+  const { articleApi, toolChunk, finishTool, finishText, textChunk, finishCompletion, waitFor } = await import(process.env.PSPORE_ARTICLE_FIXTURE);
   const { PsporeDaemon } = await import("../dist/daemon/daemon.js");
   const { DaemonBridge } = await import("../dist/desktop/daemon-bridge.js");
   const { desktopWindowOptions } = await import("../dist/desktop/security.js");
@@ -72,9 +72,27 @@ async function run() {
     bridge = new DaemonBridge({ socketPath: paths.socket, stagingRoot: join(paths.workspace, "staging"),
       versions: { pspore: "article-smoke", pi: "0.84.1", electron: process.versions.electron, node: process.versions.node } });
     const events = [];
+    const skippedPreviews = new Map();
     bridge.subscribe((frame) => {
       if (frame.kind === "event") events.push(frame.event);
-      if (!forwardPreviews && frame.kind === "event" && frame.event.type === "article.preview") return;
+      // Model the gateway's transient-event shedding, including its sequence
+      // bookkeeping. Dropping frames without `skipped` would freeze chat on a
+      // protocol gap and make the transcript isolation assertions meaningless.
+      if (!forwardPreviews && frame.kind === "event" && frame.event.type === "article.preview") {
+        const { streamId, skipped = 0 } = frame.event;
+        skippedPreviews.set(streamId, (skippedPreviews.get(streamId) ?? 0) + skipped + 1);
+        return;
+      }
+      if (frame.kind === "event" || frame.kind === "delta") {
+        const envelope = frame.kind === "event" ? frame.event : frame;
+        const skipped = skippedPreviews.get(envelope.streamId) ?? 0;
+        if (skipped) {
+          skippedPreviews.delete(envelope.streamId);
+          frame = frame.kind === "event"
+            ? { ...frame, event: { ...frame.event, skipped: (envelope.skipped ?? 0) + skipped } }
+            : { ...frame, skipped: (envelope.skipped ?? 0) + skipped };
+        }
+      }
       if (target && !target.isDestroyed()) target.webContents.send("pspore:desktop:frame", frame);
     });
     bridge.start();
@@ -117,6 +135,7 @@ async function run() {
       const current = await state();
       assert.deepEqual(current.viewport, report.viewport);
       assert.equal(current.overflow, false);
+      assert.doesNotMatch(await target.webContents.executeJavaScript("document.body.textContent"), /事件流 .* 出现缺口/);
       report.stages.push({ name, ...current });
       await writeFile(join(output, `${name}.png`), (await target.webContents.capturePage()).toPNG());
     };
@@ -277,12 +296,78 @@ async function run() {
     await delay(700);
     assert.equal(previewReads, readsAfterAbort, "aborted drafts must stop polling");
     assert.equal((await articles.list("main")).length, 1);
+
+    // The target proxy streams chat text but buffers ALL tool arguments. A
+    // short write call must switch to a tools-free text response for the body.
+    await prompt("创建一篇通过文本流生成的长文");
+    await waitFor(() => target.webContents.executeJavaScript("document.querySelector('#transcript').textContent.includes('创建一篇通过文本流生成的长文')"), "chat remains live during article writing");
+    const writeCall = await api.next();
+    toolChunk(writeCall, "gui-text-write", JSON.stringify({ action: "write", title: "普通文本流验证", instruction: "撰写一篇分为30节的文稿" }));
+    finishTool(writeCall);
+    const bodyStream = await api.next();
+    assert.equal(api.requests.at(-1).tools, undefined);
+    await waitFor(async () => (await state()).open && (await state()).title === "普通文本流验证", "writer opened before text arrives");
+    textChunk(bodyStream, "# 普通文本流验证\n\n正文专用文本片段：开头。");
+    await waitFor(async () => (await state()).text.includes("正文专用文本片段"), "writer first text before completion");
+    const textSamples = [];
+    let textSending = true;
+    const textProducer = (async () => {
+      for (let section = 1; section <= 30; section++) {
+        textChunk(bodyStream, `\n\n## 文本第${section}节\n\n${'正文走普通文本流，工具参数已经完整返回；这里验证面板随正文持续刷新。'.repeat(12)}`);
+        await delay(120);
+      }
+      textSending = false;
+    })();
+    while (textSending) {
+      await delay(100);
+      const current = await state();
+      assert.deepEqual(current.versions, []);
+      if (textSamples.at(-1) !== current.text.length) textSamples.push(current.text.length);
+    }
+    await textProducer;
+    await waitFor(async () => (await state()).text.includes("文本第30节"), "all text visible before text response finishes");
+    assert.ok(textSamples.length >= 3);
+    assert.doesNotMatch(await target.webContents.executeJavaScript("document.querySelector('#transcript').textContent"), /正文专用文本片段/);
+    assert.doesNotMatch(JSON.stringify(events), /正文专用文本片段/);
+    assert.equal((await articles.list("main")).length, 1, "streaming text is still an unsaved draft");
+    report.textStreamSamples = textSamples;
+    await capture("10-text-stream-before-completion");
+    finishCompletion(bodyStream);
+    finishText(await api.next());
+    await waitFor(async () => (await state()).versions.includes("v1"), "text writer committed once");
+    const textResult = events.find((event) => event.type === "tool.completed" && event.payload.toolCallId === "gui-text-write").payload.result;
+    const textReceipt = parseArticleReceipt(textResult.content[0].text);
+    assert.ok(textReceipt);
+    await capture("11-text-stream-committed");
+
+    const revisedBody = "# 普通文本流验证\n\n成功修订后的正文。";
+    for (const ending of ["success", "length", "abort"]) {
+      await prompt(`通过文本流修订，验证 ${ending}`);
+      const revisionCall = await api.next();
+      toolChunk(revisionCall, `gui-text-${ending}`, JSON.stringify({ action: "write", id: textReceipt.id, instruction: "保留标题，修订正文" }));
+      finishTool(revisionCall);
+      const revisionStream = await api.next();
+      assert.equal(api.requests.at(-1).tools, undefined, "revision history must not trigger the proxy's tool path");
+      textChunk(revisionStream, ending === "success" ? revisedBody : "# 普通文本流验证\n\n不应保存的半篇正文。");
+      await waitFor(async () => (await state()).text.includes(ending === "success" ? "成功修订" : "不应保存"), `live text revision ${ending}`);
+      if (ending === "abort") await bridge.dispatch({ action: "abort", sessionId: "main" });
+      else {
+        finishCompletion(revisionStream, ending === "length" ? "length" : "stop");
+        finishText(await api.next());
+      }
+      await waitFor(async () => ending === "success" ? (await state()).versions.includes("v2") : (await state()).status === "这一版没有写入", `text revision ${ending} ended`);
+      const saved = await articles.read({ sessionId: "main", id: textReceipt.id, limit: 20_000 });
+      assert.equal(saved.text, revisedBody);
+      assert.equal(saved.versions.length, 2);
+      assert.doesNotMatch((await state()).text, /不应保存/);
+    }
+    await capture("12-text-stream-failure-restores-version");
     assert.deepEqual(rendererErrors, []);
     assert.deepEqual(api.errors, []);
     assert.equal(bridge.bootstrap().connection.attempt, 0);
     await writeFile(join(home, "report.json"), JSON.stringify(report, null, 2));
     succeeded = true;
-    console.log(`Article GUI passed: 1920x1080, 20x CPU slowdown, 250ms reads, ${samples.length} live edits, ${longSamples.length} long-draft updates, lost-event/read-failure recovery. Evidence: ${home}`);
+    console.log(`Article GUI passed: 1920x1080, 20x CPU slowdown, 250ms reads, ${samples.length} live edits, ${longSamples.length} long-draft updates, ${textSamples.length} plain-text stream updates, recovery/abort/truncation. Evidence: ${home}`);
   } catch (error) {
     console.error(error);
     console.error(`Article GUI evidence: ${home}`);

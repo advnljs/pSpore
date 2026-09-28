@@ -211,9 +211,9 @@ export class PsporeDaemon {
                     throw new Error("MCP manager is not initialized");
                 return mcp;
             };
-            const toolsFor = (sessionId) => [
+            const toolsFor = (sessionId, models) => [
                 ...coreTools,
-                ...createArticleTools(sessionId, articles),
+                ...createArticleTools(sessionId, articles, models),
                 ...createMemoryTools(sessionId, memory),
                 ...createNotificationTools(sessionId, notifications),
                 ...createAutomationTools(automationControl),

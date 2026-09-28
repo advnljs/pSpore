@@ -1,4 +1,6 @@
 import type { ArticleDraft } from "./preview.js";
+/** Private tool progress from the text writer; body stays in the preview bus. */
+export declare function articleDraftFromToolUpdate(sessionId: string, toolCallId: string, result: unknown): ArticleDraft | undefined;
 /**
  * Pulls the article being written out of a streaming tool-call update.
  *

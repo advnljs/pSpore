@@ -1,14 +1,16 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { ArticleStore, cleanTitle, MAX_ARTICLE_CHARS } from "./store.js";
+import { writeArticleText } from "./writer.js";
 const editSchema = Type.Object({
     find: Type.String({ minLength: 1, maxLength: 80_000 }),
     replace: Type.String({ maxLength: 80_000 }),
 }, { additionalProperties: false });
 const articleParameters = Type.Object({
-    action: Type.Union([Type.Literal("open"), Type.Literal("create"), Type.Literal("update"), Type.Literal("read")]),
+    action: Type.Union([Type.Literal("open"), Type.Literal("write"), Type.Literal("create"), Type.Literal("update"), Type.Literal("read")]),
     id: Type.Optional(Type.String({ minLength: 16, maxLength: 16 })),
     title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    instruction: Type.Optional(Type.String({ minLength: 1, maxLength: 8_000 })),
     content: Type.Optional(Type.String({ maxLength: MAX_ARTICLE_CHARS })),
     edits: Type.Optional(Type.Array(editSchema, { maxItems: 30 })),
     version: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
@@ -22,28 +24,56 @@ const articleParameters = Type.Object({
  * no longer has the text it wrote, and it cannot revise what it cannot see.
  * The desktop broadcast strips that body; the panel loads the file.
  */
-export function createArticleTools(sessionId, articles) {
+export function createArticleTools(sessionId, articles, models) {
     const article = defineTool({
         name: "article",
         label: "Article",
-        description: "Open, create and revise a long document (article, report, essay, draft) in the document panel. First call action=open with only title (new document) or id (revision), wait for its result, then write. Do not paste the document into the chat reply.",
+        description: "Write and revise a document in the panel. To generate prose, use action=write with a short instruction and title (new) or id (revision). The tool streams the document itself using the configured model. Do NOT generate the document in tool arguments or the chat reply. open/read and exact-content create/update are also available.",
         promptSnippet: "Write and revise long documents in the article panel instead of the chat",
         promptGuidelines: [
             "When the user wants a piece of writing they will read as a document, call article instead of putting the document in the chat reply.",
             "The chat reply is one or two sentences. The panel renders the file, shows each version's diff, and exports it.",
-            "Before writing or revising, call article with action=open and only title (new document) or id (existing document). Wait for that tool result before generating content in a separate call. This opens the panel even when the API buffers tool arguments until the end; open does not save a version.",
-            "create with title and the full markdown content. Revise with update on the same id: send content for a new full draft, or edits of {find, replace} for a local change. Each change is a new version.",
-            "Build a long document through an outline and small section updates instead of one giant call. Some APIs deliver tool arguments only when complete, so each completed section is the next visible update. Keep action, id and title before content/edits in the arguments.",
+            "For generated writing or revisions, call action=write with a concise instruction describing requirements, length, structure and sources, plus title for a new article or id for an existing one. Do not put the article body in the instruction. The writer receives the preceding conversation and the saved version, uses the current model's normal TEXT stream (no tool arguments), opens the panel immediately, and saves one version only after successful completion.",
+            "Do not use create/update to generate long prose: OpenAI-compatible gateways may buffer their tool arguments until the end, so the panel cannot stream them. Use those actions only to save exact supplied content or apply a small exact {find, replace} edit.",
+            "An optional short action=open with title or id can prepare the panel first. Wait for its result, then use write. Never combine open with document content.",
             "Do not use the edit tool on the article files. read returns the current markdown when you need it again.",
         ],
         parameters: articleParameters,
         executionMode: "sequential",
-        execute: async (_toolCallId, params, signal) => {
+        execute: async (toolCallId, params, signal, onUpdate, context) => {
             if (signal?.aborted)
                 throw new Error("Article write aborted");
+            if (params.action !== "write" && params.instruction !== undefined)
+                throw new Error("instruction is only accepted by article write");
+            if (params.action === "write") {
+                if (!models)
+                    throw new Error("Article text writer is not available in this runtime");
+                if (params.content !== undefined || params.edits !== undefined || params.version !== undefined) {
+                    throw new Error("article write accepts a short instruction, not content/edits/version");
+                }
+                const instruction = required(params.instruction?.trim(), "article write requires instruction");
+                const previous = params.id ? await articles.read({ sessionId, id: params.id, limit: MAX_ARTICLE_CHARS }) : undefined;
+                if (params.id && !previous)
+                    throw new Error(`No article ${params.id} in this session.`);
+                const title = cleanTitle(required(params.title ?? previous?.title, "article write requires title or id"));
+                const draft = {
+                    toolCallId, sessionId, action: previous ? "update" : "create", title,
+                    ...(previous ? { articleId: previous.id } : {}), content: "",
+                };
+                const preview = (text) => onUpdate?.({ content: [], details: { articleDraft: { ...draft, content: text } } });
+                preview("");
+                const generated = await writeArticleText({ models, context, toolCallId, title, instruction,
+                    ...(previous ? { previous: previous.text } : {}), ...(signal ? { signal } : {}), onText: preview });
+                if (signal?.aborted)
+                    throw new Error("Article write aborted");
+                const commit = previous
+                    ? await articles.update({ sessionId, id: previous.id, title, content: generated.text })
+                    : await articles.create({ sessionId, title, content: generated.text });
+                return { content: [{ type: "text", text: formatCommit(commit) }], details: detailsOf(commit), usage: generated.usage };
+            }
             if (params.action === "open") {
                 if (params.content !== undefined || params.edits !== undefined || params.version !== undefined) {
-                    throw new Error("article open accepts only title or id; write content in the next create/update call");
+                    throw new Error("article open accepts only title or id; generate the document in the next write call");
                 }
                 const document = params.id ? await articles.read({ sessionId, id: params.id, limit: 1 }) : undefined;
                 if (params.id && !document)
@@ -54,7 +84,7 @@ export function createArticleTools(sessionId, articles) {
                                 document ? `article open ${document.id} version ${document.version}` : "article open",
                                 `标题：${title}`,
                                 "文稿面板已打开，尚未写入新版本。",
-                                document ? `Next: update ${document.id} in small sections.` : "Next: create with this title and a short outline, then update that id in small sections.",
+                                document ? `Next: write with id ${document.id} and a short revision instruction.` : "Next: write with this title and a short writing instruction; do not generate the body in tool arguments.",
                             ].join("\n") }],
                     details: { opened: true, title, ...(document ? { id: document.id, version: document.version } : {}) },
                 };

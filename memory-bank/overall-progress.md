@@ -1,5 +1,18 @@
 # Overall Progress
 
+## 2026-09-28 16:44 CST — 文稿正文普通文本流（0.1.32 候选）
+
+- 阶段目标：用户确认 custom OpenAI 后端为自研代理，主对话能流式但 article 仍卡到结束；继续修复并发新版。
+- 完成内容：新增 article `write` 短指令，复用当前 ModelRuntime/模型/认证/上下文发起无 tools 的普通文本流；正文经私有工具进度进入原有预览总线与面板，主对话保留回执。历史工具结果转参考材料，修订携带保存版本，成功才提交一次；截断/断流/中止不保存半篇。原生工具 usage 计入会话统计。工具与 article-canvas 0.1.2 提示默认采用 write，旧精确 create/update 保留；无新增依赖。
+- 修改文件：`src/articles/{writer,tool,draft,publish}.ts`、`src/pi/pi-runtime-adapter.ts`、`src/daemon/daemon.ts`、内置 article-canvas skill、流式 fixture/集成/单测、`scripts/article-stream-smoke.mjs`、版本事实源与 `dist/**`、memory-bank。
+- 验证方式与结果：
+  - `npm run check`：**284/284** 测试通过，0 跳过，typecheck/build 通过。真实 HTTP/SSE→Pi→Daemon→UDS→Bridge 覆盖工具参数整体返回后的文本增量、创建/修订无 tools、上下文/usage、广播隔离、成功/断流/截断/中止。
+  - 最新构建 `node scripts/article-stream-smoke.mjs`：真实 Electron **1920×1080**、20× CPU、250 ms 取稿下通过；旧 edits/长草稿分别 7 次采样变化，新正文文本流 **8 次**变化、12644 字草稿在响应结束前显示至第 30 节且无保存版本。成功保存一次，修订/截断/中止恢复通过，主对话正常更新且无正文泄露，无协议缺口、桥接重连、渲染器异常。截图已人工复核，证据 `/tmp/pspore-article-gui-vcrPVS/`。
+  - 修正故障注入测试的通知丢弃方式：模拟真实 gateway 的 `skipped` 序号，防止测试本身制造协议缺口、冻结主对话；每次截图断言无缺口，文本流前断言新用户消息已显示。
+  - `npm run package:desktop`：x64 全量 zip、overlay、独立 CLI 成功，CLI version/help 自检和三份 SHA-256 复核通过。产物 `release-dist/` 被忽略。本地可选 aegis-searcher 下载仍 HTTP 404，打包按既有 best-effort 逻辑继续，与本次 article 无关；未改认证或下载策略。
+- 当前状态：版本 0.1.32 已编译、启动实际 Electron 验证并完成本地打包；隔离测试实例已退出，未变更用户生产服务。待提交/push 与远端双架构 Release 验证；保留用户未跟踪的 `refer/`。
+- 遗留问题：目标机未直接连接，尚不能证实自研代理内部的缓冲实现。升级后需重启应用/Daemon、新建会话以使用新的 write 工具提示，再在目标机复验。
+
 ## 2026-09-28 16:07 CST — v0.1.31 已发布并核验双架构升级包
 
 - 阶段目标：把文稿打开后持续刷新的修复发布为新版本。

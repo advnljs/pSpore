@@ -11,7 +11,7 @@ import {
   alignArticleDraft,
   diffArticleLines,
 } from "../../src/articles/diff.js";
-import { articleDraftFromUpdate } from "../../src/articles/draft.js";
+import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../../src/articles/draft.js";
 import { markdownToDocx } from "../../src/articles/docx.js";
 import { applyArticleEdits, previewArticleEdits } from "../../src/articles/edits.js";
 import { markdownToPdfHtml } from "../../src/articles/html.js";
@@ -191,6 +191,23 @@ describe("article diff and export text", () => {
 });
 
 describe("article store", () => {
+  test("text writing validates ownership and short instructions before invoking a model", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-article-write-guards-"));
+    roots.push(root);
+    const store = new ArticleStore(join(root, "articles"));
+    const foreign = await store.create({ sessionId: "other", title: "别人的文稿", content: "不可读取" });
+    let requests = 0;
+    const tool = createArticleTools("main", store, { streamSimple: () => { requests++; throw new Error("must not call model"); } })[0]!;
+    const execute = (params: Record<string, unknown>) => tool.execute("write-guard", params, undefined, undefined, {} as never);
+    await assert.rejects(execute({ action: "write", id: foreign.id, instruction: "改写" }), /No article/);
+    await assert.rejects(execute({ action: "write", title: "新文稿", instruction: " " }), /requires instruction/);
+    await assert.rejects(execute({ action: "write", instruction: "生成文稿" }), /requires title or id/);
+    await assert.rejects(execute({ action: "write", title: "新文稿", instruction: "生成", content: "不能把正文放在参数里" }), /not content/);
+    await assert.rejects(execute({ action: "open", title: "新文稿", instruction: "错误的 action" }), /only accepted by article write/);
+    assert.equal(requests, 0);
+    assert.deepEqual(await store.list("main"), []);
+  });
+
   test("opens new or owned documents without saving versions or returning the body", async () => {
     const root = await mkdtemp(join(tmpdir(), "pspore-article-open-"));
     roots.push(root);
@@ -263,6 +280,19 @@ describe("article store", () => {
 });
 
 describe("article preview", () => {
+  test("text writer progress stays private and uses the executing call's identity", () => {
+    const result = { content: [], details: { articleDraft: {
+      action: "update", toolCallId: "ignored", sessionId: "ignored", articleId: "art_0123456789ab", title: "报告", content: "正文流式片段",
+    } } };
+    assert.deepEqual(articleDraftFromToolUpdate("main", "real-call", result), {
+      action: "update", toolCallId: "real-call", sessionId: "main", articleId: "art_0123456789ab", title: "报告", content: "正文流式片段",
+    });
+    assert.deepEqual(publishedArticleValue("article", result), { content: [], details: {} });
+    assert.deepEqual(publishedArticleValue("article", { action: "write", instruction: "写一篇报告" }), { action: "write", instructionChars: 5 });
+    assert.deepEqual(publishedArticleValue("article", { action: "update", edits: [{ find: "秘密正文", replace: "新正文" }] }), { action: "update", editCount: 1 });
+    assert.equal(partialArticleCall({ action: "write", title: "报告", instruction: "不是正文" }), undefined);
+  });
+
   test("flushes the latest burst even if no more tokens arrive, and cancels completed calls", (context) => {
     context.mock.timers.enable({ apis: ["setTimeout", "Date"] });
     const published: string[] = [];

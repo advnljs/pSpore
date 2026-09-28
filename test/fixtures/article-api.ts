@@ -64,8 +64,18 @@ export function finishTool(response: ServerResponse): void {
 }
 
 export function finishText(response: ServerResponse): void {
-  chunk(response, { content: "已在文稿面板完成。" });
-  chunk(response, {}, "stop");
+  textChunk(response, "已在文稿面板完成。");
+  finishCompletion(response);
+}
+
+export function textChunk(response: ServerResponse, text: string): void {
+  chunk(response, { content: text });
+}
+
+export function finishCompletion(response: ServerResponse, reason: "stop" | "length" = "stop"): void {
+  chunk(response, {}, reason);
+  response.write(`data: ${JSON.stringify({ id: "chatcmpl-article-fixture", object: "chat.completion.chunk", created: 0,
+    model: "article-fixture", choices: [], usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 } })}\n\n`);
   response.end("data: [DONE]\n\n");
 }
 

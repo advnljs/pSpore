@@ -2,12 +2,13 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 让文稿正文使用普通文本流，并发布 0.1.32 | In progress | 已确认自研代理；目标机仍需单独复验 | 代码完成；284 项测试、1920×1080/20× CPU/250 ms Electron 文本流持续刷新、失败恢复、x64 全量/overlay/CLI 打包通过。待提交/push 与远端双架构发布核验 |
 | P0 | 修复文稿打开后的刷新停顿并发布 `0.1.31` | Done | 目标机实际效果仍待下项复验 | 281 项测试与 Electron 主基准/慢 CPU/长文/漏通知/读失败恢复通过；CI `36394582634`、ARM64 `36394582691`、Release `36394997584` 成功，12 项资产。双架构 overlay SHA-256 与四项包内修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.31 |
 | P0 | 修复自建 OpenAI API 下文稿延迟展开并发布新 PATCH | Done | 无；目标机实际行为仍待下项复验 | `v0.1.30` 已发布；280 项测试、本地真实 Electron 20× CPU/250 ms 取稿/120 ms SSE、ARM64 CI GUI 通过。双架构 overlay SHA-256 与包内六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.30 |
 | P0 | 发布并远端复验 `v0.1.29` | Done | 无 | 2026-09-28：CI `36371721940`、ARM64 `36371721939`、Release `36371997615` 全部成功。tag `v0.1.29` 指向 `542fdaa`。x64 overlay 远端 `sha256sum --check` 通过，manifest `0.1.29 / electron 43.3.0 / x64`。https://github.com/advnljs/pSpore/releases/tag/v0.1.29 |
 | P0 | 发布并远端复验 `v0.1.28` | Partly done | 无 | 2026-09-23 核对：origin 上已有 `v0.1.28` tag。该 tag 停在 `3cdc4d4`，不含其后的文稿流式提交。Release 资产的远端下载校验未在当时补记 |
-| P1 | 在银河麒麟/飞腾目标机上复验文稿面板流式（开写即打开、edits 边写边改） | Pending | 需要目标机；自建 OpenAI API 的工具参数分片方式未知 | 用户确认 `0.1.30` 已能提前打开，仍出现前几个字后停顿。升级 `v0.1.31` ARM64 全量/overlay 后重启应用/Daemon，验证本轮末次通知补发与补取恢复。若仍停顿，需在目标机区分 API 未发送 arguments 与客户端已收到未渲染；尚未发送的正文无法在客户端展示。https://github.com/advnljs/pSpore/releases/tag/v0.1.31 |
-| P2 | `publishedArticleValue` 的 edits-only 输入漏裁剪 | Pending | 本轮仅记录，不扩大提前打开修复范围 | 现有函数只有 content 为字符串时才进入 publishedInput，单独 edits 可能进入工具活动广播；后续补 edits-only 的有界发布回归 |
+| P1 | 在银河麒麟/飞腾目标机上复验文稿面板流式 | Pending | 尚未直接连接目标机；已确认 custom OpenAI 为自研代理 | 用户反馈 0.1.31 仍不流式、主对话正常。0.1.32 改为 article write 短指令 + 普通文本流，发布后升级并重启应用/Daemon、新建会话复验。 |
+| P2 | `publishedArticleValue` 的 edits-only 输入漏裁剪 | Done | 无 | 0.1.32 文本流工具的发布裁剪统一经过 publishedInput，edits-only 只保留 editCount；单测覆盖正文不进入广播 |
 | P2 | 默认 `ask_risky` 下读取内置 skill 文件也要审批 | Pending | 属于权限策略，需用户决定 | 实测：新会话里模型写文稿前先 `read` `workspace/skills/article-canvas/SKILL.md`，它是指向安装目录的符号链接，`fs.read` 目标落在工作区外，于是弹审批（探针未应答，300 s 后超时拒绝，见临时 home 的 `state/audit/approvals.jsonl`）。桌面端用户每个新会话写文稿前都会先看到一个审批框。可选方案：把 bundled skill 的安装目录视为只读可信根；或在会话提示里直接注入 skill 正文，免去这次读取 |
 | P3 | Pi 每个 `toolcall_delta` 都整段重解析累计的参数 JSON（O(n²)） | Pending | 上游 `@earendil-works/pi-ai` 的 `parseStreamingJson` | 本机实测 1.5K 字符逐字回放共 213 ms；几万字的文稿在飞腾上会占用可观的守护进程 CPU。只影响长文、不影响正确性。若目标机上仍嫌慢，可考虑向上游提增量解析，或在 adapter 侧只对 `article` 调用降频处理 |
 | P3 | 附件选择器「选中后回到输入框」缺实机点击证据 | Pending | 测试中途本机锁屏，合成点击进不了对话框 | 对话框本身已验证会弹出且标题、内容正确；返回路径是 `showOpenDialog` + `stat`，与索引目录选择器同一套 API。下次在未锁屏时挑一个目录，确认引用芯片出现 |

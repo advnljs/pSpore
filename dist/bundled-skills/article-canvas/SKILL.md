@@ -1,7 +1,7 @@
 ---
 name: article-canvas
 description: Write and revise long documents in the article panel instead of the chat. Use when the user asks for an article, report, essay, draft, writeup, or any piece of writing they will read as a document.
-version: 0.1.1
+version: 0.1.2
 ---
 
 # 文稿面板
@@ -16,11 +16,11 @@ version: 0.1.1
 
 ## 怎么写
 
-1. **先单独调用 `article` `action=open`**：新文稿只带 `title`，修改已有文稿只带 `id`。这一步不带正文、不保存版本。必须等它返回后，再在下一轮工具调用中生成正文，不能把打开和长文写入放在同一轮。部分 OpenAI 兼容 API 会缓冲整个工具参数，只有这个短调用先完成，面板才能在长文生成前展开。
-2. 新文稿用 `action=create`，带上 `title` 和简短 Markdown 大纲 `content`；拿到 id 后逐节 `update`，每次写入一小节。支持工具参数流的 API 会边写边渲染；只在末尾返回参数的 API 则每完成一节刷新一次。聊天里只用一两句话说明写了什么。
-3. 需要改时先 `open` 已有 `id`，然后对同一个 `id` 调用 `action=update`。整篇重写就再传 `content`；只改一段就传 `edits`（`find` 必须是文稿里原样存在的文字，`replace` 是替换后的文字）。每次成功的修改都是新版本。
-4. 参数先写 `action`、`id`、`title`，最后写 `content` 或 `edits`，便于客户端尽早识别正在修改的文稿。
-5. 上下文被压缩后如果记不清正文，用 `action=read` 取回，然后继续 `update`。读到的正文不要复制进聊天。
+1. **生成文稿用 `article action=write`**：新文稿带 `title`，修改已有文稿带 `id`，并用简短 `instruction` 说明要求、字数、结构、参考材料与修改范围。不要在参数里预先写出正文。工具会沿用当前模型和接口，通过普通文本流直接把正文送进面板，完成后只保存一个版本。
+2. writer 自动接收当前工具调用之前的会话上下文，修改时还接收完整已保存文稿。先完成资料检索，再调用 write；重要事实和来源可在 instruction 中明确指定。聊天里只用一两句话说明写了什么。
+3. 可以先单独 `action=open`（新文稿只带 title，已有文稿只带 id）提前打开；等待返回后再 write。open 不保存版本。
+4. `create/update` 仅用于保存用户提供的确切正文或执行简短、精确的 `{find, replace}` 替换。不要用它们生成长文：部分 OpenAI 兼容接口会缓冲整个工具参数，主对话能流式也不能保证参数能流式。
+5. 上下文被压缩后如果记不清正文，用 `action=read` 取回。读到的正文不要复制进聊天。writer 被中止、报错或输出被截断时不保存不完整版本。
 
 ## 不要做的事
 

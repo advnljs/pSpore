@@ -39,6 +39,7 @@ import { initializePsporeHome, type PsporePaths } from "../storage/home.js";
 import { SessionCatalog } from "../sessions/session-catalog.js";
 import { ArticleStore } from "../articles/store.js";
 import { createArticleTools } from "../articles/tool.js";
+import type { ArticleWriterModels } from "../articles/writer.js";
 import { createCoreTools } from "../tools/core-tools.js";
 
 export interface DaemonRuntimeFactoryContext {
@@ -256,9 +257,9 @@ export class PsporeDaemon {
         if (!mcp) throw new Error("MCP manager is not initialized");
         return mcp;
       };
-      const toolsFor = (sessionId: string): readonly ToolDefinition[] => [
+      const toolsFor = (sessionId: string, models?: ArticleWriterModels): readonly ToolDefinition[] => [
         ...coreTools,
-        ...createArticleTools(sessionId, articles),
+        ...createArticleTools(sessionId, articles, models),
         ...createMemoryTools(sessionId, memory),
         ...createNotificationTools(sessionId, notifications),
         ...createAutomationTools(automationControl),

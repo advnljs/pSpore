@@ -2,7 +2,7 @@ import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
-import { articleDraftFromUpdate } from "../articles/draft.js";
+import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../articles/draft.js";
 import { ArticlePreviewBus } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
@@ -395,7 +395,7 @@ export class PiRuntimeAdapter {
             if (spec.model && !model) {
                 throw new Error(`Configured model is unavailable: ${spec.model.provider}/${spec.model.model}`);
             }
-            const customTools = [...this.#createTools(spec.sessionId)];
+            const customTools = [...this.#createTools(spec.sessionId, this.#modelRuntime)];
             const enabledTools = spec.enabledTools ? [...spec.enabledTools] : customTools.map((tool) => tool.name);
             const result = await createAgentSessionFromServices({
                 services,
@@ -509,9 +509,17 @@ export class PiRuntimeAdapter {
                     input: publishedArticleValue(event.toolName, event.args),
                 }, false);
                 break;
-            case "tool_execution_update":
-                this.#emit(record, "tool.updated", { toolCallId: event.toolCallId, toolName: event.toolName, partialResult: event.partialResult }, true);
+            case "tool_execution_update": {
+                if (event.toolName === "article") {
+                    const draft = articleDraftFromToolUpdate(record.spec.sessionId, event.toolCallId, event.partialResult);
+                    if (draft) {
+                        this.#articlePreviews.note(draft, this.#clock().getTime());
+                        break;
+                    }
+                }
+                this.#emit(record, "tool.updated", { toolCallId: event.toolCallId, toolName: event.toolName, partialResult: publishedArticleValue(event.toolName, event.partialResult) }, true);
                 break;
+            }
             case "tool_execution_end":
                 this.#articlePreviews.clear(event.toolCallId);
                 this.#emit(record, "tool.completed", {

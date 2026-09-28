@@ -4,6 +4,16 @@
 
 长文不进聊天。模型用 `article` 工具在工作区里维护一份 Markdown 文稿；桌面端打开独立面板，流式渲染当前草稿，提交后对照上一版并做段落动画。导出在主进程完成。
 
+### 正文改走普通文本流（0.1.32）
+
+- 用户确认目标机是自研代理，主对话能流式但 article 仍等结束；增加 `action=write`，参数仅传短 `instruction` 与新文稿 `title` / 修订 `id`。通过当前 ModelRuntime、模型、认证与 thinking 配置发起普通文本流，正文不再装进工具参数。
+- `writer.ts` 继承压缩后的会话上下文与修订基线，去掉当前未完成工具调用，把历史工具结果标成参考资料，移除历史 tool calls/thinking，保证 OpenAI 请求不携带 `tools`（包括空数组）。不创建额外 agent，不新增配置或依赖。
+- 文本 delta → 私有 tool progress → adapter 的 `ArticlePreviewBus` → 原有单循环取稿/面板。先发送空草稿打开面板，后续正文不进 transcript、工具活动或广播；广播也裁剪 instruction、edits-only 输入和私有进度字段。
+- 只有成功结束且非空、未超大小上限才提交一个版本；中止、断流、length 截断不保存半篇，也不覆盖原版。返回 Pi 原生工具结果 `usage`，纳入持久化会话 token/费用统计。
+- 工具提示与内置 article-canvas skill 0.1.2 默认指导生成/修订使用 write。旧 create/update 保留给用户提供的精确正文或小补丁；open 为可选准备步骤，返回后使用 write。
+- 集成测试用真实 HTTP/SSE → Pi → Daemon → UDS → Bridge，验证工具参数整块到达后仍能从文本流增量取正文、创建/修订请求均无 tools、正文不泄露到聊天、usage 统计与失败保护。Electron smoke 同时验证正文尚未结束时已多次刷新。
+- 需重启 Daemon 并新建会话以载入新工具/skill 提示；仍需目标机实测确认自研代理的普通文本请求行为。
+
 ### 打开后停在少量文字的恢复（0.1.31）
 
 - `ArticlePreviewBus` 的 120 ms 节流改为首条立即发布、被合并的最后一条定时补发；网关发完一批参数后暂停，也不会把末次草稿通知一直留到工具结束。完成调用、会话结束/中止、dispose 都清理待发计时器与草稿。
@@ -35,11 +45,12 @@
 | 文件 | 职责 |
 |---|---|
 | `store.ts` | `~/.pspore/workspace/articles/<id>/`：`meta.json`、`v0001.md`…、`current.md`。id 为 `art_` + 12 位十六进制。单篇最多 400_000 个 UTF-16 码元、100 个版本。内容不变不追加版本。读和改都核对 session。路径经 realpath，拒绝逃出目录。NUL 换成 U+FFFD |
-| `tool.ts` | `open` / `create` / `update` / `read`。open 返回独立 `article open` 回执，不存版本；其他回执第一行固定 `article art_xxxxxxxxxxxx version N`，随后是标题、字数和版本变化。`read` 把正文给模型，广播侧会裁掉 |
+| `tool.ts` | `open` / `write` / `create` / `update` / `read`。write 用短指令启动普通文本流；open 返回独立 `article open` 回执，不存版本；其他回执第一行固定 `article art_xxxxxxxxxxxx version N`，随后是标题、字数和版本变化。`read` 把正文给模型，广播侧会裁掉 |
+| `writer.ts` | 当前模型普通文本流、会话参考材料、修订基线、大小/中止/结束校验及原生 usage。仅服务端使用 |
 | `diff.ts` | 按空行切段，围栏代码整段保留。LCS；段落积超过 250_000 时退化为前后缀。另有 `diffArticleLines()`：先裁公共首尾再对中间 LCS，`token` 粒度把相邻的删除串/新增串按位配对、逐 token 求 LCS，只在相似度 ≥ 0.4 时标到行内。分词按拉丁串/空白成串、其余逐字，中英都成立。渲染器可导入，无 Node |
-| `preview.ts` / `draft.ts` | 从 Pi `toolcall_delta` 里取出正在写的调用：`action` 为 `create`/`update` 即算数（不等正文），`read` 忽略；`content` 整篇草稿，或 `edits` 中 `find` 已写完整的那几处（键顺序即解析顺序：`replace` 出现在 `find` 之后才算引文闭合），最后一处的 `replace` 可能还在写（`editOpen`）。`id` 必须完整匹配 `art_` + 12 位十六进制，半截 id 不算。预览总线 120 ms 节流，edits 按长度判等（参数只增不减）。事件只带 toolCallId、标题、id 和字数，正文留在进程内 |
+| `preview.ts` / `draft.ts` | 从 Pi `toolcall_delta` 里取出正在写的调用：`action` 为 `create`/`update` 即算数（不等正文），`read` 忽略；`content` 整篇草稿，或 `edits` 中 `find` 已写完整的那几处（键顺序即解析顺序：`replace` 出现在 `find` 之后才算引文闭合），最后一处的 `replace` 可能还在写（`editOpen`）。`id` 必须完整匹配 `art_` + 12 位十六进制，半截 id 不算。预览总线 120 ms 节流，edits 按长度判等（参数只增不减）。write 的正文从私有工具进度接入同一总线。事件只带 toolCallId、标题、id 和字数，正文留在进程内 |
 | `edits.ts` | `applyArticleEdits`（提交：按序替换首次出现，找不到抛错）与 `previewArticleEdits`（预览：找不到跳过；写到一半的替换若仍是原文前缀则原文不动，已分岔则按块 1:1 顶替、没写到的旧块留着）。无 Node |
-| `publish.ts` | 广播前去掉工具参数里的 `content` / `edits`，工具结果只留前 4 行，避免正文冲上 64 KiB 出站上限 |
+| `publish.ts` | 广播前去掉工具参数里的 `content` / `edits` / `instruction` 及工具进度里的 `articleDraft`，工具结果只留前 4 行，避免正文冲上 64 KiB 出站上限 |
 | `receipt.ts` | 解析回执，供面板和聊天卡片定位文稿 |
 | `plain.ts` / `html.ts` / `docx.ts` / `zip-write.ts` | txt 去掉 Markdown 标记，嵌套列表按两空格逐级缩进；pdf 用 HTML，列表项的首段直接内联进 `<li>`（包成 `<p>` 会让 ☑ 和文字分行、每项多一段行距）；docx 是自写的 WordprocessingML ZIP（`node:zlib`，无新依赖），`numbering.xml` 声明 9 级、字体用 Calibri/Consolas/宋体这类目标机上真实存在的名字，ZIP 条目写 1980-01-01 的合法 DOS 日期。`plain.ts` 与 `html.ts` 无 Node，可被渲染器导入；`docx.ts` 与 `zip-write.ts` 不行 |
 | `article-export.ts` | 保存对话框。pdf 用隐藏、关 JavaScript 的沙箱窗口 `printToPDF`，中文走系统字体 |

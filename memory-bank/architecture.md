@@ -168,3 +168,10 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
   - 领域：新增 `comparing` 阶段；新增 `lastPass`（完成时间、耗时、处理/未变化/失败数），在下一次扫描开始后仍保留。
   - `IndexService`：`done` 记录与干净退出都会结束一次扫描，但只记录一次；新扫描开始时清掉 `finishedAt`、保留 `lastPass`。
   - GUI：展示规则抽成 `src/desktop/renderer/indexing-view.ts` 纯函数；扫描/比对/无待索引文件时为不确定进度条（复用 `activity-travel` 动效，reduced-motion 下只保留着色轨道）+ 每秒刷新的已用时；超过 60 秒说明"期间没有逐个文件的进度"；有上次结果时注明"此前的索引仍可搜索"；完成后显示"已是最新"、满格进度条与统计。
+
+
+## 2026-09-28 变更：article 普通文本流（0.1.32）
+
+- 自研代理能流式发送主对话、却可能缓冲工具参数；新增短指令 `article write`，通过 adapter 注入的当前 ModelRuntime 发起无 tools 的普通文本请求。复用会话上下文、当前模型、认证、thinking 与保存版本，不创建额外 agent。
+- 正文 delta 只经工具私有进度进入现有 ArticlePreviewBus；协议继续只广播标题/id/字数，面板按需取稿，主对话保留短回执。成功才提交一个版本，中止/断流/截断保留旧版本；请求 usage 经 Pi 工具结果的原生 usage 计入会话。
+- create/update 保留用于精确写入/局部补丁；不改存储、外部协议或配置格式，不新增生产依赖。提示与内置 skill 默认使用 write。
