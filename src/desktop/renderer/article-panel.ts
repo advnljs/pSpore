@@ -8,7 +8,7 @@ import {
   diffArticleLines,
   type ArticleLineDiff,
 } from "../../articles/diff.js";
-import { parseArticleReceipt } from "../../articles/receipt.js";
+import { parseArticleOpenReceipt, parseArticleReceipt, type ArticleOpenReceipt } from "../../articles/receipt.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
 import type { ArticleExportFormat, ArticleExportResult, DesktopCommand } from "../ipc-contract.js";
@@ -201,6 +201,7 @@ export class ArticlePanel {
   /** The view the reader chose, restored once a draft becomes a version again. */
   #preferredView: ArticleView = "read";
   #writing = false;
+  #waitingForDraft = false;
   #writingKey = "";
   /** Preview events seen for the call being written, and how many of them are already drawn. */
   #previewAsked = 0;
@@ -318,6 +319,7 @@ export class ArticlePanel {
       this.#session = sessionId;
       this.#token += 1;
       this.#writing = false;
+      this.#waitingForDraft = false;
       this.#dismissedKey = "";
       this.#reopenSession = "";
       this.#reopenRetries = 0;
@@ -359,6 +361,7 @@ export class ArticlePanel {
     this.#summary.hidden = true;
     this.#status.textContent = "";
     this.#version.textContent = "";
+    this.#syncExports();
     this.#title.textContent = "文稿";
     this.#view = "read";
     this.#syncViews(false);
@@ -367,6 +370,10 @@ export class ArticlePanel {
   onEvent(event: EventEnvelope): void {
     const payload = asRecord(event.payload);
     if (stringValue(payload["sessionId"]) !== this.#sessionId()) return;
+    if (event.type === "run.settled" && this.#waitingForDraft) {
+      this.#waitingForDraft = false;
+      this.#status.textContent = "尚未写入新内容";
+    }
     if (event.type === "article.preview") {
       const toolCallId = stringValue(payload["toolCallId"]);
       if (!toolCallId) return;
@@ -379,9 +386,32 @@ export class ArticlePanel {
       }
       return;
     }
-    const receipt = parseArticleReceipt(toolResultText(payload["result"]));
+    const text = toolResultText(payload["result"]);
+    const opened = parseArticleOpenReceipt(text);
+    if (opened) {
+      void this.#onOpened(opened);
+      return;
+    }
+    const receipt = parseArticleReceipt(text);
     if (!receipt) return;
     void this.#onCommitted(receipt.id, receipt.version, receipt.title);
+  }
+
+  /** The short preparation call completes before the next, possibly buffered, LLM response. */
+  async #onOpened(receipt: ArticleOpenReceipt): Promise<void> {
+    const token = ++this.#token;
+    this.#writing = false;
+    this.#waitingForDraft = true;
+    if (!receipt.id || receipt.id !== this.#articleId) this.#forget();
+    this.#titleText = receipt.title;
+    this.#show(receipt.title);
+    this.#status.textContent = "文稿已打开，等待正文…";
+    if (receipt.id) {
+      const loaded = await this.#load(receipt.id, receipt.version);
+      if (token !== this.#token) return;
+      if (loaded) this.#applyLoaded(loaded, false, "top");
+      this.#status.textContent = this.#waitingForDraft ? "文稿已打开，等待修改…" : "尚未写入新内容";
+    }
   }
 
   async open(id: string, version?: number): Promise<void> {
@@ -399,6 +429,7 @@ export class ArticlePanel {
   }
 
   close(): void {
+    this.#waitingForDraft = false;
     if ((!this.#open && this.#panel.hidden) || this.#closing) {
       this.#syncReopen();
       return;
@@ -440,6 +471,7 @@ export class ArticlePanel {
    */
   #onPreview(toolCallId: string, title: string | undefined): void {
     if (toolCallId === this.#dismissedKey) return;
+    this.#waitingForDraft = false;
     if (!this.#writing || toolCallId !== this.#writingKey) {
       // A new call supersedes whatever was being loaded or written before it.
       this.#token += 1;
@@ -558,6 +590,7 @@ export class ArticlePanel {
    * that will never exist; the saved one goes back up.
    */
   #onRejected(): void {
+    this.#waitingForDraft = false;
     if (this.#writing) {
       this.#token += 1;
       this.#writing = false;
@@ -573,6 +606,7 @@ export class ArticlePanel {
   async #onCommitted(id: string, version: number, title: string | undefined): Promise<void> {
     const token = ++this.#token;
     this.#writing = false;
+    this.#waitingForDraft = false;
     this.#show(title || this.#titleText || "文稿");
     // Streaming only kept the draft, so an update that lands without the prior
     // version on screen still diffs against that saved text.
@@ -788,6 +822,7 @@ export class ArticlePanel {
   }
 
   #paintVersions(): void {
+    this.#syncExports();
     this.#versions.replaceChildren();
     for (const version of this.#versionsKnown) {
       const button = document.createElement("button");
@@ -824,7 +859,7 @@ export class ArticlePanel {
   }
 
   #syncExports(): void {
-    for (const button of this.#exportButtons) button.disabled = this.#exporting;
+    for (const button of this.#exportButtons) button.disabled = this.#exporting || this.#loadedVersion < 1;
   }
 
   async #refreshReopen(sessionId: string): Promise<void> {

@@ -62,6 +62,7 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 31. GUI 文件/目录拖拽保持为 renderer 草稿状态：preload 仅用 Electron `webUtils.getPathForFile` 把用户真实拖入的 `File` 转成绝对路径，不增加任意路径 IPC 或文件读取能力；renderer 去重并显示可移除引用，发送时只把路径序列化为带引号的 `@` token，目录不展开，drop 不触发 command。
 32. UDS server 大消息使用显式协商的 `server-frame-chunks.v1` transport capability：超过 1 MiB 的完整 snapshot/event 先在 64 MiB 逻辑上限内选择 gzip 或原始 bytes，再用有序 base64 chunk envelopes 发送；每个物理 frame 仍受原上限约束，客户端严格校验顺序、长度、编码和解压上限后才交给既有 reducer。自动 compact 仍复用 Pi 原生算法，同时增加共享 `triggerTokens` 直接阈值，在新 turn 前及 turn 完成后检查 active context；模型上限 reserve 保护继续独立生效。
 33. 长文是 `article` 工具维护的版本文件，不是从助手正文里自动截出来的。正文不进 `tool.started` / `tool.completed` / 快照；预览事件只带元数据，面板用 `article.preview` / `article.get` 按片取回。导出（txt/md/docx/pdf）留在 Electron main，不进公共协议。详见 `module-articles.md`。
+34. `article open` 通过既有工具完成回执提前打开文稿，不引入新的广播协议或持久状态；独立短调用把打开时机与长正文参数的到达时机分开，兼容缓冲工具参数的 OpenAI API。参数流仍沿用原链路；真正的正文流式能力由服务端实际发送的数据决定。
 
 ## 重要约束
 

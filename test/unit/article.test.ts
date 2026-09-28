@@ -18,7 +18,7 @@ import { markdownToPdfHtml } from "../../src/articles/html.js";
 import { markdownToPlainText } from "../../src/articles/plain.js";
 import { ArticlePreviewBus } from "../../src/articles/preview.js";
 import { publishedArticleValue } from "../../src/articles/publish.js";
-import { parseArticleReceipt } from "../../src/articles/receipt.js";
+import { parseArticleOpenReceipt, parseArticleReceipt } from "../../src/articles/receipt.js";
 import { ArticleStore } from "../../src/articles/store.js";
 import { createArticleTools } from "../../src/articles/tool.js";
 import { ZipArchive } from "../../src/documents/zip.js";
@@ -191,6 +191,34 @@ describe("article diff and export text", () => {
 });
 
 describe("article store", () => {
+  test("opens new or owned documents without saving versions or returning the body", async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-article-open-"));
+    roots.push(root);
+    const store = new ArticleStore(join(root, "articles"));
+    const article = createArticleTools("main", store)[0];
+    assert.ok(article);
+    const execute = (params: Record<string, unknown>) => article.execute("open-call", params, undefined, undefined, {} as never);
+    const opened = await execute({ action: "open", title: "新文稿" });
+    const text = publishedArticleText(opened);
+    assert.deepEqual(parseArticleOpenReceipt(text), { title: "新文稿" });
+    assert.equal(parseArticleReceipt(text), undefined, "an opening is not a saved-version receipt");
+    assert.deepEqual(await store.list("main"), []);
+    const saved = await store.create({ sessionId: "main", title: "已有文稿", content: "正文不应出现在打开回执里" });
+    const reopened = publishedArticleText(await execute({ action: "open", id: saved.id }));
+    assert.deepEqual(parseArticleOpenReceipt(reopened), { title: "已有文稿", id: saved.id, version: 1 });
+    assert.doesNotMatch(reopened, /正文不应出现在打开回执里/);
+    assert.equal((await store.read({ sessionId: "main", id: saved.id, limit: 100 }))?.versions.length, 1);
+    const other = await store.create({ sessionId: "other", title: "其他会话", content: "不属于此会话" });
+    await assert.rejects(execute({ action: "open", id: other.id }), /No article/);
+    await assert.rejects(execute({ action: "open", id: "art_000000000000" }), /No article/);
+    await assert.rejects(execute({ action: "open", title: " " }), /requires title or id/);
+    await assert.rejects(execute({ action: "open", title: "长".repeat(121) }), /longer than 120/);
+    assert.equal(parseArticleOpenReceipt(publishedArticleText(await execute({ action: "open", title: "一行\n标题" })))?.title, "一行 标题");
+    await assert.rejects(execute({ action: "open", title: "新文稿", content: "不允许捎带正文" }), /only title or id/);
+    assert.equal(parseArticleOpenReceipt("article open art_123 version 1\n标题：无效"), undefined);
+    assert.equal(partialArticleCall({ action: "open", title: "新文稿" }), undefined);
+  });
+
   test("keeps versions, applies an edit, and refuses to escape the directory", async () => {
     const root = await mkdtemp(join(tmpdir(), "pspore-article-"));
     roots.push(root);

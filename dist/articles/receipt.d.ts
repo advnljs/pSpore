@@ -5,5 +5,12 @@ export interface ArticleReceipt {
     version: number;
     title?: string;
 }
+export interface ArticleOpenReceipt {
+    title: string;
+    id?: string;
+    version?: number;
+}
+/** A preparation call opens the surface without pretending a version was saved. */
+export declare function parseArticleOpenReceipt(text: string): ArticleOpenReceipt | undefined;
 export declare function parseArticleReceipt(text: string): ArticleReceipt | undefined;
 //# sourceMappingURL=receipt.d.ts.map

@@ -2,6 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 修复自建 OpenAI API 下文稿延迟展开并发布新 PATCH | In Progress | 目标机 API 的实际工具参数分片方式尚未确认 | 用本地 OpenAI SSE 复现分片和整包工具参数，补针对性回归与当前环境 GUI 验证，再推送并核验新 Release |
 | P0 | 发布并远端复验 `v0.1.29` | Done | 无 | 2026-09-28：CI `36371721940`、ARM64 `36371721939`、Release `36371997615` 全部成功。tag `v0.1.29` 指向 `542fdaa`。x64 overlay 远端 `sha256sum --check` 通过，manifest `0.1.29 / electron 43.3.0 / x64`。https://github.com/advnljs/pSpore/releases/tag/v0.1.29 |
 | P0 | 发布并远端复验 `v0.1.28` | Partly done | 无 | 2026-09-23 核对：origin 上已有 `v0.1.28` tag。该 tag 停在 `3cdc4d4`，不含其后的文稿流式提交。Release 资产的远端下载校验未在当时补记 |
 | P1 | 在银河麒麟/飞腾目标机上复验文稿面板流式（开写即打开、edits 边写边改） | Pending | 需要目标机 | 正式包已是 `v0.1.29` 的 ARM64 全量/overlay：https://github.com/advnljs/pSpore/releases/tag/v0.1.29 |
@@ -123,4 +124,3 @@
 | P2 | TUI 连接稳定期的视觉复核 | Pending | 需要真实 TTY | 在 `160×45` 下人工制造短暂断连，确认状态行不再闪烁且真实掉线仍会显示 |
 | P2 | `main` 推送的 ARM64 预览件仍传不上去 | Pending | GitHub 制品配额用量按 6~12 小时重算，删除后账面尚未恢复 | 现在 `continue-on-error: true`，失败不再拖垮 run（`v0.1.25` 正是靠这个才发得出去），但预览包暂时下载不到。保留期已从 14 天缩到 2 天；等账面刷新后确认 run `34321174622` 之后的预览件能正常产出 |
 | P2 | aegis-searcher `v0.2.2` 仍未发出 | Blocked | GitHub 制品配额未恢复 | tag 已推送，发布路径仍是制品中转（`upload-artifact` → `download-artifact` → `softprops/action-gh-release`），两个 arch 都挂在 `Upload artifact`。2026-09-09 15:11 重跑 run `34195399620` 仍报同一错误。已排 2026-09-10 07:04 的一次性重试；若届时仍失败，建议改成 pSpore 那样直传 Release 草稿（需新 tag `v0.2.3` 才生效，因为 tag 推送用的是该 tag 提交里的 workflow） |
-

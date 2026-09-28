@@ -74,4 +74,5 @@ export declare class ArticleStore {
     } | undefined>;
     list(sessionId: string): Promise<ArticleSummary[]>;
 }
+export declare function cleanTitle(title: string): string;
 //# sourceMappingURL=store.d.ts.map

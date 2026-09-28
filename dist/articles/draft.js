@@ -25,7 +25,7 @@ export function articleDraftFromUpdate(sessionId, update, message) {
     if (typeof block["id"] !== "string" || block["id"].length === 0)
         return undefined;
     const args = isRecord(block["arguments"]) ? block["arguments"] : undefined;
-    if (!args || args["action"] === "read")
+    if (!args || args["action"] === "read" || args["action"] === "open")
         return undefined;
     const title = typeof args["title"] === "string" && args["title"].trim() ? args["title"].trim() : undefined;
     // The id streams in like everything else; a prefix of one names no article.

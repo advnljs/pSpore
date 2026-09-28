@@ -310,7 +310,7 @@ function versionName(version: number): string {
   return `v${String(version).padStart(4, "0")}.md`;
 }
 
-function cleanTitle(title: string): string {
+export function cleanTitle(title: string): string {
   const cleaned = title.replace(NUL, "\uFFFD").replace(/\s+/g, " ").trim();
   if (!cleaned) throw new Error("Article title is empty");
   if (cleaned.length > 120) throw new Error("Article title is longer than 120 characters");

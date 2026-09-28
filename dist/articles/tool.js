@@ -1,12 +1,12 @@
 import { defineTool } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ArticleStore, MAX_ARTICLE_CHARS } from "./store.js";
+import { ArticleStore, cleanTitle, MAX_ARTICLE_CHARS } from "./store.js";
 const editSchema = Type.Object({
     find: Type.String({ minLength: 1, maxLength: 80_000 }),
     replace: Type.String({ maxLength: 80_000 }),
 }, { additionalProperties: false });
 const articleParameters = Type.Object({
-    action: Type.Union([Type.Literal("create"), Type.Literal("update"), Type.Literal("read")]),
+    action: Type.Union([Type.Literal("open"), Type.Literal("create"), Type.Literal("update"), Type.Literal("read")]),
     id: Type.Optional(Type.String({ minLength: 16, maxLength: 16 })),
     title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
     content: Type.Optional(Type.String({ maxLength: MAX_ARTICLE_CHARS })),
@@ -26,13 +26,14 @@ export function createArticleTools(sessionId, articles) {
     const article = defineTool({
         name: "article",
         label: "Article",
-        description: "Create and revise a long document (article, report, essay, draft) in the document panel. Do not paste that document into the chat reply.",
+        description: "Open, create and revise a long document (article, report, essay, draft) in the document panel. First call action=open with only title (new document) or id (revision), wait for its result, then write. Do not paste the document into the chat reply.",
         promptSnippet: "Write and revise long documents in the article panel instead of the chat",
         promptGuidelines: [
             "When the user wants a piece of writing they will read as a document, call article instead of putting the document in the chat reply.",
             "The chat reply is one or two sentences. The panel renders the file, shows each version's diff, and exports it.",
+            "Before writing or revising, call article with action=open and only title (new document) or id (existing document). Wait for that tool result before generating content in a separate call. This opens the panel even when the API buffers tool arguments until the end; open does not save a version.",
             "create with title and the full markdown content. Revise with update on the same id: send content for a new full draft, or edits of {find, replace} for a local change. Each change is a new version.",
-            "Pass the document through several updates (outline, draft, revision) rather than one giant reply.",
+            "Build a long document through an outline and small section updates instead of one giant call. Some APIs deliver tool arguments only when complete, so each completed section is the next visible update. Keep action, id and title before content/edits in the arguments.",
             "Do not use the edit tool on the article files. read returns the current markdown when you need it again.",
         ],
         parameters: articleParameters,
@@ -40,6 +41,24 @@ export function createArticleTools(sessionId, articles) {
         execute: async (_toolCallId, params, signal) => {
             if (signal?.aborted)
                 throw new Error("Article write aborted");
+            if (params.action === "open") {
+                if (params.content !== undefined || params.edits !== undefined || params.version !== undefined) {
+                    throw new Error("article open accepts only title or id; write content in the next create/update call");
+                }
+                const document = params.id ? await articles.read({ sessionId, id: params.id, limit: 1 }) : undefined;
+                if (params.id && !document)
+                    throw new Error(`No article ${params.id} in this session.`);
+                const title = document?.title ?? cleanTitle(required(params.title?.trim(), "article open requires title or id"));
+                return {
+                    content: [{ type: "text", text: [
+                                document ? `article open ${document.id} version ${document.version}` : "article open",
+                                `标题：${title}`,
+                                "文稿面板已打开，尚未写入新版本。",
+                                document ? `Next: update ${document.id} in small sections.` : "Next: create with this title and a short outline, then update that id in small sections.",
+                            ].join("\n") }],
+                    details: { opened: true, title, ...(document ? { id: document.id, version: document.version } : {}) },
+                };
+            }
             if (params.action === "read") {
                 if (!params.id)
                     throw new Error("article read requires id");

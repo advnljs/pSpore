@@ -1,6 +1,6 @@
 /// <reference lib="DOM" />
 import { alignArticleDraft, articleChangeCounts, articleLineChangeCounts, diffArticleBlocks, diffArticleLines, } from "../../articles/diff.js";
-import { parseArticleReceipt } from "../../articles/receipt.js";
+import { parseArticleOpenReceipt, parseArticleReceipt } from "../../articles/receipt.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown } from "./markdown-view.js";
@@ -135,6 +135,7 @@ export class ArticlePanel {
     /** The view the reader chose, restored once a draft becomes a version again. */
     #preferredView = "read";
     #writing = false;
+    #waitingForDraft = false;
     #writingKey = "";
     /** Preview events seen for the call being written, and how many of them are already drawn. */
     #previewAsked = 0;
@@ -247,6 +248,7 @@ export class ArticlePanel {
             this.#session = sessionId;
             this.#token += 1;
             this.#writing = false;
+            this.#waitingForDraft = false;
             this.#dismissedKey = "";
             this.#reopenSession = "";
             this.#reopenRetries = 0;
@@ -288,6 +290,7 @@ export class ArticlePanel {
         this.#summary.hidden = true;
         this.#status.textContent = "";
         this.#version.textContent = "";
+        this.#syncExports();
         this.#title.textContent = "文稿";
         this.#view = "read";
         this.#syncViews(false);
@@ -296,6 +299,10 @@ export class ArticlePanel {
         const payload = asRecord(event.payload);
         if (stringValue(payload["sessionId"]) !== this.#sessionId())
             return;
+        if (event.type === "run.settled" && this.#waitingForDraft) {
+            this.#waitingForDraft = false;
+            this.#status.textContent = "尚未写入新内容";
+        }
         if (event.type === "article.preview") {
             const toolCallId = stringValue(payload["toolCallId"]);
             if (!toolCallId)
@@ -309,10 +316,35 @@ export class ArticlePanel {
             }
             return;
         }
-        const receipt = parseArticleReceipt(toolResultText(payload["result"]));
+        const text = toolResultText(payload["result"]);
+        const opened = parseArticleOpenReceipt(text);
+        if (opened) {
+            void this.#onOpened(opened);
+            return;
+        }
+        const receipt = parseArticleReceipt(text);
         if (!receipt)
             return;
         void this.#onCommitted(receipt.id, receipt.version, receipt.title);
+    }
+    /** The short preparation call completes before the next, possibly buffered, LLM response. */
+    async #onOpened(receipt) {
+        const token = ++this.#token;
+        this.#writing = false;
+        this.#waitingForDraft = true;
+        if (!receipt.id || receipt.id !== this.#articleId)
+            this.#forget();
+        this.#titleText = receipt.title;
+        this.#show(receipt.title);
+        this.#status.textContent = "文稿已打开，等待正文…";
+        if (receipt.id) {
+            const loaded = await this.#load(receipt.id, receipt.version);
+            if (token !== this.#token)
+                return;
+            if (loaded)
+                this.#applyLoaded(loaded, false, "top");
+            this.#status.textContent = this.#waitingForDraft ? "文稿已打开，等待修改…" : "尚未写入新内容";
+        }
     }
     async open(id, version) {
         const token = ++this.#token;
@@ -329,6 +361,7 @@ export class ArticlePanel {
         this.#applyLoaded(loaded, true, "top");
     }
     close() {
+        this.#waitingForDraft = false;
         if ((!this.#open && this.#panel.hidden) || this.#closing) {
             this.#syncReopen();
             return;
@@ -373,6 +406,7 @@ export class ArticlePanel {
     #onPreview(toolCallId, title) {
         if (toolCallId === this.#dismissedKey)
             return;
+        this.#waitingForDraft = false;
         if (!this.#writing || toolCallId !== this.#writingKey) {
             // A new call supersedes whatever was being loaded or written before it.
             this.#token += 1;
@@ -496,6 +530,7 @@ export class ArticlePanel {
      * that will never exist; the saved one goes back up.
      */
     #onRejected() {
+        this.#waitingForDraft = false;
         if (this.#writing) {
             this.#token += 1;
             this.#writing = false;
@@ -510,6 +545,7 @@ export class ArticlePanel {
     async #onCommitted(id, version, title) {
         const token = ++this.#token;
         this.#writing = false;
+        this.#waitingForDraft = false;
         this.#show(title || this.#titleText || "文稿");
         // Streaming only kept the draft, so an update that lands without the prior
         // version on screen still diffs against that saved text.
@@ -733,6 +769,7 @@ export class ArticlePanel {
             this.#stage.scrollTop -= stage.top + margin - block.top;
     }
     #paintVersions() {
+        this.#syncExports();
         this.#versions.replaceChildren();
         for (const version of this.#versionsKnown) {
             const button = document.createElement("button");
@@ -772,7 +809,7 @@ export class ArticlePanel {
     }
     #syncExports() {
         for (const button of this.#exportButtons)
-            button.disabled = this.#exporting;
+            button.disabled = this.#exporting || this.#loadedVersion < 1;
     }
     async #refreshReopen(sessionId) {
         const token = this.#token;

@@ -4,6 +4,15 @@
 
 长文不进聊天。模型用 `article` 工具在工作区里维护一份 Markdown 文稿；桌面端打开独立面板，流式渲染当前草稿，提交后对照上一版并做段落动画。导出在主进程完成。
 
+### OpenAI 兼容接口的提前打开（0.1.30）
+
+- 文本 SSE 与工具参数 SSE 是不同能力；接口可以流式发送文本，却把 `tool_calls[].function.arguments` 缓冲到最后。客户端无法在字节到达前渲染正文。
+- `article action=open` 是独立的短准备调用：新文稿传 `title`，已有文稿传 `id`，必须等其返回后在下一轮调用 `create/update`。工具 description、promptGuidelines 与内置 skill 都包含该要求，避免只依赖模型读取 skill。
+- `open` 不创建文件或版本，也不返回已有文稿正文；读取已有 id 仍检查 session，标题复用 `cleanTitle` 校验。携带 content/edits/version 会报错。
+- 新回执 `article open`（已有文稿为 `article open <id> version N`）由 `parseArticleOpenReceipt` 识别。面板通过既有 `tool.completed` 提前展开，显示「等待正文/修改」；新文稿清理上一篇内容并禁用导出，已有文稿先显示已保存版本。未写入即结束/中止时清理等待提示。
+- 支持参数增量的接口继续使用原有 120 ms 预览与单取稿循环。缓冲接口按小节完成后更新，不伪造逐字输出。提前打开仍取决于模型遵循独立短调用，整个响应均被服务端延迟时无法消除第一轮延迟。
+- 回归：`test/integration/article-stream.test.ts` 经真实本地 HTTP/SSE → Pi → Daemon → UDS → `DaemonBridge`；`npm run test:article-stream` 在实际 Electron DOM 中验收 `1920×1080`、20× CPU、250 ms 取稿延迟、120 ms 连续参数分片、缓冲正文、失败与中止。仅本地模拟 API，不代表目标机/真实模型已复验。
+
 这和 `src/documents/` 的 `document` 工具不是一回事：`document` 只抽取用户已有文件的正文。也和 shell/MCP 溢出的 `~/.pspore/artifacts` 不是一回事。
 
 ## 入口文件

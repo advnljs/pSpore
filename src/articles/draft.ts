@@ -25,7 +25,7 @@ export function articleDraftFromUpdate(
   if (!isRecord(block) || block["type"] !== "toolCall" || block["name"] !== "article") return undefined;
   if (typeof block["id"] !== "string" || block["id"].length === 0) return undefined;
   const args = isRecord(block["arguments"]) ? block["arguments"] : undefined;
-  if (!args || args["action"] === "read") return undefined;
+  if (!args || args["action"] === "read" || args["action"] === "open") return undefined;
   const title = typeof args["title"] === "string" && args["title"].trim() ? args["title"].trim() : undefined;
   // The id streams in like everything else; a prefix of one names no article.
   const articleId = typeof args["id"] === "string" && ARTICLE_ID_PATTERN.test(args["id"].trim()) ? args["id"].trim() : undefined;

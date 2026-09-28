@@ -241,7 +241,7 @@ function versionInfo(version, content, createdAt) {
 function versionName(version) {
     return `v${String(version).padStart(4, "0")}.md`;
 }
-function cleanTitle(title) {
+export function cleanTitle(title) {
     const cleaned = title.replace(NUL, "\uFFFD").replace(/\s+/g, " ").trim();
     if (!cleaned)
         throw new Error("Article title is empty");
