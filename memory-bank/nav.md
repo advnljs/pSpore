@@ -37,7 +37,7 @@
 | `src/tools/core-tools.ts` | read/document/edit/search/shell 固定基础工具 |
 | `src/documents/` | 文档正文抽取：按魔数分派到 OOXML(zip)/OLE 复合文档/PDF/纯文本，`extract.ts` 是唯一入口 |
 | `src/articles/` | 长文文稿：版本文件、段落 diff、预览节流、txt/docx 转换。面板在 `src/desktop/renderer/article-panel.ts`，导出在 `src/desktop/article-export.ts` |
-| `src/articles/writer.ts` | article write 的普通文本流：复用当前 ModelRuntime/会话上下文，正文走私有进度，成功后保存版本 |
+| `src/articles/writer.ts` / `writer-context.ts` | article write 普通文本流与参考上下文隔离；正文走私有进度，回执识别/单次重试，成功后保存版本 |
 | `src/articles/edits.ts` | `find/replace` 的唯一实现：提交用的 `applyArticleEdits`（严格、抛错）与流式预览用的 `previewArticleEdits`（跳过未匹配、最后一处替换可能写到一半）。无 Node，可被渲染器导入 |
 | `bundled-skills/article-canvas/` | 告诉模型长文用 `article` 工具，不要把正文贴进聊天 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |
@@ -70,7 +70,8 @@
 | `scripts/linux/overlay-upgrade-gui.sh` | overlay 图形界面升级（打包为「图形界面升级.sh」）：zenity/kdialog 选目录 + 进度条，无对话框工具时回落终端 |
 | `scripts/release.sh` | 本地不可变发布入口：验证新 SemVer、完整打包、创建 annotated tag 并 push；tag workflow 负责 Release |
 | `scripts/electron-smoke.mjs` | 外部/桌面拥有 Daemon + Xvfb + 1920×1080/1440×900/1180×720 Electron 双主题、真实文件/目录拖拽、设置与字号自动验收；并预置一篇两版文稿验收文稿面板（入场、版本芯片、首屏定位、对照上一版、四个导出按钮） |
-| `scripts/article-stream-smoke.mjs` | `npm run test:article-stream`：临时 home、本地 OpenAI SSE、真实 Daemon/Bridge/preload/renderer 的 1920×1080 文稿验证；20× CPU、250 ms 取稿、120 ms 参数分片、通知丢失/读取失败恢复、长文持续刷新与中止停止补取；另覆盖短 write 调用后无 tools 的正文文本流、修订/截断/中止和聊天隔离，`PSPORE_KEEP_SMOKE=1` 保留截图和 report.json；自动结束隔离进程 |
+| `scripts/article-stream-smoke.mjs` | `npm run test:article-stream`：临时 home、本地 OpenAI SSE、真实 Daemon/Bridge/preload/renderer 的 1920×1080 文稿验证；20× CPU、250 ms 取稿、120 ms 参数分片、通知丢失/读取失败恢复、长文持续刷新与中止停止补取；另覆盖短 write 调用后无 tools 的正文文本流、修订/截断/中止、回执误存重试/拒绝和聊天隔离，`PSPORE_KEEP_SMOKE=1` 保留截图和 report.json；自动结束隔离进程 |
+| `test/unit/article-writer.test.ts` | 写稿上下文过滤、选择/参考资料/图片保留，完成回执识别与短文/引用不误判 |
 | `test/fixtures/article-api.ts` / `test/integration/article-stream.test.ts` | 无真实凭据的本地 OpenAI 流服务；按测试阶段暂停 SSE，断言正文到达前的打开回执、工具参数预览，以及 write 普通文本流的增量、无 tools、上下文、usage 与失败不存版本 |
 | `src/cli/main.ts` | init/service/daemon/status/doctor/tui/desktop/sessions/session/prompt/version 入口 |
 | `dist/` | 构建产物，2026-08-17 起按用户要求纳入 Git；改动源码后必须 `npm run build` 并与源码一起提交，否则仓库产物会与源码不一致 |

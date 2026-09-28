@@ -1,5 +1,18 @@
 # Overall Progress
 
+## 2026-09-28 17:21 CST — 写稿上下文隔离与完成回执误存防护（0.1.33 候选）
+
+- 阶段目标：继续处理用户截图中的文稿 v1 只有 31 字完成回执的问题；用户确认 overlay 升级成功后重新打开。
+- 完成内容：新增 `writer-context.ts`，把会话整理为参考消息，保留用户选择/资料/图片，移除 article-canvas 操作说明与文稿提交回执，article read 仅保留正文。writer 明确响应本身就是文稿文件；明显短完成回执触发单次重试并清空旧草稿，两次仍失败则不存版本；成功时合并两次 usage。无正文最低字数要求、无新依赖。
+- 修改文件：`src/articles/{writer,writer-context}.ts`、`test/unit/article-writer.test.ts`、`test/integration/article-stream.test.ts`、`scripts/article-stream-smoke.mjs`、三个版本事实源与 `dist/**`、memory-bank。
+- 验证方式与结果：
+  - `npm run check`：**287/287** 测试、typecheck/build 通过，无跳过。新回归覆盖截图中的原句、参考信息保留/操作提示隔离、短诗与引用不误判、重试仍为无 tools 文本流、成功只存一次、两次 usage 合并、连续回执不覆盖旧版本。
+  - `node scripts/article-stream-smoke.mjs`：真实 Electron **1920×1080 / 20× CPU / 250 ms 取稿**通过。错误草稿被清掉后，12644 字文本流在响应结束前有 **7 次**可见长度变化；旧 edits/长草稿分别 6/7 次变化；重复回执、截断、中止保留已保存 v2，无新版本；聊天仍更新，无正文广播泄露、协议缺口或重连。截图已人工复核：`/tmp/pspore-article-gui-vq0eNZ/`。
+  - 首轮 GUI 验收在“新用户消息出现在 DOM”超时：聊天为虚拟列表，视口未必在尾部。测试改为先滚到尾部再断言新消息，未降低生产校验；第二轮全部通过。
+  - `npm run package:desktop`：以 **0.1.33** 重新构建，x64 全量/overlay/CLI 打包成功；CLI version/help 与三份 SHA-256 复核通过。可选 aegis-searcher 下载仍按既有 best-effort 处理，本轮未改下载或认证。
+- 当前状态：最新版本已编译并完成实际 GUI 验证/本地打包；隔离应用与 Daemon 已退出，生产服务未改动。待提交/push 与双架构远端发布，原图及 `refer/` 保留。
+- 遗留问题：未连接目标机代理，也未找到项目约定的真实模型测试凭据；“历史操作提示干扰”是候选原因，未声明已证实目标机因果。回执识别是保守防护，不保证检测所有语义错误。目标机需升级后复验。
+
 ## 2026-09-28 17:08 CST — 检查用户截图：文稿只显示 31 字完成回执
 
 - 阶段目标：检查用户指定的 `refer/18e679f91f898c64c45524a1e8cafd22.jpg`。

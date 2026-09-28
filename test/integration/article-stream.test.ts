@@ -11,6 +11,78 @@ import { DaemonBridge } from "../../src/desktop/daemon-bridge.js";
 import type { EventEnvelope } from "../../src/protocol/schema.js";
 import { articleApi, finishCompletion, finishText, finishTool, textChunk, toolChunk, waitFor } from "../fixtures/article-api.js";
 
+test("article retries a receipt-only response, streams real prose and preserves saved versions if retry also fails", { timeout: 30_000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-article-receipt-"));
+  const api = await articleApi();
+  let daemon: PsporeDaemon | undefined;
+  let bridge: DaemonBridge | undefined;
+  const notice = "开篇写好了，面板里可以看到全文。今天先收工，明天继续写第二章。";
+  try {
+    const paths = await api.configure(home);
+    daemon = await PsporeDaemon.start({ home });
+    bridge = new DaemonBridge({ socketPath: paths.socket, stagingRoot: join(paths.workspace, "staging"),
+      versions: { pspore: "test", pi: "0.84.1", electron: "test", node: process.versions.node } });
+    const events: EventEnvelope[] = [];
+    bridge.subscribe((frame) => { if (frame.kind === "event") events.push(frame.event); });
+    bridge.start();
+    await waitFor(() => bridge?.bootstrap().connection.phase === "connected", "receipt writer bridge");
+    const articles = new ArticleStore(join(paths.workspace, "articles"));
+    await bridge.dispatch({ action: "prompt", sessionId: "main", text: "写一个以义体与记忆为主题的赛博朋克小说开篇。" });
+    const calling = await api.next();
+    toolChunk(calling, "receipt-create", JSON.stringify({ action: "write", title: "灰域接线员", instruction: "按用户要求写开篇" }));
+    finishTool(calling);
+    const firstAttempt = await api.next();
+    textChunk(firstAttempt, notice);
+    finishCompletion(firstAttempt);
+    const retry = await api.next();
+    assert.equal(api.requests.at(-1)?.["tools"], undefined);
+    assert.match(JSON.stringify(api.requests.at(-1)?.["messages"]), /NOT saved/);
+    assert.match(JSON.stringify(api.requests.at(-1)?.["messages"]), /义体与记忆/);
+    assert.deepEqual(await articles.list("main"), []);
+    await waitFor(async () => JSON.stringify(await bridge!.dispatch({ action: "article.preview", sessionId: "main", toolCallId: "receipt-create" })).includes('"text":""'), "rejected preview cleared");
+    textChunk(retry, "# 灰域接线员\n\n雨落在他的义体上，");
+    await waitFor(async () => JSON.stringify(await bridge!.dispatch({ action: "article.preview", sessionId: "main", toolCallId: "receipt-create" })).includes("雨落在"), "retry still streams before completion");
+    textChunk(retry, "一段陌生的记忆醒了过来。");
+    finishCompletion(retry);
+    finishText(await api.next());
+    await waitFor(() => events.some((event) => event.type === "run.settled"), "retry settled");
+    const receipt = parseArticleReceipt(resultText(events, "receipt-create"));
+    assert.ok(receipt);
+    const saved = await articles.read({ sessionId: "main", id: receipt.id, limit: 1000 });
+    assert.equal(saved?.text, "# 灰域接线员\n\n雨落在他的义体上，一段陌生的记忆醒了过来。");
+    assert.equal(saved.versions.length, 1);
+    assert.deepEqual(daemon.kernel.snapshot().sessions["main"]?.usage,
+      { input: 36, output: 102, cacheRead: 0, cacheWrite: 0, total: 138, costUsd: 0 });
+    assert.doesNotMatch(JSON.stringify(events), /雨落在他的义体/);
+
+    // A second receipt is an error, never an endless retry or a new version.
+    events.length = 0;
+    await bridge.dispatch({ action: "prompt", sessionId: "main", text: "修订这篇开篇" });
+    const revise = await api.next();
+    toolChunk(revise, "receipt-revise", JSON.stringify({ action: "write", id: receipt.id, instruction: "改写第一段" }));
+    finishTool(revise);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const writing = await api.next();
+      assert.equal(api.requests.at(-1)?.["tools"], undefined);
+      textChunk(writing, notice);
+      finishCompletion(writing);
+    }
+    const parent = await api.next();
+    assert.ok(Array.isArray(api.requests.at(-1)?.["tools"]), "writer retries at most once");
+    finishText(parent);
+    await waitFor(() => events.some((event) => event.type === "run.settled"), "rejected revision settled");
+    assert.equal(payload(events.find((event) => event.type === "tool.completed" && payload(event)["toolCallId"] === "receipt-revise")!)["isError"], true);
+    assert.deepEqual(await articles.read({ sessionId: "main", id: receipt.id, limit: 1000 }), saved);
+    assert.equal(bridge.bootstrap().connection.attempt, 0);
+    assert.deepEqual(api.errors, []);
+  } finally {
+    await bridge?.stop();
+    await daemon?.stop();
+    await api.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 test("article write streams ordinary text when tool arguments are buffered, and never commits failed drafts", { timeout: 30_000 }, async () => {
   const home = await mkdtemp(join(tmpdir(), "pspore-article-text-"));
   const api = await articleApi();

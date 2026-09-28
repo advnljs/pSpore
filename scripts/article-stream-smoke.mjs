@@ -300,13 +300,23 @@ async function run() {
     // The target proxy streams chat text but buffers ALL tool arguments. A
     // short write call must switch to a tools-free text response for the body.
     await prompt("创建一篇通过文本流生成的长文");
-    await waitFor(() => target.webContents.executeJavaScript("document.querySelector('#transcript').textContent.includes('创建一篇通过文本流生成的长文')"), "chat remains live during article writing");
+    // The transcript is virtualized; scroll the new message into view before
+    // asserting its DOM text, rather than depending on the previous scroll.
+    await waitFor(() => target.webContents.executeJavaScript("(() => { const list = document.querySelector('#transcript'); list.scrollTop = list.scrollHeight; return list.textContent.includes('创建一篇通过文本流生成的长文'); })()"), "chat remains live during article writing");
     const writeCall = await api.next();
     toolChunk(writeCall, "gui-text-write", JSON.stringify({ action: "write", title: "普通文本流验证", instruction: "撰写一篇分为30节的文稿" }));
     finishTool(writeCall);
-    const bodyStream = await api.next();
+    const mistakenReceipt = await api.next();
     assert.equal(api.requests.at(-1).tools, undefined);
     await waitFor(async () => (await state()).open && (await state()).title === "普通文本流验证", "writer opened before text arrives");
+    textChunk(mistakenReceipt, "开篇写好了，面板里可以看到全文。今天先收工，明天继续写第二章。");
+    await waitFor(async () => (await state()).text.includes("开篇写好了"), "receipt is only a live draft");
+    finishCompletion(mistakenReceipt);
+    const bodyStream = await api.next();
+    assert.equal(api.requests.at(-1).tools, undefined);
+    assert.match(JSON.stringify(api.requests.at(-1).messages), /NOT saved/);
+    await waitFor(async () => !(await state()).text.includes("开篇写好了"), "retry clears rejected receipt");
+    assert.deepEqual((await state()).versions, []);
     textChunk(bodyStream, "# 普通文本流验证\n\n正文专用文本片段：开头。");
     await waitFor(async () => (await state()).text.includes("正文专用文本片段"), "writer first text before completion");
     const textSamples = [];
@@ -341,16 +351,24 @@ async function run() {
     await capture("11-text-stream-committed");
 
     const revisedBody = "# 普通文本流验证\n\n成功修订后的正文。";
-    for (const ending of ["success", "length", "abort"]) {
+    for (const ending of ["success", "length", "receipt", "abort"]) {
       await prompt(`通过文本流修订，验证 ${ending}`);
       const revisionCall = await api.next();
       toolChunk(revisionCall, `gui-text-${ending}`, JSON.stringify({ action: "write", id: textReceipt.id, instruction: "保留标题，修订正文" }));
       finishTool(revisionCall);
       const revisionStream = await api.next();
       assert.equal(api.requests.at(-1).tools, undefined, "revision history must not trigger the proxy's tool path");
-      textChunk(revisionStream, ending === "success" ? revisedBody : "# 普通文本流验证\n\n不应保存的半篇正文。");
-      await waitFor(async () => (await state()).text.includes(ending === "success" ? "成功修订" : "不应保存"), `live text revision ${ending}`);
-      if (ending === "abort") await bridge.dispatch({ action: "abort", sessionId: "main" });
+      const receiptOnly = "开篇写好了，面板里可以看到全文。今天先收工，明天继续写第二章。";
+      textChunk(revisionStream, ending === "success" ? revisedBody : ending === "receipt" ? receiptOnly : "# 普通文本流验证\n\n不应保存的半篇正文。");
+      await waitFor(async () => (await state()).text.includes(ending === "success" ? "成功修订" : ending === "receipt" ? "开篇写好了" : "不应保存"), `live text revision ${ending}`);
+      if (ending === "receipt") {
+        finishCompletion(revisionStream);
+        const failedRetry = await api.next();
+        assert.equal(api.requests.at(-1).tools, undefined);
+        textChunk(failedRetry, receiptOnly);
+        finishCompletion(failedRetry);
+        finishText(await api.next());
+      } else if (ending === "abort") await bridge.dispatch({ action: "abort", sessionId: "main" });
       else {
         finishCompletion(revisionStream, ending === "length" ? "length" : "stop");
         finishText(await api.next());
@@ -360,6 +378,7 @@ async function run() {
       assert.equal(saved.text, revisedBody);
       assert.equal(saved.versions.length, 2);
       assert.doesNotMatch((await state()).text, /不应保存/);
+      assert.doesNotMatch((await state()).text, /开篇写好了/);
     }
     await capture("12-text-stream-failure-restores-version");
     assert.deepEqual(rendererErrors, []);
@@ -367,7 +386,7 @@ async function run() {
     assert.equal(bridge.bootstrap().connection.attempt, 0);
     await writeFile(join(home, "report.json"), JSON.stringify(report, null, 2));
     succeeded = true;
-    console.log(`Article GUI passed: 1920x1080, 20x CPU slowdown, 250ms reads, ${samples.length} live edits, ${longSamples.length} long-draft updates, ${textSamples.length} plain-text stream updates, recovery/abort/truncation. Evidence: ${home}`);
+    console.log(`Article GUI passed: 1920x1080, 20x CPU slowdown, 250ms reads, ${samples.length} live edits, ${longSamples.length} long-draft updates, ${textSamples.length} plain-text stream updates, receipt retry/rejection, recovery/abort/truncation. Evidence: ${home}`);
   } catch (error) {
     console.error(error);
     console.error(`Article GUI evidence: ${home}`);
