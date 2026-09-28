@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-09-28 — 将 `main` 上尚未发行的文稿流式改动发为 `0.1.29`
+
+- 阶段目标：用户要求把最新版本推到 Release，且不要改动任何功能代码。
+- 完成内容：`v0.1.28` 已发布且不可覆盖，tag 停在 `3cdc4d4`，比 `main`（`fc293b2`，开写即打开、edits 流式）少一次提交。按不可变发版规则将版本从 `0.1.28` 升到 `0.1.29`（`package.json`、`package-lock.json`、`src/version.ts` 与对应 `dist/version.*`），不改功能源码。推送 `main` 后由 CI 的 Tag and release 打 annotated tag 并派发 Release desktop。
+- 修改文件：`package.json`、`package-lock.json`、`src/version.ts`、`dist/version.js`、`dist/version.d.ts`、`memory-bank/*`。
+- 验证方式与结果：待 push 后记录 CI 与 Release 远端结果。
+- 当前状态：版本已升到 `0.1.29`，准备提交并推送 `main`。
+- 遗留问题：Release 资产的远端下载校验待 workflow 成功后补记。
+
 ## 2026-09-23 — 文稿面板开写即打开、局部修改也流式、慢机器不再"写完才出现"（未升版本）
 
 - 阶段目标（用户两条）：目标机上文稿面板要到输出完才打开，应直接打开并流式打印；变更时也是输出结束才刷新。

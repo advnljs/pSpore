@@ -1,6 +1,6 @@
 {
   "name": "p-spore",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "description": "Linux-first local proactive agent built on Pi",
   "keywords": [
     "ai",
