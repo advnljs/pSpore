@@ -40,6 +40,8 @@ if (!process.versions.electron) {
 async function run() {
   const { app, BrowserWindow, ipcMain } = await import("electron");
   app.disableHardwareAcceleration();
+  // Keep Electron alive until the isolated daemon, API, and bridge have closed.
+  app.on("window-all-closed", () => {});
   const { articleApi, toolChunk, finishTool, finishText, waitFor } = await import(process.env.PSPORE_ARTICLE_FIXTURE);
   const { PsporeDaemon } = await import("../dist/daemon/daemon.js");
   const { DaemonBridge } = await import("../dist/desktop/daemon-bridge.js");

@@ -8,10 +8,10 @@
 - 修改文件：`src/articles/{tool,receipt,draft,store}.ts`、`src/desktop/renderer/article-panel.ts`、`bundled-skills/article-canvas/SKILL.md`；新增 `test/fixtures/article-api.ts`、`test/integration/article-stream.test.ts`、`scripts/article-stream-smoke.mjs`；单测、版本文件、构建产物与 memory-bank 同步。
 - 验证方式与结果：
   - `npm run check`：typecheck/build 通过，**280/280** 测试通过，无跳过。
-  - `npm run test:article-stream` / 最新构建上直接运行同一脚本：真实 Electron `1920×1080`、20× CPU 降速、250 ms 取稿延迟、120 ms 连续 SSE 参数，提交前观察到 **7 次**不同正文；缓冲正文前展开、修改前恢复已有正文、失败保留 v2、新稿清空旧文、中止不创建空版本均通过，0 renderer error、0 bridge 重连。最终报告与 8 张截图：`/tmp/pspore-article-gui-a9sz9O/`，已人工复核打开与流式阶段截图。
+  - `npm run test:article-stream` / 最新构建上直接运行同一脚本：真实 Electron `1920×1080`、20× CPU 降速、250 ms 取稿延迟、120 ms 连续 SSE 参数，提交前观察到 **7 次**不同正文；缓冲正文前展开、修改前恢复已有正文、失败保留 v2、新稿清空旧文、中止不创建空版本均通过，0 renderer error、0 bridge 重连。最终报告与 8 张截图：`/tmp/pspore-article-gui-h9cm3A/`，已人工复核打开与流式阶段截图。
   - `node scripts/electron-smoke.mjs`（已完成最新 build）：原有双主题、布局、导出控件、版本 diff、owned/external Daemon、重连/IPC 验收通过。截图：`/tmp/pspore-electron-smoke-7d4UdX/smoke/`、`/tmp/pspore-electron-owned-smoke-BxhyQU/smoke/`。
   - 当前环境起初缺 Node PATH/系统图形依赖；复用 `/tmp` 中 Node 24 与私有提取库。旧 Xvfb wrapper 的 `-xkbbindir` 不被该二进制支持，headless Ozone 实跑崩溃；最终在临时目录修正 Xvfb 的 xkbcomp 查找路径，以私有 `:112` X display 完成真实图形验收。未安装全局工具、未修改项目依赖。
-- 当前状态：本地候选构建与 GUI 验证通过；隔离测试 Daemon/Electron 已自动退出，未启动/变更用户生产服务。新版本号 `0.1.30`；等待提交、push、双架构 Release 和远端资产校验。
+- 当前状态：本地候选构建与 GUI 验证通过；功能提交 `bb80ae4` 已 push。GUI harness 补充 `window-all-closed` 处理以防窗口销毁抢先结束 finally；重新运行通过，临时 run 目录已清空。隔离测试 Daemon/Electron 已退出，未启动/变更用户生产服务。新版本号 `0.1.30`；等待双架构 Release 和远端资产校验。
 - 遗留问题：真正逐字显示仍需要目标 API 发送工具参数增量；缓冲接口只能按小节刷新。模型需遵循独立 open 调用，升级后需重启应用/Daemon并建议新开会话。目标机实际复验仍待做；用户已有 `refer/` 未跟踪目录保持不动。
 
 ## 2026-09-28 — 将 `main` 上尚未发行的文稿流式改动发为 `0.1.29`
