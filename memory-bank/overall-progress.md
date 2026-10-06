@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-10-06 CST — v0.1.34 已发布并核验双架构分屏修复
+
+- 阶段目标：发布文稿/对话可拖动分屏修复，核验实际发布资产。
+- 完成内容：修复提交 `eb46fec` 直接 push 到 `main`（用户要求），CI 自动创建 annotated `v0.1.34` 并解引用到同一提交。CI `37445241923`、ARM64 预构建 `37445241914`、Release `37445762684` 全部成功。
+- 发布结果：<https://github.com/advnljs/pSpore/releases/tag/v0.1.34>，非 draft/prerelease，12 项 ARM64/x64 资产，发布时间 `2026-10-06T09:55:26Z`。
+- 独立远端复验：经 API 资产端点下载双架构 overlay（本环境 `github.com/.../releases/download` 路由经代理返回 404，v0.1.33 同样如此，非发布问题），SHA-256 通过，manifest `0.1.34 / Electron 43.3.0 / x64|arm64`；包内 `article-panel.js`、`article-split.js`、`styles.css`、`motion.js`、`desktop/main.js`、`version.js` 六项与提交的 `dist/` 逐字一致。
+- 修改文件：本阶段仅同步 `memory-bank/{overall-progress,todo}.md`。
+- 当前状态：本地测试、Electron smoke、article-stream、x64 打包与 28 步 XTest 实操验证、远端双架构发布均完成；临时 Daemon/Electron/Xvfb 已退出。
+- 遗留问题：未在银河麒麟/飞腾目标机实机复验；本环境下载不到可选 aegis-searcher 二进制，4 项排序集成测试按设计跳过。
+
+
 ## 2026-10-06 CST — 文稿与对话始终是可拖动分屏（0.1.34 候选）
 
 - 阶段目标：文稿弹出后与对话是可拖动分屏；收起再弹出、切换/新建对话后不能变成浮动面板盖住对话、对话不能失去缩放；各情况都随窗口缩放更新。
@@ -10,7 +21,7 @@
   - `npm run check`：293 项，289 通过、0 失败、4 跳过（`aegis-search-ranking` 需可选本机索引器，本环境下载不到，与本改动无关）。
   - `node scripts/electron-smoke.mjs`：新增分屏断言（1920 / 重开 / 1440 / 回到 1920 / 1180 / 1180 拖动，注入长提示）全过；**把三个渲染器文件换回 0.1.33 后同一 smoke 报 14 条失败**（对话内容溢出 118–572px、1180 浮动盖住 640px、无分隔条、重开不展开、最小窗口不能拖），证明断言能抓住原问题。`npm run test:article-stream` 通过。
   - `scripts/package-desktop.sh 0.1.34 x64`：全量/overlay/CLI 打包成功，asar 内 5 个修复文件与 `dist/` 逐字一致。解包后的 `pspore-desktop` 在 Xvfb 下用 XTest 真实点击/拖动与 X 窗口缩放（1920→1600→1440→1366→1280→1180→1920、会话栏开合、关闭后缩放再重开）跑 28 步断言全部通过：始终是列、无重叠、对话 ≥440、文稿 ≥360、对话内容不溢出、发送按钮可见、无横向滚动；打开/重开逐帧从 0 展开；变窄再变宽恢复原分屏。生产启动需 systemd user，验证时用临时 systemctl 替身 + 外部 Daemon，未改产品代码。
-- 当前状态：待提交 `main`、CI 自动打 tag 与双架构 Release。
+- 当前状态：已提交 `main`（`eb46fec`）并发布，见上一条。
 - 遗留问题：未在银河麒麟/飞腾目标机实机复验；HiDPI 缩放下 CSS 宽度可能接近 1180 下限，此时对话/文稿分别固定在下限附近。
 
 

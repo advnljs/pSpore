@@ -2,7 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 文稿与对话始终是可拖动分屏、随窗口缩放更新，并发布 0.1.34 | In progress | 目标机实机复验待用户 | 293 项测试（4 项可选索引器跳过）、Electron smoke 新分屏断言、article-stream、x64 打包与 28 步 XTest 实操验证通过；待 push `main` 与 Release 核验 |
+| P0 | 文稿与对话始终是可拖动分屏、随窗口缩放更新，并发布 0.1.34 | Done | 目标机实机复验待用户 | 293 项测试（4 项可选索引器跳过）、Electron smoke 新分屏断言、article-stream、x64 打包与 28 步 XTest 实操验证通过；CI `37445241923`、ARM64 `37445241914`、Release `37445762684` 成功，双架构 overlay SHA-256 与六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.34 |
 | P0 | 修复文稿 v1 仅含 31 字完成回执的问题，并发布 0.1.33 | Done | 目标机仍需下项单独复验 | 287 项测试、1920×1080/20× CPU Electron、双架构构建与 Release 全部成功；远端 overlay SHA-256、八项核心文件与 skill 一致性通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.33 |
 | P0 | 让文稿正文使用普通文本流，并发布 0.1.32 | Done | 目标机仍需下项单独复验 | 284 项测试、1920×1080/20× CPU/250 ms Electron 验收、双架构构建与 Release 全部通过；远端双架构 overlay SHA-256、七项核心文件与 skill 0.1.2 一致性校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.32 |
 | P0 | 修复文稿打开后的刷新停顿并发布 `0.1.31` | Done | 目标机实际效果仍待下项复验 | 281 项测试与 Electron 主基准/慢 CPU/长文/漏通知/读失败恢复通过；CI `36394582634`、ARM64 `36394582691`、Release `36394997584` 成功，12 项资产。双架构 overlay SHA-256 与四项包内修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.31 |
