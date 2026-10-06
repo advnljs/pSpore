@@ -39,18 +39,20 @@ export declare function popChips(nodes: readonly Element[]): void;
 export declare function flipStatusChip(target: HTMLElement | null): void;
 /** Cross-fades the single-line status text when its content changes. */
 export declare function crossfadeText(target: HTMLElement | null, value: string): void;
-/** Slides the article panel in from the right. Layout is already final; only opacity and position move. */
-export declare function slideArticlePanel(panel: HTMLElement): void;
-/** Slides the drawer out, then hands back so the caller can hide it. */
-export declare function slideArticlePanelOut(panel: HTMLElement, finish: () => void): void;
+/** Stops a width animation where it is; its finish callback never runs. */
+export interface WidthAnimation {
+    kill(): void;
+}
 /**
  * Moves the width the document column is laid out at.
  *
  * Opening and closing change the shape of the workspace, so the conversation
  * has to give the width up and take it back rather than jump: the panel used to
- * fade in over a column that had already appeared at full size.
+ * fade in over a column that had already appeared at full size. The caller keeps
+ * the handle and kills it before starting another, so an open that follows a
+ * close (or a session switch) never has two tweens writing the same width.
  */
-export declare function animateArticleWidth(from: number, to: number, apply: (width: number) => void, finish?: () => void): void;
+export declare function animateArticleWidth(from: number, to: number, apply: (width: number) => void, finish?: () => void): WidthAnimation;
 /** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */
 /**
  * Folds blocks that a new version dropped out of the flow, then hands them back

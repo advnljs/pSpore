@@ -287,33 +287,9 @@ export function crossfadeText(target: HTMLElement | null, value: string): void {
   });
 }
 
-/** Slides the article panel in from the right. Layout is already final; only opacity and position move. */
-export function slideArticlePanel(panel: HTMLElement): void {
-  if (!canAnimate()) return;
-  engine!.fromTo(
-    panel,
-    { autoAlpha: 0, x: 28 },
-    { autoAlpha: 1, x: 0, duration: 0.42, ease: EASE_OUT, overwrite: "auto", clearProps: "transform,opacity,visibility" },
-  );
-}
-
-/** Slides the drawer out, then hands back so the caller can hide it. */
-export function slideArticlePanelOut(panel: HTMLElement, finish: () => void): void {
-  if (!canAnimate()) {
-    finish();
-    return;
-  }
-  engine!.to(panel, {
-    autoAlpha: 0,
-    x: 28,
-    duration: 0.26,
-    ease: EASE_IN,
-    overwrite: "auto",
-    onComplete: () => {
-      engine!.set(panel, { clearProps: "transform,opacity,visibility" });
-      finish();
-    },
-  });
+/** Stops a width animation where it is; its finish callback never runs. */
+export interface WidthAnimation {
+  kill(): void;
 }
 
 /**
@@ -321,31 +297,33 @@ export function slideArticlePanelOut(panel: HTMLElement, finish: () => void): vo
  *
  * Opening and closing change the shape of the workspace, so the conversation
  * has to give the width up and take it back rather than jump: the panel used to
- * fade in over a column that had already appeared at full size.
+ * fade in over a column that had already appeared at full size. The caller keeps
+ * the handle and kills it before starting another, so an open that follows a
+ * close (or a session switch) never has two tweens writing the same width.
  */
 export function animateArticleWidth(
   from: number,
   to: number,
   apply: (width: number) => void,
   finish?: () => void,
-): void {
-  if (!canAnimate()) {
+): WidthAnimation {
+  if (!canAnimate() || Math.abs(to - from) < 1) {
     apply(to);
     finish?.();
-    return;
+    return { kill: () => undefined };
   }
   const state = { width: from };
-  engine!.to(state, {
+  const tween = engine!.to(state, {
     width: to,
     duration: to > from ? 0.34 : 0.26,
     ease: to > from ? EASE_OUT : EASE_IN,
-    overwrite: "auto",
     onUpdate: () => apply(state.width),
     onComplete: () => {
       apply(to);
       finish?.();
     },
   });
+  return { kill: () => void tween.kill() };
 }
 
 /** New blocks in a version. Capped by the caller so a whole first draft does not stagger for seconds. */

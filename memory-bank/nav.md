@@ -38,6 +38,7 @@
 | `src/documents/` | 文档正文抽取：按魔数分派到 OOXML(zip)/OLE 复合文档/PDF/纯文本，`extract.ts` 是唯一入口 |
 | `src/articles/` | 长文文稿：版本文件、段落 diff、预览节流、txt/docx 转换。面板在 `src/desktop/renderer/article-panel.ts`，导出在 `src/desktop/article-export.ts` |
 | `src/articles/writer.ts` / `writer-context.ts` | article write 普通文本流与参考上下文隔离；正文走私有进度，回执识别/单次重试，成功后保存版本 |
+| `src/desktop/renderer/article-split.ts` | 文稿/对话分屏的唯一边界规则：最小宽度、比例让步、占比↔像素换算；无 DOM，`test/unit/desktop-article-split.test.ts` 覆盖 |
 | `src/articles/edits.ts` | `find/replace` 的唯一实现：提交用的 `applyArticleEdits`（严格、抛错）与流式预览用的 `previewArticleEdits`（跳过未匹配、最后一处替换可能写到一半）。无 Node，可被渲染器导入 |
 | `bundled-skills/article-canvas/` | 告诉模型长文用 `article` 工具，不要把正文贴进聊天 |
 | `src/memory/` | pinned loader、daily/curated memory、tokenizer、BM25 与增量 search cache |

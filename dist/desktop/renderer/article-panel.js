@@ -2,9 +2,10 @@
 import { alignArticleDraft, articleChangeCounts, articleLineChangeCounts, diffArticleBlocks, diffArticleLines, } from "../../articles/diff.js";
 import { parseArticleOpenReceipt, parseArticleReceipt } from "../../articles/receipt.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
+import { articleShareForWidth, articleWidthForShare, clampArticleWidth } from "./article-split.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown } from "./markdown-view.js";
-import { animateArticleWidth, collapseArticleRemovals, pulseArticleChanges, slideArticlePanel, slideArticlePanelOut, } from "./motion.js";
+import { animateArticleWidth, collapseArticleRemovals, pulseArticleChanges } from "./motion.js";
 /** New blocks that pulse in at once. Past this the page flashes rather than draws attention. */
 const MAX_PULSED_BLOCKS = 16;
 /**
@@ -19,17 +20,10 @@ const PREVIEW_RETRY_MS = 300;
 /** Blocks kept for reuse, on screen or not. Bounded so a long revision history cannot grow it forever. */
 const BLOCK_POOL_SIZE = 512;
 /**
- * How wide the document column may be dragged.
- *
- * The lower bound is a readable measure for prose; the upper one leaves the
- * conversation enough room to still be a conversation, so the panel cannot be
- * dragged until the thing it belongs to is unusable.
+ * The reader's split, as the document's share of the space it divides with the
+ * conversation. The bounds live in `article-split.ts`.
  */
-const MIN_ARTICLE_WIDTH = 380;
-const MIN_CONVERSATION_WIDTH = 560;
-/** Below this the panel is a drawer over the conversation: no boundary to drag. */
-const ARTICLE_DRAWER_QUERY = "(max-width: 1320px)";
-const ARTICLE_WIDTH_KEY = "pspore.desktop.articleWidth";
+const ARTICLE_SHARE_KEY = "pspore.desktop.articleShare";
 /** Keyboard steps for the separator, so the width is reachable without a pointer. */
 const ARTICLE_WIDTH_STEP = 24;
 /**
@@ -120,8 +114,8 @@ export class ArticlePanel {
     #reopen;
     #exportButtons;
     #resize;
-    /** Below this width the panel is a drawer, with no column boundary to drag. */
-    #drawer = window.matchMedia(ARTICLE_DRAWER_QUERY);
+    /** The column the document divides the space with. Its left edge never moves with the split. */
+    #conversation;
     #open = false;
     #view = "read";
     /**
@@ -172,8 +166,10 @@ export class ArticlePanel {
     #closing = false;
     /** Width the grid is laid out at right now, including mid-animation. */
     #shownWidth = 0;
-    /** Width the reader chose, kept across opens; undefined until they choose one. */
-    #storedWidth;
+    /** The open or close in progress. Only one may write the width at a time. */
+    #widthAnimation;
+    /** Share of the space the reader dragged the document to, kept across opens; undefined until they choose one. */
+    #storedShare;
     constructor(options) {
         this.#sessionId = options.sessionId;
         this.#dispatch = options.dispatch;
@@ -217,7 +213,11 @@ export class ArticlePanel {
             }, { passive: true });
         }
         this.#resize = requiredElement("article-resize");
-        this.#storedWidth = readStoredWidth();
+        const conversation = document.querySelector(".conversation");
+        if (!conversation)
+            throw new Error("Missing .conversation");
+        this.#conversation = conversation;
+        this.#storedShare = readStoredShare();
         this.#applyWidth(0);
         this.#bindResize();
         this.#exportButtons = Array.from(this.#panel.querySelectorAll("[data-export]"));
@@ -382,20 +382,15 @@ export class ArticlePanel {
         this.#writing = false;
         this.#closing = true;
         // `data-article` stays set until the animation ends: it is what makes the
-        // grid read the width being animated away.
-        const finish = () => {
-            if (!this.#closing)
-                return;
+        // grid read the width being animated away. The width is left at zero, so
+        // the next open — a reopen, or a document in another session — arrives the
+        // same way the first one did instead of appearing at full size.
+        this.#animateWidth(0, () => {
             this.#closing = false;
             this.#panel.hidden = true;
             delete document.documentElement.dataset["article"];
-            this.#applyWidth(this.#preferredWidth());
             this.#onLayout();
-        };
-        if (this.#drawer.matches)
-            slideArticlePanelOut(this.#panel, finish);
-        else
-            animateArticleWidth(this.#shownWidth, 0, (width) => this.#applyWidth(width), finish);
+        });
         this.#onLayout();
         this.#syncReopen();
     }
@@ -923,20 +918,66 @@ export class ArticlePanel {
         if (title)
             this.#title.textContent = title;
         if (!wasOpen) {
-            if (this.#drawer.matches)
-                slideArticlePanel(this.#panel);
-            else {
-                animateArticleWidth(this.#shownWidth, this.#preferredWidth(), (width) => this.#applyWidth(width), () => this.#onLayout());
-            }
+            // Opening over a close still in flight takes the width from wherever that
+            // close had got to; the close's own finish is cancelled with it.
+            this.#animateWidth(this.#preferredWidth(), () => this.#onLayout());
             this.#onLayout();
         }
         this.#syncReopen();
     }
-    /** The width the reader last dragged the column to, clamped to what fits now. */
+    /**
+     * Follows the space the split divides: a resized window, or the session rail
+     * opening or closing. The reader's share is kept, so both halves scale; an open
+     * still animating lands on the new width at once rather than on the stale one.
+     */
+    relayout() {
+        if (!this.#open)
+            return;
+        if (this.#widthAnimation) {
+            this.#widthAnimation.kill();
+            this.#widthAnimation = undefined;
+        }
+        const width = this.#preferredWidth();
+        if (Math.abs(width - this.#shownWidth) < 1)
+            return;
+        this.#applyWidth(width);
+        this.#onLayout();
+    }
+    #animateWidth(to, finish) {
+        this.#widthAnimation?.kill();
+        this.#widthAnimation = undefined;
+        // Without the engine, or with reduced motion, the animation finishes before
+        // it returns; only one that is still running is kept as the one in flight.
+        const run = { finished: false };
+        const animation = animateArticleWidth(this.#shownWidth, to, (width) => this.#applyWidth(width), () => {
+            run.finished = true;
+            if (this.#widthAnimation === run.animation)
+                this.#widthAnimation = undefined;
+            finish();
+        });
+        if (!run.finished) {
+            run.animation = animation;
+            this.#widthAnimation = animation;
+        }
+    }
+    /**
+     * The width the two columns divide between them.
+     *
+     * Measured rather than derived from the viewport: the session rail, the gaps
+     * and the page padding all come out of it, and the rail can be open, closed or
+     * a drawer that takes no column at all. The conversation's left edge does not
+     * move with the split, so this is stable while the boundary is dragged.
+     */
+    #availableWidth() {
+        const grid = this.#panel.parentElement;
+        if (!grid)
+            return window.innerWidth;
+        const gap = Number.parseFloat(getComputedStyle(grid).columnGap) || 0;
+        return Math.max(0, grid.getBoundingClientRect().right - this.#conversation.getBoundingClientRect().left - gap);
+    }
+    /** The reader's share of the space, applied to the space there is now. */
     #preferredWidth() {
-        const available = window.innerWidth - MIN_CONVERSATION_WIDTH;
-        const ceiling = Math.max(MIN_ARTICLE_WIDTH, Math.min(available, window.innerWidth * 0.72));
-        return Math.round(Math.min(Math.max(this.#storedWidth ?? window.innerWidth * 0.42, MIN_ARTICLE_WIDTH), ceiling));
+        return articleWidthForShare(this.#storedShare, this.#availableWidth());
     }
     #applyWidth(width) {
         this.#shownWidth = width;
@@ -946,38 +987,51 @@ export class ArticlePanel {
      * The boundary between the conversation and the document.
      *
      * Dragging writes the width straight through — an animated drag would lag the
-     * pointer — and the chosen width is remembered for the next time the panel opens.
+     * pointer — and the chosen share is remembered for the next time the panel
+     * opens. The drag is measured from where it started, so grabbing the handle
+     * does not make the column jump to the pointer.
      */
     #bindResize() {
         const handle = this.#resize;
+        let dragStartX = 0;
+        let dragStartWidth = 0;
         const commit = (width) => {
-            const available = window.innerWidth - MIN_CONVERSATION_WIDTH;
-            const ceiling = Math.max(MIN_ARTICLE_WIDTH, Math.min(available, window.innerWidth * 0.72));
-            const next = Math.round(Math.min(Math.max(width, MIN_ARTICLE_WIDTH), ceiling));
-            this.#storedWidth = next;
+            // A close in flight owns the width until the column is gone.
+            if (!this.#open)
+                return;
+            if (this.#widthAnimation) {
+                this.#widthAnimation.kill();
+                this.#widthAnimation = undefined;
+            }
+            const available = this.#availableWidth();
+            const next = clampArticleWidth(width, available);
+            this.#storedShare = articleShareForWidth(next, available) ?? this.#storedShare;
             this.#applyWidth(next);
             this.#onLayout();
             try {
-                window.localStorage.setItem(ARTICLE_WIDTH_KEY, String(next));
+                if (this.#storedShare !== undefined)
+                    window.localStorage.setItem(ARTICLE_SHARE_KEY, this.#storedShare.toFixed(4));
             }
             catch {
-                // Private windows and blocked site data: the width still applies for this run.
+                // Private windows and blocked site data: the split still applies for this run.
             }
         };
         handle.addEventListener("pointerdown", (event) => {
-            if (event.button !== 0 || this.#drawer.matches)
+            if (event.button !== 0 || !this.#open)
                 return;
             event.preventDefault();
             handle.setPointerCapture(event.pointerId);
+            dragStartX = event.clientX;
+            dragStartWidth = this.#shownWidth;
             handle.dataset["dragging"] = "true";
             document.documentElement.dataset["articleResizing"] = "true";
         });
         handle.addEventListener("pointermove", (event) => {
             if (handle.dataset["dragging"] !== "true")
                 return;
-            // The panel is flush with the right edge, so its width is whatever is
-            // left of the viewport from the pointer.
-            commit(window.innerWidth - event.clientX);
+            // The panel is flush with the workspace's right edge, so moving the
+            // boundary left by a pixel widens the document by one.
+            commit(dragStartWidth + dragStartX - event.clientX);
         });
         const release = (event) => {
             if (handle.dataset["dragging"] !== "true")
@@ -989,8 +1043,9 @@ export class ArticlePanel {
         };
         handle.addEventListener("pointerup", release);
         handle.addEventListener("pointercancel", release);
+        handle.addEventListener("lostpointercapture", release);
         handle.addEventListener("keydown", (event) => {
-            if (this.#drawer.matches)
+            if (!this.#open)
                 return;
             const step = event.key === "ArrowLeft" ? ARTICLE_WIDTH_STEP : event.key === "ArrowRight" ? -ARTICLE_WIDTH_STEP : 0;
             if (step === 0)
@@ -998,10 +1053,12 @@ export class ArticlePanel {
             event.preventDefault();
             commit(this.#shownWidth + step);
         });
-        window.addEventListener("resize", () => {
-            if (!this.#open || this.#drawer.matches)
-                return;
-            this.#applyWidth(this.#preferredWidth());
+        window.addEventListener("resize", () => this.relayout());
+        // The session rail is the other thing that changes the space: toggled from
+        // the top bar, or by the renderer as the window crosses a breakpoint.
+        new MutationObserver(() => this.relayout()).observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ["data-navigation"],
         });
     }
     /**
@@ -1027,10 +1084,13 @@ export class ArticlePanel {
         return this.#stage.scrollHeight - this.#stage.scrollTop - this.#stage.clientHeight < 48;
     }
 }
-function readStoredWidth() {
+function readStoredShare() {
     try {
-        const stored = Number(window.localStorage.getItem(ARTICLE_WIDTH_KEY));
-        return Number.isFinite(stored) && stored >= MIN_ARTICLE_WIDTH ? stored : undefined;
+        const raw = window.localStorage.getItem(ARTICLE_SHARE_KEY);
+        if (raw === null)
+            return undefined;
+        const stored = Number(raw);
+        return Number.isFinite(stored) && stored > 0 && stored < 1 ? stored : undefined;
     }
     catch {
         return undefined;

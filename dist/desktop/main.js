@@ -16,6 +16,7 @@ import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { exportArticleFile } from "./article-export.js";
 import { DaemonBridge } from "./daemon-bridge.js";
 import { DESKTOP_ARTICLE_EXPORT_CHANNEL, DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_ATTACH_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, decodeAttachmentKind, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeArticleExportRequest, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
+import { MIN_ARTICLE_WIDTH, MIN_CONVERSATION_WIDTH } from "./renderer/article-split.js";
 import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 const arguments_ = parseArguments(process.argv.slice(1));
@@ -1154,6 +1155,34 @@ function assertSmokeReport(report, fixture) {
         if (article.widthAfterKeyboardStep <= article.resizedWidth) {
             failures.push("the arrow keys did not widen the document column");
         }
+        for (const layout of article.split) {
+            const at = `${layout.name} (${layout.viewport.width}x${layout.viewport.height})`;
+            if (!layout.column)
+                failures.push(`at ${at} the document floats over the conversation instead of taking a column`);
+            if (layout.overlap > 0)
+                failures.push(`at ${at} the document covers ${layout.overlap}px of the conversation`);
+            if (layout.conversationWidth < MIN_CONVERSATION_WIDTH - 1) {
+                failures.push(`at ${at} the conversation was squeezed to ${layout.conversationWidth}px`);
+            }
+            if (layout.articleWidth < MIN_ARTICLE_WIDTH - 1)
+                failures.push(`at ${at} the document was squeezed to ${layout.articleWidth}px`);
+            if (layout.conversationOverflow > 1) {
+                failures.push(`at ${at} the conversation's content sticks ${layout.conversationOverflow}px out under the document`);
+            }
+            if (!layout.handle)
+                failures.push(`at ${at} there is no boundary to drag`);
+            if (layout.documentOverflow > 0)
+                failures.push(`at ${at} the split pushed the workspace into a horizontal scrollbar`);
+        }
+        if (article.split.length < 6)
+            failures.push("the split was not measured across reopen and resize");
+        if (!article.reopenAnimated)
+            failures.push("a reopened document appeared at full width instead of arriving");
+        if (!article.splitKeptAcrossResize)
+            failures.push("shrinking the window and growing it back lost the reader's split");
+        if (article.compactDrag.after <= article.compactDrag.before) {
+            failures.push("the boundary did not drag in the smallest window");
+        }
         if (article.exportFormats.join(",") !== "txt,md,docx,pdf")
             failures.push("document panel does not offer all four exports");
         if (article.documentOverflow > 0)
@@ -1169,13 +1198,43 @@ function assertSmokeReport(report, fixture) {
         throw new Error(`Electron smoke validation failed: ${failures.join("; ")}`);
 }
 /**
- * Opens the document panel on the seeded article and reports what it rendered.
- *
- * This is the part of the feature no unit test reaches: the panel reads the
- * store through the daemon, renders markdown into real DOM, and has to take its
- * column without pushing the workspace into a horizontal scrollbar. Export
- * buttons are deliberately not clicked — each opens a native save dialog.
+ * Measures the open split. A long unbreakable notice is put on the status line
+ * first: the session-switch notice carries a whole session id, and that one line
+ * used to set the conversation's minimum width, so it stopped shrinking and was
+ * clipped under the document instead.
  */
+async function readArticleSplit(target, name) {
+    const layout = await target.webContents.executeJavaScript(`(() => {
+    const notice = document.querySelector('#notice-line');
+    const previous = notice ? notice.textContent : '';
+    if (notice) notice.textContent = '已切换到 session-' + 'f2fb0431d92a4424b705b55b82307dd0'.repeat(4);
+    const conversation = document.querySelector('.conversation');
+    const article = document.querySelector('#article-panel');
+    const handle = document.querySelector('#article-resize');
+    const c = conversation.getBoundingClientRect();
+    const a = article.getBoundingClientRect();
+    let overflow = 0;
+    const parts = '.conversation-header, .conversation-header > *, .session-health > :not([hidden]), .transcript, .composer-wrap, .notice-line, .composer, .composer-toolbar, .composer-actions, #send-button';
+    for (const node of conversation.querySelectorAll(parts)) {
+      const r = node.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) overflow = Math.max(overflow, r.right - c.right);
+    }
+    const h = handle ? handle.getBoundingClientRect() : { width: 0 };
+    const result = {
+      viewport: { width: innerWidth, height: innerHeight },
+      column: !article.hidden && getComputedStyle(article).position !== 'absolute',
+      overlap: Math.max(0, Math.round(c.right - a.left)),
+      conversationWidth: Math.round(c.width),
+      articleWidth: Math.round(a.width),
+      conversationOverflow: Math.max(0, Math.round(overflow)),
+      handle: Boolean(handle) && h.width > 0 && getComputedStyle(handle).display !== 'none',
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth
+    };
+    if (notice) notice.textContent = previous;
+    return result;
+  })()`);
+    return { name, ...layout };
+}
 async function exerciseArticlePanel(target) {
     const empty = {
         reopenLabel: "",
@@ -1200,6 +1259,10 @@ async function exerciseArticlePanel(target) {
         animatedOpen: false,
         exportFormats: [],
         documentOverflow: 0,
+        split: [],
+        reopenAnimated: false,
+        splitKeptAcrossResize: false,
+        compactDrag: { before: 0, after: 0 },
     };
     const offered = await waitForRenderer(target, "document.querySelector('#open-article-button')?.hidden === false", 6_000).then(() => true).catch(() => false);
     if (!offered)
@@ -1281,6 +1344,47 @@ async function exerciseArticlePanel(target) {
     await new Promise((resolve) => setTimeout(resolve, 120));
     return { resizedWidth, widthAfterKeyboardStep: read() };
   })()`);
+    // The split has to survive what used to turn it into a document floating over
+    // a clipped conversation: closing and reopening, and every window size the
+    // shell allows. It stays a column with a boundary to drag throughout.
+    const readWidth = "Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--article-width')) || 0";
+    const split = [await readArticleSplit(target, "1920x1080")];
+    await target.webContents.executeJavaScript("document.querySelector('#article-close')?.click(); true");
+    await waitForRenderer(target, "document.documentElement.dataset.article === undefined", 4_000);
+    await target.webContents.executeJavaScript("document.querySelector('#open-article-button')?.click(); true");
+    const reopeningWidth = await target.webContents.executeJavaScript(readWidth);
+    await settlePaint();
+    const reopened = await readArticleSplit(target, "reopened");
+    split.push(reopened);
+    target.setContentSize(1_440, 900);
+    await settlePaint();
+    split.push(await readArticleSplit(target, "1440x900"));
+    target.setContentSize(1_920, 1_080);
+    await settlePaint();
+    const restored = await readArticleSplit(target, "1920x1080 again");
+    split.push(restored);
+    target.setContentSize(1_180, 720);
+    await settlePaint();
+    split.push(await readArticleSplit(target, "1180x720"));
+    const compactDrag = await target.webContents.executeJavaScript(`(async () => {
+    const handle = document.querySelector('#article-resize');
+    const read = () => Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--article-width')) || 0;
+    const before = read();
+    if (!handle) return { before, after: before };
+    const box = handle.getBoundingClientRect();
+    const start = { bubbles: true, pointerId: 2, button: 0, clientX: box.left + box.width / 2, clientY: 300 };
+    handle.setPointerCapture = () => undefined;
+    handle.releasePointerCapture = () => undefined;
+    handle.hasPointerCapture = () => false;
+    handle.dispatchEvent(new PointerEvent('pointerdown', start));
+    handle.dispatchEvent(new PointerEvent('pointermove', { ...start, clientX: start.clientX - 40 }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { ...start, clientX: start.clientX - 40 }));
+    await new Promise((resolve) => setTimeout(resolve, 120));
+    return { before, after: read() };
+  })()`);
+    split.push(await readArticleSplit(target, "1180x720 dragged"));
+    target.setContentSize(1_920, 1_080);
+    await settlePaint();
     // Switching session has to take the document with it. The panel keeps the
     // current text to diff the next version against and a pool of rendered
     // blocks; carried across, they become the previous session's article showing
@@ -1312,6 +1416,10 @@ async function exerciseArticlePanel(target) {
         reusedAcrossVersions,
         clearedOnSessionChange,
         animatedOpen: openingWidth < settledWidth,
+        split,
+        reopenAnimated: reopeningWidth < reopened.articleWidth,
+        splitKeptAcrossResize: Math.abs(restored.articleWidth - reopened.articleWidth) <= 2,
+        compactDrag,
     };
 }
 async function exerciseComposerFileDrop(target, outputDirectory) {

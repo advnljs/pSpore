@@ -570,15 +570,23 @@ select {
 .rail-footer { padding: 2px 3px 0; color: var(--faint); font: 11px/1.6 var(--font-mono); }
 .rail-footer span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.conversation { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; }
+/* One shrinkable column. With the implicit `auto` track, the widest unbreakable
+   line inside — a session-switch notice is a full session id, an error notice a
+   whole message — set the conversation's minimum width, so beside the document
+   it stopped shrinking and was clipped under it instead. The inline-size
+   container lets the paddings below follow the column rather than the window. */
+.conversation { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; container-type: inline-size; }
 .conversation-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 24px 15px; border-bottom: 1px solid var(--border-soft); }
+.conversation-header > div:first-child { min-width: 0; }
 .conversation-header h2 { max-width: min(70%, 780px); margin: 6px 0 0; overflow: hidden; color: var(--text); font: 600 clamp(21px, 1.3vw, 25px)/1.1 var(--font-mono); letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
-.session-health { justify-content: flex-end; gap: 11px; max-width: 45%; }
+.session-health { justify-content: flex-end; gap: 11px; max-width: 45%; min-width: 0; }
+.session-health > * { flex: 0 0 auto; }
+.session-health > #model-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status-chip { padding: 6px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); background: var(--surface-soft); font: 650 11.5px/1 var(--font-mono); letter-spacing: 0.08em; }
 .status-chip.running { border-color: color-mix(in srgb, var(--live) 38%, var(--border)); color: var(--live); background: var(--live-soft); }
 .status-chip.failed { border-color: color-mix(in srgb, var(--rust) 38%, var(--border)); color: var(--rust); background: var(--rust-soft); }
 
-.transcript { min-height: 0; overflow: auto; padding: 32px clamp(24px, 4vw, 72px) 36px; scroll-behavior: auto; scroll-padding-block: 24px; }
+.transcript { min-height: 0; overflow: auto; padding: 32px min(clamp(24px, 4vw, 72px), max(18px, 6cqi)) 36px; scroll-behavior: auto; scroll-padding-block: 24px; }
 .virtual-spacer { width: 1px; min-height: 0; margin: 0 auto; pointer-events: none; }
 .empty-transcript { min-height: 100%; display: grid; place-items: center; color: var(--muted); }
 .empty-transcript > div { max-width: 520px; }
@@ -695,7 +703,7 @@ select {
 .thinking-stream-body { max-height: 180px; padding: 10px 12px; overflow: auto; color: var(--muted); font: 12.5px/1.65 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .stream-cursor { display: inline-block; width: 7px; height: 15px; margin-left: 4px; vertical-align: -2px; background: var(--accent); animation: blink 1s step-end infinite; }
 
-.composer-wrap { position: relative; padding: 0 20px 16px; background: linear-gradient(180deg, transparent, var(--surface) 18%); }
+.composer-wrap { position: relative; min-width: 0; padding: 0 20px 16px; background: linear-gradient(180deg, transparent, var(--surface) 18%); }
 .notice-line { height: 26px; padding: 5px 3px 0; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .message-queue { display: flex; flex-direction: column; gap: 6px; max-height: 142px; margin: 0 0 8px; overflow: auto; }
 .queue-message { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 8px 7px 10px; border: 1px solid var(--border-soft); border-radius: var(--radius-sm); background: var(--surface-soft); }
@@ -881,7 +889,7 @@ select {
   :root[data-inspector="closed"] .workspace-grid { grid-template-columns: 238px minmax(500px, 1fr); }
   .topbar { gap: 16px; }
   .topbar-metrics { gap: 14px; }
-  .transcript { padding-inline: clamp(24px, 3.5vw, 56px); }
+  .transcript { padding-inline: min(clamp(24px, 3.5vw, 56px), max(18px, 6cqi)); }
 }
 
 @media (max-width: 1320px) {
@@ -1051,7 +1059,9 @@ select {
 .article-receipt strong { color: var(--text); font-size: 14.5px; }
 .article-receipt span { color: var(--muted); font: 12.5px var(--font-mono); }
 /* The document column is whatever width the reader dragged it to, and the value
-   the open and close animations move between. */
+   the open and close animations move between. It is a column beside the
+   conversation at every window size the shell allows (1180px and up), never a
+   drawer over it: the split is the reader's to drag either way. */
 :root { --article-width: 42vw; }
 :root[data-article="open"] .workspace-grid { grid-template-columns: clamp(232px, 14vw, 264px) minmax(0, 1fr) var(--article-width); }
 :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr) var(--article-width); }
@@ -1090,23 +1100,15 @@ select {
 }
 
 @media (max-width: 1320px) {
-  :root[data-article="open"] .workspace-grid { grid-template-columns: 238px minmax(0, 1fr); }
-  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr); }
-  :root[data-article="open"] .article-panel {
-    position: absolute;
-    z-index: 12;
-    inset: 0 0 0 auto;
-    width: min(640px, 100%);
-    box-shadow: var(--shadow-drawer);
-  }
-  /* A drawer floats over the conversation instead of taking a column, so there
-     is no boundary to drag. */
-  .article-resize { display: none; }
+  :root[data-article="open"] .workspace-grid { grid-template-columns: 238px minmax(0, 1fr) var(--article-width); }
+  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr) var(--article-width); }
 }
 
+/* The session rail is a drawer here, so it takes no column: the conversation and
+   the document share the whole width, and the rail opens over both. */
 @media (max-width: 1160px) {
   :root[data-article="open"] .workspace-grid,
-  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr); }
+  :root[data-article="open"][data-navigation="closed"] .workspace-grid { grid-template-columns: minmax(0, 1fr) var(--article-width); }
 }
 
 @media (prefers-reduced-motion: reduce) {

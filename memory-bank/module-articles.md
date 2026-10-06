@@ -87,9 +87,10 @@
 - 默认 `ask_risky` 不逐次询问，因为工具不接受路径，只能写文稿目录，`riskReasons` 为空。`ask_all` 仍会问：`fs.write` 属于会改文件的能力。
 - 聊天卡片只显示「打开文稿」。TUI/CLI 没有面板，回执里带 `current.md` 的绝对路径；`read` 的正文仍会出现在 TUI 的工具记录里。
 - 流式阶段整篇重绘，不做逐 token 的 diff。提交后若面板里还没有上一版，会先取 `version - 1` 再对照。打开已有文稿不会把整篇当成新增来闪。
-- 面板默认隐藏，避免 Electron smoke 在 1920×1080 上多出一列。打开时检查器让位；宽度 ≤1320 时文稿是抽屉。
-- 列宽由 `--article-width` 决定，可拖拽（面板内左缘 10px 分隔条，`role="separator"`，方向键每次 24px），存在 `localStorage`。上下界：文稿 ≥380px，对话 ≥560px，文稿 ≤视口 72%。分隔条必须放在面板**内侧**——`.panel` 有 `overflow: hidden`，挂在外侧会被裁掉，而且面板不设 `position: relative` 的话它会按 `.workspace-grid` 定位、跑到工作区最左边。
-- 开关动画在宽模式下动的是**栅格列宽**（对话让出/收回空间），抽屉模式下动的是面板本身。收起时 `data-article` 要保留到动画结束才移除，否则栅格中途丢掉变量会瞬间塌掉。
+- 面板默认隐藏，避免 Electron smoke 在 1920×1080 上多出一列。打开时检查器让位。**任何窗口尺寸（外壳最小 1180×720）下文稿都是对话旁边的一列、可拖动分屏，不再有 ≤1320 抽屉**；≤1160 时会话栏是抽屉、不占列，对话与文稿平分整个宽度（0.1.34）。
+- 列宽由 `--article-width` 决定，可拖拽（面板内左缘 10px 分隔条，`role="separator"`，方向键每次 24px）。边界与默认值在 DOM 无关的 `src/desktop/renderer/article-split.ts`：文稿 ≥360px、对话 ≥440px，两者放不下时按比例让步；首次打开对半分。可用宽度**实测**为工作区右缘到对话左缘再减列间距——不能用 `innerWidth`，旧算法没扣会话栏/间距/内边距，对话曾被挤到 252px。读者的选择以**占比**存 `localStorage` 键 `pspore.desktop.articleShare`，窗口缩放、会话栏开合（`MutationObserver` 看 `data-navigation`）时 `relayout()` 按占比重算，变窄再变宽回到原分屏。拖拽以按下时的位置为基准，不跳到指针处。分隔条必须放在面板**内侧**——`.panel` 有 `overflow: hidden`，挂在外侧会被裁掉，而且面板不设 `position: relative` 的话它会按 `.workspace-grid` 定位、跑到工作区最左边。
+- 开关动画动的是**栅格列宽**（对话让出/收回空间）。同一时刻只有一个宽度 tween（`animateArticleWidth` 返回可 kill 的句柄）：关闭中重新打开、切会话后立即打开都会先停掉上一个，旧的 finish 不会再隐藏面板。收起时 `data-article` 要保留到动画结束才移除，否则栅格中途丢掉变量会瞬间塌掉；收起后宽度留在 0，所以再次打开与第一次一样是“展开”而不是整列突然出现。
+- **对话列必须能收窄**：`.conversation` 是单列 grid，隐式 `auto` 列会被最宽的不可断行内容撑住——切会话提示「已切换到 session-<uuid>」、长错误提示都是 `nowrap`——于是在文稿旁边它不再缩小，内容（含发送按钮）被裁在文稿下面，看起来像文稿浮在对话上。现在显式 `grid-template-columns: minmax(0, 1fr)` + `container-type: inline-size`，transcript 左右内边距随对话列宽（`cqi`）收缩，模型名省略号截断。Electron smoke 注入长提示后逐尺寸断言对话内容不溢出。
 - 内置 skill 在新会话或服务重启后才进入提示词，已打开的会话不热加载。
 - 渲染器不得导入 `store.ts`、`docx.ts`、`zip-write.ts`、`article-export.ts`。
 - 面板靠 `article.preview` / `tool.completed` 两个事件活着。这两个事件走的是通用广播路径，所以**任何让桌面端拒帧断连的协议缺陷都会静默掐掉整个面板的实时行为**：2026-09-22 实机验证发现 `transcript.item.started` 少了 `status`/`ts`，桌面端每条助手消息都断一次连，流式预览与 diff 动画从未到达过面板，而聊天靠重连快照看起来正常。`test/contract/pi-runtime-adapter.test.ts` 现在用桌面端自己的 `validateEventEnvelope` 逐条校验 adapter 发出的事件，守住这个边界。

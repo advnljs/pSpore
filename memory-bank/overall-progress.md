@@ -1,5 +1,19 @@
 # Overall Progress
 
+## 2026-10-06 CST — 文稿与对话始终是可拖动分屏（0.1.34 候选）
+
+- 阶段目标：文稿弹出后与对话是可拖动分屏；收起再弹出、切换/新建对话后不能变成浮动面板盖住对话、对话不能失去缩放；各情况都随窗口缩放更新。
+- 复现（打包后的 0.1.33，Xvfb + CDP + XTest 真实鼠标/X 窗口缩放）：①宽度上限按 `innerWidth−560` 算，没扣会话栏/间距/内边距，拖动或重开后对话被挤到 252px；②`.conversation` 的隐式 `auto` 列被「已切换到 session-<uuid>」等 `nowrap` 提示撑到约 762px，对话内容（含发送按钮）被裁在文稿下面——新对话里最明显，看起来就是文稿浮在对话上、对话无法缩放；③≤1320 时文稿本来就是盖在对话上的抽屉、没有分隔条；④开/关宽度 tween 未互斥，收起后宽度复位成整列，重开不再展开。
+- 完成内容：新增 DOM 无关的 `article-split.ts`（文稿 ≥360、对话 ≥440、放不下按比例、默认对半、占比换算）；面板实测可用宽度、按占比记忆，窗口 resize 与会话栏开合时 `relayout()`；宽度 tween 返回可 kill 句柄并保持单一；收起后宽度留 0；拖拽以按下点为基准。CSS 取消文稿抽屉，所有断点都是一列；对话 `minmax(0,1fr)` + `container-type: inline-size`，transcript 内边距随列宽，模型名省略号。
+- 修改文件：`src/desktop/renderer/{article-split,article-panel,motion}.ts`、`styles.css`、`src/desktop/main.ts`（smoke 探针）、`scripts/electron-smoke.mjs`、`test/unit/desktop-article-split.test.ts`、三个版本事实源与 `dist/**`、memory-bank。
+- 验证方式与结果：
+  - `npm run check`：293 项，289 通过、0 失败、4 跳过（`aegis-search-ranking` 需可选本机索引器，本环境下载不到，与本改动无关）。
+  - `node scripts/electron-smoke.mjs`：新增分屏断言（1920 / 重开 / 1440 / 回到 1920 / 1180 / 1180 拖动，注入长提示）全过；**把三个渲染器文件换回 0.1.33 后同一 smoke 报 14 条失败**（对话内容溢出 118–572px、1180 浮动盖住 640px、无分隔条、重开不展开、最小窗口不能拖），证明断言能抓住原问题。`npm run test:article-stream` 通过。
+  - `scripts/package-desktop.sh 0.1.34 x64`：全量/overlay/CLI 打包成功，asar 内 5 个修复文件与 `dist/` 逐字一致。解包后的 `pspore-desktop` 在 Xvfb 下用 XTest 真实点击/拖动与 X 窗口缩放（1920→1600→1440→1366→1280→1180→1920、会话栏开合、关闭后缩放再重开）跑 28 步断言全部通过：始终是列、无重叠、对话 ≥440、文稿 ≥360、对话内容不溢出、发送按钮可见、无横向滚动；打开/重开逐帧从 0 展开；变窄再变宽恢复原分屏。生产启动需 systemd user，验证时用临时 systemctl 替身 + 外部 Daemon，未改产品代码。
+- 当前状态：待提交 `main`、CI 自动打 tag 与双架构 Release。
+- 遗留问题：未在银河麒麟/飞腾目标机实机复验；HiDPI 缩放下 CSS 宽度可能接近 1180 下限，此时对话/文稿分别固定在下限附近。
+
+
 ## 2026-09-28 17:32 CST — v0.1.33 已发布并核验双架构回执误存防护
 
 - 阶段目标：发布文稿写稿上下文隔离与完成回执误存防护，核验实际下载资产。

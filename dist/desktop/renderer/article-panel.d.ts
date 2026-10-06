@@ -35,5 +35,11 @@ export declare class ArticlePanel {
     onEvent(event: EventEnvelope): void;
     open(id: string, version?: number): Promise<void>;
     close(): void;
+    /**
+     * Follows the space the split divides: a resized window, or the session rail
+     * opening or closing. The reader's share is kept, so both halves scale; an open
+     * still animating lands on the new width at once rather than on the stale one.
+     */
+    relayout(): void;
 }
 //# sourceMappingURL=article-panel.d.ts.map
