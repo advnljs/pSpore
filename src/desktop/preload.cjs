@@ -12,6 +12,7 @@ const INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 const INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
 const ATTACH_CHANNEL = "pspore:desktop:composer:attach";
 const ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
+const OPEN_LOCAL_PATH_CHANNEL = "pspore:desktop:open-local-path";
 
 const api = Object.freeze({
   bootstrap() {
@@ -43,6 +44,9 @@ const api = Object.freeze({
   },
   exportArticle(request) {
     return ipcRenderer.invoke(ARTICLE_EXPORT_CHANNEL, request);
+  },
+  openLocalPath(pathOrUrl) {
+    return ipcRenderer.invoke(OPEN_LOCAL_PATH_CHANNEL, pathOrUrl);
   },
   subscribe(listener) {
     if (typeof listener !== "function") throw new TypeError("pSpore frame listener must be a function");

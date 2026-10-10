@@ -137,6 +137,9 @@ test("links keep safe schemes and drop everything else", () => {
   assert.equal(link.kind, "link");
   assert.equal(link.href, "https://example.com/a");
   assert.equal(plain(link.children), "docs");
+  const local = parseInline("[报告](/tmp/report.txt) [目录](file:///tmp/results/)");
+  assert.equal((local[0] as Extract<MarkdownInline, { kind: "link" }>).href, "/tmp/report.txt");
+  assert.equal((local[2] as Extract<MarkdownInline, { kind: "link" }>).href, "file:///tmp/results/");
   assert.deepEqual(parseInline("[x](javascript:alert(1))"), [{ kind: "text", value: "[x](javascript:alert(1))" }]);
 });
 

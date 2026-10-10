@@ -35,6 +35,8 @@ pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和�
 
 ## 关键技术决策
 
+- 2026-10-10：桌面回复中的本地链接只经固定 preload IPC 请求主进程打开。渲染器仍无 Node/文件系统访问权；主进程校验绝对路径、`file://` 本机 URL、目标类型与可执行位后调用系统 `shell.openPath`。外部页面导航仍被拦截。
+
 1. 模块化单体，不提前拆微服务/npm 多包。
 2. 一个顶层状态归并 loop，复用 Pi 内部 agent loop；异步 activity 不阻塞 Kernel。
 3. 主会话 in-process 使用 Pi SDK，不用 Pi RPC 子进程。

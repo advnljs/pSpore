@@ -18,7 +18,7 @@ const ORDERED = /^([ \t]*)(\d{1,9})[.)][ \t]+(.*)$/;
 const TASK = /^\[([ xX])\][ \t]+(.*)$/;
 const TABLE_DELIMITER = /^ {0,3}\|?[ \t]*:?-{1,}:?[ \t]*(?:\|[ \t]*:?-{1,}:?[ \t]*)*\|?[ \t]*$/;
 const ESCAPABLE = /[\\`*_{}[\]()#+\-.!|~>]/;
-const LINK_SCHEME = /^(?:https?:\/\/|mailto:|file:\/\/)/i;
+const LINK_SCHEME = /^(?:https?:\/\/|mailto:|file:\/\/|\/)/i;
 /** Depth guard: markdown that nests deeper than this is pathological, not prose. */
 const MAX_DEPTH = 6;
 export function parseMarkdown(source, depth = 0) {

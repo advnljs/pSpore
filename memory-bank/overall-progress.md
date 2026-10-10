@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-10-10 09:18 CST — 桌面回复中的本地文件/目录链接可点击（0.1.35 候选）
+
+- 阶段目标：让智能体输出的本地文件与目录位置可以在桌面会话里直接点击打开，并准备新版本。
+- 完成内容：普通文本中的绝对路径和 `file://`、Markdown 本地链接、独立行内代码路径渲染成可点击按钮；受限 preload IPC 交给主进程，先确认路径是存在的普通文件或目录，拒绝可执行文件、远程 URL、非法路径；系统打开器无响应时 15 秒给出错误。外部页面导航仍保持关闭。版本事实源更新为 `0.1.35`，README/项目文档与 memory-bank 已同步。
+- 修改文件：`src/ui/shared/local-links.ts`、`src/ui/shared/markdown.ts`、`src/desktop/{local-path,ipc-contract,main}.ts`、`src/desktop/preload.cjs`、`src/desktop/renderer/{markdown-view.ts,styles.css}`、相关单测/Electron smoke、三个版本事实源、`dist/**`、README、项目文档与 memory-bank。
+- 验证方式与结果：`npm run check` 通过（类型检查、295/295 测试、生产 build）；Electron 43 smoke 在 `1920×1080` 主基准及既有 1440/1180 视口通过，真实临时文件 `example report.txt`、目录 `example-directory` 分别通过 Markdown、普通文本与行内代码的点击控件到达受控 IPC，`desktop-local-links-1920x1080.png` 人工检查无溢出/遮挡；`scripts/package-desktop.sh 0.1.35 x64` 成功生成 CLI、全量 zip、overlay zip、可运行目录和校验文件。独立 `shell.openPath` 探针实际调用了本地 `xdg-open` 替身并交出目标文件路径，但此容器没有完整桌面 D-Bus，Electron 完成回调未返回，故不能把该探针当作真实目标机文件关联已验证。
+- 当前状态：本地实现、构建、桌面链接点击链路与 x64 候选打包完成；生产服务未在本环境常驻，Electron smoke 使用隔离 Daemon 并已退出。等待提交、push 与自动双架构 Release。
+- 遗留问题：需在银河麒麟/飞腾目标机用实际文件管理器/默认程序复验系统打开结果；本环境无法下载私有 `aegis-searcher` 可选二进制，本地包按既有降级路径生成。
+
 ## 2026-10-06 CST — v0.1.34 已发布并核验双架构分屏修复
 
 - 阶段目标：发布文稿/对话可拖动分屏修复，核验实际发布资产。

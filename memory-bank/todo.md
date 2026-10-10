@@ -2,6 +2,8 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 推送并核验本地链接功能 `v0.1.35` | In Progress | 本地验证与 x64 打包已通过，尚待 CI/ARM64/Release | 提交推送 `main`，等待自动 annotated tag 与双架构 Release，核验资产与校验和 |
+| P1 | 在目标 Linux 桌面复验本地链接调用系统默认程序 | Pending | 本容器缺完整桌面 D-Bus；本地已验证 UI 点击、IPC 路径与 `xdg-open` 接收路径，无法证明目标机文件关联效果 | 升级 0.1.35 后让智能体输出一个真实 `.txt` 文件与目录，点击并确认文本编辑器/文件管理器打开；若系统打开器无响应，UI 会在 15 秒后提示 |
 | P0 | 文稿与对话始终是可拖动分屏、随窗口缩放更新，并发布 0.1.34 | Done | 目标机实机复验待用户 | 293 项测试（4 项可选索引器跳过）、Electron smoke 新分屏断言、article-stream、x64 打包与 28 步 XTest 实操验证通过；CI `37445241923`、ARM64 `37445241914`、Release `37445762684` 成功，双架构 overlay SHA-256 与六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.34 |
 | P0 | 修复文稿 v1 仅含 31 字完成回执的问题，并发布 0.1.33 | Done | 目标机仍需下项单独复验 | 287 项测试、1920×1080/20× CPU Electron、双架构构建与 Release 全部成功；远端 overlay SHA-256、八项核心文件与 skill 一致性通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.33 |
 | P0 | 让文稿正文使用普通文本流，并发布 0.1.32 | Done | 目标机仍需下项单独复验 | 284 项测试、1920×1080/20× CPU/250 ms Electron 验收、双架构构建与 Release 全部通过；远端双架构 overlay SHA-256、七项核心文件与 skill 0.1.2 一致性校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.32 |
@@ -63,7 +65,7 @@
 | P1 | 修复 zip 桌面快捷方式 | Done | 无 | 稳定 XDG launcher、启动日志与应用菜单/桌面入口已通过隔离 `desktop-file-validate` + `gtk-launch` 验收 |
 | P1 | 验证无 Chromium overlay 从上一版升级 | Done | 无；`0.1.5` 与 `0.1.6` 均为 Electron `43.3.0/x64` | 真实 GitHub `v0.1.5` 全量包已升级到 `0.1.6` 并通过发行目录 Electron smoke；运行时不匹配时 updater 会在替换前拒绝 |
 
-| P3 | Markdown 链接在 GUI 中不可点击跳转 | Pending | 主进程按安全基线禁止外部导航与新窗口 | 若要支持，需要显式引入受控的 `shell.openExternal` 白名单（仅 http/https）并重新评估安全边界 |
+| P3 | 外部 Markdown 链接在 GUI 中不可点击跳转 | Pending | 主进程按安全基线禁止外部导航与新窗口；本地文件/目录链接已有独立受控 IPC | 若要支持外部网页，需要显式引入受控的 `shell.openExternal` 白名单（仅 http/https）并重新评估安全边界 |
 | P3 | Markdown 代码块无语法高亮 | Pending | 无 | 当前只显示语言标签；如需高亮需引入自实现 tokenizer 或新依赖（须先征求用户确认） |
 
 ## 已知风险

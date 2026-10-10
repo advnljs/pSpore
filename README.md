@@ -217,6 +217,10 @@ Files and directories can be dragged into the desktop composer as removable path
 the message, reads or uploads file contents, copies files, or expands directories; sending later adds only quoted
 absolute `@"/path"` references to the prompt.
 
+Local files and directories in an agent reply can be opened with a click. Absolute paths, `file://` links, and
+paths in inline code are recognized in the desktop conversation. The main process checks that the target exists
+and is a regular, non-executable file or a directory before asking the operating system to open it.
+
 ## Links
 
 - [Repository](https://github.com/advnljs/pSpore)

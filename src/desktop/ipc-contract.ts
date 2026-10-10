@@ -24,6 +24,7 @@ export const DESKTOP_INDEXING_SAVE_CHANNEL = "pspore:desktop:indexing:save";
 export const DESKTOP_INDEXING_PICK_CHANNEL = "pspore:desktop:indexing:pick";
 export const DESKTOP_ATTACH_CHANNEL = "pspore:desktop:composer:attach";
 export const DESKTOP_ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
+export const DESKTOP_OPEN_LOCAL_PATH_CHANNEL = "pspore:desktop:open-local-path";
 
 export type ArticleExportFormat = "txt" | "md" | "docx" | "pdf";
 
@@ -174,6 +175,8 @@ export interface DesktopApi {
   /** Resolve only an operating-system-backed File supplied by a user drag. */
   getPathForFile(file: unknown): string;
   exportArticle(request: ArticleExportRequest): Promise<ArticleExportResult>;
+  /** Ask the main process to open an existing local file or directory after a click. */
+  openLocalPath(pathOrUrl: string): Promise<void>;
   subscribe(listener: (frame: DesktopFrame) => void): () => void;
 }
 

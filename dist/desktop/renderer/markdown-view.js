@@ -3,11 +3,12 @@
  * Builds DOM for the markdown tree produced by `src/ui/shared/markdown.ts`.
  *
  * Every value reaches the document through `textContent` or a Text node — the
- * desktop renderer never uses `innerHTML`, and link destinations are rendered as
- * inert text because the main process blocks all external navigation.
+ * desktop renderer never uses `innerHTML`. Local paths use an explicit main
+ * process IPC action; navigation remains blocked.
  */
 import { parseMarkdown, } from "../../ui/shared/markdown.js";
 import { blockKeysOf, commonBlockPrefix } from "../../ui/shared/markdown-stream.js";
+import { localTextParts } from "../../ui/shared/local-links.js";
 const ALIGNMENT_CLASS = {
     left: "md-align-left",
     center: "md-align-center",
@@ -208,47 +209,52 @@ function renderTable(block) {
 function alignmentClass(alignment) {
     return alignment ? ALIGNMENT_CLASS[alignment] : "";
 }
-function appendInline(container, nodes) {
+function appendInline(container, nodes, linkifyText = true) {
     for (const node of nodes) {
         switch (node.kind) {
             case "text":
-                container.append(document.createTextNode(node.value));
+                for (const part of linkifyText ? localTextParts(node.value) : [{ text: node.value }]) {
+                    container.append(part.href ? localPathButton(part.href, part.text) : document.createTextNode(part.text));
+                }
                 break;
             case "break":
                 container.append(element("br"));
                 break;
             case "code": {
-                const code = element("code", "md-code-span");
+                const local = node.value.startsWith("/") || node.value.startsWith("file:///");
+                const code = local ? localPathButton(node.value, node.value) : element("code", "md-code-span");
+                code.classList.add("md-code-span");
                 code.textContent = node.value;
                 container.append(code);
                 break;
             }
             case "strong": {
                 const strong = element("strong");
-                appendInline(strong, node.children);
+                appendInline(strong, node.children, linkifyText);
                 container.append(strong);
                 break;
             }
             case "emphasis": {
                 const emphasis = element("em");
-                appendInline(emphasis, node.children);
+                appendInline(emphasis, node.children, linkifyText);
                 container.append(emphasis);
                 break;
             }
             case "strike": {
                 const strike = element("s");
-                appendInline(strike, node.children);
+                appendInline(strike, node.children, linkifyText);
                 container.append(strike);
                 break;
             }
             case "link": {
-                // Rendered inert: the desktop client blocks external navigation, so the
-                // destination is shown as copyable text instead of a dead hyperlink.
-                const label = element("span", "md-link");
+                const local = node.href.startsWith("/") || node.href.startsWith("file:");
+                const label = local ? localPathButton(node.href) : element("span", "md-link");
                 label.title = node.href;
-                appendInline(label, node.children);
+                appendInline(label, node.children, false);
+                if (local)
+                    label.setAttribute("aria-label", `打开 ${label.textContent || node.href}`);
                 container.append(label);
-                if (label.textContent !== node.href) {
+                if (!local && label.textContent !== node.href) {
                     const destination = element("span", "md-link-url");
                     destination.textContent = node.href;
                     container.append(destination);
@@ -257,6 +263,28 @@ function appendInline(container, nodes) {
             }
         }
     }
+}
+function localPathButton(href, text) {
+    const button = element("button", "md-link md-local-link");
+    button.type = "button";
+    button.title = href;
+    button.setAttribute("aria-label", `打开 ${text ?? href}`);
+    if (text)
+        button.textContent = text;
+    button.addEventListener("click", () => {
+        button.disabled = true;
+        void window.pspore.openLocalPath(href).then(() => {
+            button.disabled = false;
+        }, (error) => {
+            button.disabled = false;
+            const notice = element("span", "md-link-error");
+            notice.setAttribute("role", "status");
+            notice.textContent = error instanceof Error ? error.message : "无法打开文件或目录";
+            button.after(notice);
+            globalThis.setTimeout(() => notice.remove(), 5_000);
+        });
+    });
+    return button;
 }
 function element(tag, className) {
     const created = document.createElement(tag);

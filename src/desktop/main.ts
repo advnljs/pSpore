@@ -2,7 +2,7 @@ import { mkdir, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { app, BrowserWindow, dialog, ipcMain, screen, session, type IpcMainInvokeEvent, type WebContents } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen, session, shell, type IpcMainInvokeEvent, type WebContents } from "electron";
 
 import { ArticleStore } from "../articles/store.js";
 import { resolvePsporeHome } from "../config/config.js";
@@ -16,9 +16,11 @@ import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { exportArticleFile } from "./article-export.js";
+import { decodeOpenLocalPath } from "./local-path.js";
 import { DaemonBridge } from "./daemon-bridge.js";
 import {
   DESKTOP_ARTICLE_EXPORT_CHANNEL,
+  DESKTOP_OPEN_LOCAL_PATH_CHANNEL,
   DESKTOP_BOOTSTRAP_CHANNEL,
   DESKTOP_DISPATCH_CHANNEL,
   DESKTOP_FRAME_CHANNEL,
@@ -50,6 +52,7 @@ interface DesktopArguments {
 interface SmokeReport {
   connection: { phase: string };
   daemonOwnership: DaemonOwnership;
+  localLinks?: { fileOpened: boolean; directoryOpened: boolean; codePathOpened: boolean; openedPaths: string[] };
   reconnectVerified: boolean;
   /** A brief outage must stay presented as connected before the settle window expires. */
   reconnectMasked: boolean;
@@ -284,6 +287,7 @@ let exitCode = 0;
 let shuttingDown = false;
 let savingSettings = false;
 let articleRoot = "";
+const smokeOpenedPaths: string[] = [];
 
 app.on("window-all-closed", () => requestShutdown(0));
 app.on("before-quit", (event) => {
@@ -433,6 +437,7 @@ function installIpc(
   ipcMain.removeHandler(DESKTOP_INDEXING_PICK_CHANNEL);
   ipcMain.removeHandler(DESKTOP_ATTACH_CHANNEL);
   ipcMain.removeHandler(DESKTOP_ARTICLE_EXPORT_CHANNEL);
+  ipcMain.removeHandler(DESKTOP_OPEN_LOCAL_PATH_CHANNEL);
   ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
     assertTrustedSender(event, target.webContents);
     return { ...daemonBridge.bootstrap(), places: desktopPlaces() };
@@ -478,6 +483,27 @@ function installIpc(
     assertTrustedSender(event, target.webContents);
     const request = decodeArticleExportRequest(candidate);
     return exportArticleFile(new ArticleStore(articleRoot), request, target);
+  });
+  ipcMain.handle(DESKTOP_OPEN_LOCAL_PATH_CHANNEL, async (event, candidate: unknown) => {
+    assertTrustedSender(event, target.webContents);
+    const path = await decodeOpenLocalPath(candidate);
+    if (arguments_.smokeFixture) {
+      smokeOpenedPaths.push(path);
+      return;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let error: string;
+    try {
+      error = await Promise.race([
+        shell.openPath(path),
+        new Promise<string>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error("系统打开器未响应")), 15_000);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    if (error) throw new Error(`无法打开文件或目录：${error}`);
   });
   ipcMain.handle(DESKTOP_ATTACH_CHANNEL, async (event, candidate: unknown) => {
     assertTrustedSender(event, target.webContents);
@@ -585,6 +611,12 @@ async function runSmoke(
 ): Promise<void> {
   if (!isAbsolute(outputDirectory)) throw new Error("--smoke-dir must be an absolute path");
   await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
+  const linkedFile = join(outputDirectory, "example report.txt");
+  const linkedDirectory = join(outputDirectory, "example-directory");
+  if (fixture) {
+    await writeFile(linkedFile, "A real file opened from an assistant reply.\n", { mode: 0o600 });
+    await mkdir(linkedDirectory, { mode: 0o700 });
+  }
   target.setContentSize(1_920, 1_080);
   target.show();
   await waitForRenderer(target, "document.documentElement.dataset.ready === 'true'", 10_000);
@@ -916,10 +948,32 @@ async function runSmoke(
 
     sendFrame(target, smokeEvent(23, "transcript.item.finished", {
       sessionId: "main",
-      item: { id: "smoke-item-1", role: "assistant", text: "最终证据已归并。", status: "complete", ts: "2026-08-10T08:10:00.000Z" },
+      item: {
+        id: "smoke-item-1", role: "assistant",
+        text: `最终证据已归并。[打开文件](${pathToFileURL(linkedFile).href})，目录 ${linkedDirectory}，代码路径 \`${linkedFile}\`。`,
+        status: "complete", ts: "2026-08-10T08:10:00.000Z",
+      },
     }));
     await waitForRenderer(target, "!document.querySelector('.thinking-stream:not([hidden])')", 5_000);
     await settlePaint();
+    await target.webContents.executeJavaScript(`(() => {
+      const file = [...document.querySelectorAll('.message.assistant .md-local-link')]
+        .find((node) => node.title === ${JSON.stringify(pathToFileURL(linkedFile).href)});
+      const directory = [...document.querySelectorAll('.message.assistant .md-local-link')]
+        .find((node) => node.title === ${JSON.stringify(linkedDirectory)});
+      const code = [...document.querySelectorAll('.message.assistant .md-local-link')]
+        .find((node) => node.title === ${JSON.stringify(linkedFile)});
+      file?.click();
+      directory?.click();
+      code?.click();
+    })()`);
+    await waitFor(() => smokeOpenedPaths.filter((path) => path === linkedFile).length === 2
+      && smokeOpenedPaths.includes(linkedDirectory), 3_000);
+    await writeFile(
+      join(outputDirectory, "desktop-local-links-1920x1080.png"),
+      (await target.webContents.capturePage()).toPNG(),
+      { mode: 0o600 },
+    );
     mainVisual.tailDistanceAfterReturn = await target.webContents.executeJavaScript(`(() => {
       const transcript = document.querySelector('#transcript');
       return transcript ? transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight : -1;
@@ -1109,6 +1163,12 @@ async function runSmoke(
     capturedAt: new Date().toISOString(),
     connection: daemonBridge.bootstrap().connection,
     daemonOwnership: daemonSupervisor?.ownership ?? "external",
+    ...(fixture ? { localLinks: {
+      fileOpened: smokeOpenedPaths.includes(linkedFile),
+      directoryOpened: smokeOpenedPaths.includes(linkedDirectory),
+      codePathOpened: smokeOpenedPaths.filter((path) => path === linkedFile).length === 2,
+      openedPaths: [...smokeOpenedPaths],
+    } } : {}),
     reconnectVerified,
     reconnectMasked,
     images: {
@@ -1147,6 +1207,9 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   const failures: string[] = [];
   if (report.connection.phase !== "connected") failures.push("desktop did not connect to the real daemon");
   if (fixture && !report.reconnectVerified) failures.push("desktop reconnect path was not verified");
+  if (fixture && (!report.localLinks?.fileOpened || !report.localLinks.directoryOpened || !report.localLinks.codePathOpened)) {
+    failures.push("assistant output did not open its linked file, directory and inline-code path");
+  }
   if (fixture && !report.reconnectMasked) failures.push("a brief outage was surfaced instead of being settled");
   if (report.images.main.width !== 1_920 || report.images.main.height !== 1_080) failures.push("main capture is not 1920x1080");
   if (report.images.light.width !== 1_920 || report.images.light.height !== 1_080) failures.push("light capture is not 1920x1080");
@@ -1189,6 +1252,7 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
     "getIndexing",
     "getPathForFile",
     "getSettings",
+    "openLocalPath",
     "pickAttachments",
     "pickIndexDirectory",
     "saveIndexing",

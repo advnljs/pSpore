@@ -60,6 +60,7 @@ test("preload and renderer assets contain fixed IPC and strict CSP only", async 
   assert.match(preload, /pspore:desktop:frame/);
   assert.match(preload, /pspore:desktop:settings:get/);
   assert.match(preload, /pspore:desktop:settings:save/);
+  assert.match(preload, /pspore:desktop:open-local-path/);
   assert.match(preload, /webUtils\.getPathForFile\(file\)/);
   assert.doesNotMatch(preload, /ipcRenderer\.send\s*\(/);
   assert.doesNotMatch(preload, /shell\.|remote\.|webFrame/);

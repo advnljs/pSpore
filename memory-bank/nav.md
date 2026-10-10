@@ -53,11 +53,13 @@
 | `src/ui/shared/` | GUI/TUI 共用 protocol reducer、presentation/input routing 与 `CoworkActivity` 事件归一/脱敏 |
 | `test/unit/renderer-module-graph.test.ts` | 静态遍历渲染器 import 图，禁止其触达 Node 内置模块（沙箱渲染器加载不了，类型检查与 x64 CI 都发现不了）|
 | `src/ui/shared/markdown.ts` | 共享纯 Markdown 解析器（CommonMark/GFM 子集），无 DOM 依赖、可单测 |
+| `src/ui/shared/local-links.ts` | 从普通回复文字中提取本地绝对路径和 `file://` 链接；不扫描代码块 |
+| `src/desktop/local-path.ts` | 主进程打开本地路径前的解码、存在性、类型和可执行文件检查 |
 | `src/ui/shared/markdown-stream.ts` | 流式重解析后哪些块没变：块 key 与公共前缀。无 DOM，可单测；`markdown-view.ts` 的增量渲染面据此工作 |
 | `src/desktop/renderer/dom-reconcile.ts` | `reconcileChildren`：只移动位置不对的节点，先删后排。transcript 与文稿面板共用；用 `replaceChildren` 会摘掉选区与动画 |
 | `src/ui/shared/virtual-list.ts` | GUI 变高虚拟历史的 Fenwick 索引，以及“接近底部”尾随状态判定 |
 | `src/ui/shared/full-message.ts` | 被出站上限截断的单条消息的分片重组（`readFullMessage`），DOM 无关、可单测 |
-| `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制与惰性链接 |
+| `src/desktop/renderer/markdown-view.ts` | 把 Markdown 树渲染为 DOM（只用 `createElement`/`textContent`），代码块复制、本地路径点击与外部惰性链接 |
 | `src/desktop/renderer/composer-file-references.ts` | GUI 拖入文件/目录的绝对路径校验、去重上限、展示名称与 path-only `@` 引用序列化 |
 | `src/ui/tui/` | Pi TUI 客户端、wizard/命令配置、动态工作步骤、`/work`、160×45 双栏与 96×30 单栏 renderer |
 | `src/desktop/renderer/styles.css` | 桌面 design token 与组件样式唯一来源（spore print 双主题、语义色、字号下限） |
