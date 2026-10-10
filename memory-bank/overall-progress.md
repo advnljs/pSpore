@@ -1,12 +1,21 @@
 # Overall Progress
 
+## 2026-10-10 09:30 CST — v0.1.35 已发布并核验本地链接双架构资产
+
+- 阶段目标：把桌面回复中的本地文件/目录点击功能推送为不可变新版本，并验证实际发布结果。
+- 完成内容：功能提交 `5bf496c` 已推送到 `main`；CI `38012657406`、ARM64 预构建 `38012657407`、正式 Release `38012942031` 全部成功。自动 annotated `v0.1.35` 解引用到 `5bf496c`。Release <https://github.com/advnljs/pSpore/releases/tag/v0.1.35> 已公开发布，非 draft/prerelease，包含带 x64/ARM64 标签的 12 项资产；发布时间 `2026-10-10T01:27:29Z`。
+- 独立远端复验：从正式 Release 下载两种架构的 overlay 与各自 SHA-256，校验均通过；两份 manifest 分别为 `0.1.35 / Electron 43.3.0 / x64` 和 `0.1.35 / Electron 43.3.0 / arm64`。两份包内的 `desktop/main.js`、`desktop/preload.cjs`、`desktop/local-path.js`、`desktop/renderer/markdown-view.js`、`desktop/renderer/styles.css`、`ui/shared/local-links.js`、`ui/shared/markdown.js`、`version.js` 共 8 个文件逐字匹配已提交的 `dist/`。
+- 修改文件：本阶段仅把发布事实同步到 `memory-bank/{overall-progress,todo}.md`。
+- 当前状态：新版本发布及远端内容校验完成；本地 smoke 进程已退出。本容器没有 systemd user bus，因此无法保持生产 GUI/Daemon 常驻预览；可用 `npm run desktop` 在具备图形会话和 Node 24 的源码环境启动，或使用 Release 全量包安装。
+- 遗留问题：仍需在目标银河麒麟/飞腾桌面用真实文件关联程序复验点击最终打开效果；见 `todo.md`。
+
 ## 2026-10-10 09:18 CST — 桌面回复中的本地文件/目录链接可点击（0.1.35 候选）
 
 - 阶段目标：让智能体输出的本地文件与目录位置可以在桌面会话里直接点击打开，并准备新版本。
 - 完成内容：普通文本中的绝对路径和 `file://`、Markdown 本地链接、独立行内代码路径渲染成可点击按钮；受限 preload IPC 交给主进程，先确认路径是存在的普通文件或目录，拒绝可执行文件、远程 URL、非法路径；系统打开器无响应时 15 秒给出错误。外部页面导航仍保持关闭。版本事实源更新为 `0.1.35`，README/项目文档与 memory-bank 已同步。
 - 修改文件：`src/ui/shared/local-links.ts`、`src/ui/shared/markdown.ts`、`src/desktop/{local-path,ipc-contract,main}.ts`、`src/desktop/preload.cjs`、`src/desktop/renderer/{markdown-view.ts,styles.css}`、相关单测/Electron smoke、三个版本事实源、`dist/**`、README、项目文档与 memory-bank。
 - 验证方式与结果：`npm run check` 通过（类型检查、295/295 测试、生产 build）；Electron 43 smoke 在 `1920×1080` 主基准及既有 1440/1180 视口通过，真实临时文件 `example report.txt`、目录 `example-directory` 分别通过 Markdown、普通文本与行内代码的点击控件到达受控 IPC，`desktop-local-links-1920x1080.png` 人工检查无溢出/遮挡；`scripts/package-desktop.sh 0.1.35 x64` 成功生成 CLI、全量 zip、overlay zip、可运行目录和校验文件。独立 `shell.openPath` 探针实际调用了本地 `xdg-open` 替身并交出目标文件路径，但此容器没有完整桌面 D-Bus，Electron 完成回调未返回，故不能把该探针当作真实目标机文件关联已验证。
-- 当前状态：本地实现、构建、桌面链接点击链路与 x64 候选打包完成；生产服务未在本环境常驻，Electron smoke 使用隔离 Daemon 并已退出。等待提交、push 与自动双架构 Release。
+- 当前状态：本地实现、构建、桌面链接点击链路与 x64 候选打包完成；生产服务未在本环境常驻，Electron smoke 使用隔离 Daemon 并已退出。随后已提交、push 并发布，见上条。
 - 遗留问题：需在银河麒麟/飞腾目标机用实际文件管理器/默认程序复验系统打开结果；本环境无法下载私有 `aegis-searcher` 可选二进制，本地包按既有降级路径生成。
 
 ## 2026-10-06 CST — v0.1.34 已发布并核验双架构分屏修复

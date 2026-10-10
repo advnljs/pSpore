@@ -2,7 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 推送并核验本地链接功能 `v0.1.35` | In Progress | 本地验证与 x64 打包已通过，尚待 CI/ARM64/Release | 提交推送 `main`，等待自动 annotated tag 与双架构 Release，核验资产与校验和 |
+| P0 | 推送并核验本地链接功能 `v0.1.35` | Done | 无 | `5bf496c` 已推送；CI `38012657406`、ARM64 `38012657407`、Release `38012942031` 成功。12 项资产公开，两种架构 overlay SHA-256、manifest 与 8 个包内文件一致性已复核。<https://github.com/advnljs/pSpore/releases/tag/v0.1.35> |
 | P1 | 在目标 Linux 桌面复验本地链接调用系统默认程序 | Pending | 本容器缺完整桌面 D-Bus；本地已验证 UI 点击、IPC 路径与 `xdg-open` 接收路径，无法证明目标机文件关联效果 | 升级 0.1.35 后让智能体输出一个真实 `.txt` 文件与目录，点击并确认文本编辑器/文件管理器打开；若系统打开器无响应，UI 会在 15 秒后提示 |
 | P0 | 文稿与对话始终是可拖动分屏、随窗口缩放更新，并发布 0.1.34 | Done | 目标机实机复验待用户 | 293 项测试（4 项可选索引器跳过）、Electron smoke 新分屏断言、article-stream、x64 打包与 28 步 XTest 实操验证通过；CI `37445241923`、ARM64 `37445241914`、Release `37445762684` 成功，双架构 overlay SHA-256 与六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.34 |
 | P0 | 修复文稿 v1 仅含 31 字完成回执的问题，并发布 0.1.33 | Done | 目标机仍需下项单独复验 | 287 项测试、1920×1080/20× CPU Electron、双架构构建与 Release 全部成功；远端 overlay SHA-256、八项核心文件与 skill 一致性通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.33 |
