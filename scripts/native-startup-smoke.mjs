@@ -16,11 +16,13 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(check, timeout = 12_000) {
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { const value = await check(); if (value) return value; await pause(25); }
-  throw new Error('Native startup smoke timed out');
+  throw new Error(`Native startup smoke timed out\n${active?.logs() ?? ''}\n${tree()}`);
 }
 async function text(path) { try { return await readFile(path, 'utf8'); } catch { return ''; } }
 function tree() {
-  try { return execFileSync('xwininfo', ['-root', '-tree'], { encoding: 'utf8', stdio: ['ignore','pipe','pipe'] }); }
+  // Ubuntu 20.04 containers default to the ASCII C locale. Without this,
+  // xwininfo replaces the Chinese title with a conversion error.
+  try { return execFileSync('xwininfo', ['-root', '-tree'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C.UTF-8' }, stdio: ['ignore','pipe','pipe'] }); }
   catch { return ''; } // The window may disappear between QueryTree/GetAttributes.
 }
 function windowId() { return tree().match(/(0x[0-9a-f]+) "pSpore · 正在启动"/)?.[1]; }

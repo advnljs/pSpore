@@ -1,5 +1,13 @@
 # Overall Progress
 
+## 2026-10-12 14:38 CST — 修复原生 smoke 的 ASCII locale 识别
+
+- ARM64 run `38212800120` 的编译、295 项检查、Electron 验收与打包均通过，新增原生测试在识别中文窗口标题时超时；CI 未创建版本标签或公开 Release。
+- 根因已在本机 `LANG=C LC_ALL=C` 复现：`xwininfo` 把真实中文标题替换为 `failure in conversion from UTF8_STRING to ANSI_X3.4-1968`，窗口已经显示。
+- 修改 `scripts/native-startup-smoke.mjs`：仅给窗口查询进程设置 `LC_ALL=C.UTF-8`；超时附带原生日志与窗口树。
+- 验证：仍以 ASCII locale 启动原生程序，在 1920×1080 下完整 smoke 通过，约 63 ms 可见；真实五秒延迟、参数、复用、交接、聚焦、取消、失败提示全部通过。生产代码和安装包无需改变，本地最新 0.1.38 桌面预览继续运行。
+- 当前状态：推送测试环境修正后重新走双架构发布流程。
+
 ## 2026-10-12 14:28 CST — 0.1.38 原生 loading 与真实 overlay 验收完成
 
 - 阶段目标：用户反馈 overlay 后点击桌面/任务栏仍要等待 loading；将窗口前移到 Electron 启动之前。

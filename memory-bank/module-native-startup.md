@@ -29,3 +29,5 @@
 - 构建依赖 `libgtk-3-dev pkg-config`；ARM64 使用现有 Ubuntu 20.04 / glibc 2.31 原生构建。
 - ELF 必须放 `resources/native/pspore-startup`，不得覆盖顶层 `pspore-desktop` 或破坏 overlay Electron runtime 契约。
 - 改图标/尺寸时同步原生卡片与 `splash/` 回退卡片；改协议时同步 C 与 TypeScript 客户端及真实进程测试。
+
+- CI 的 Ubuntu 20.04 默认 ASCII locale：窗口查询必须使用 `LC_ALL=C.UTF-8` 才能读取中文标题。测试只改变查询进程编码，保留原生启动器的原始运行环境。
