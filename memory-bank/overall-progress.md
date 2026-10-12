@@ -1,5 +1,12 @@
 # Overall Progress
 
+## 2026-10-12 14:55 CST — 以 0.1.39 纳入完整原生可见性验证
+
+- 0.1.38 正式 x64 重跑仍在旧测试的 `IsUnMapped` 断言失败，Release `38213869523` 保持 draft，未公开。已有 annotated 标签保持不可变。
+- 将版本提升至 0.1.39，以主分支已修正的“UTF-8 标题 + 等待 IsViewable”测试重新执行完整双架构发布；原生启动器和 Electron 生产逻辑保持已验证实现。
+- 验证：0.1.39 `npm run check` 再次 295/295、typecheck/build 通过；修正后的 ARM64 preview `38214566102` 也已成功（包括真实原生窗口 smoke）。
+- ARM64 0.1.38 草稿升级包已独立验证 ZIP SHA-256、manifest/payload digest、图标/入口脚本及 14 项 app 文件；原生 ELF 是 AArch64，最大 GLIBC 符号需求为 2.17。该证据不代替 0.1.39 最终发布核验。
+
 ## 2026-10-12 14:50 CST — 原生窗口验证等待实际映射
 
 - 正式 Release `38213869523` 的 ARM64 检查、打包与原生 smoke 均已成功，资产留在草稿；x64 第一次原生 smoke 在标题刚创建、`Map State: IsUnMapped` 时提前断言而失败。
