@@ -1,5 +1,12 @@
 # Overall Progress
 
+## 2026-10-12 14:50 CST — 原生窗口验证等待实际映射
+
+- 正式 Release `38213869523` 的 ARM64 检查、打包与原生 smoke 均已成功，资产留在草稿；x64 第一次原生 smoke 在标题刚创建、`Map State: IsUnMapped` 时提前断言而失败。
+- 修改 `scripts/native-startup-smoke.mjs`：查到标题后仍需实际 `IsViewable` 才返回窗口；保留原有可见性、尺寸及完整交互断言，容忍 X11 窗口销毁时的查询竞态。
+- 验证：ASCII locale 下完整原生 smoke 再次通过，外部可见约 65 ms；生产代码、编译产物与运行中的最新桌面预览均未受测试修正影响。
+- 发布策略：已存在的 annotated `v0.1.38` 保持指向 `633edd6`，不移动标签；重跑该标签失败的 x64 构建与后续发布检查，测试修正另提交主分支。Release 在全部检查通过前继续保持 draft。
+
 ## 2026-10-12 14:38 CST — 修复原生 smoke 的 ASCII locale 识别
 
 - ARM64 run `38212800120` 的编译、295 项检查、Electron 验收与打包均通过，新增原生测试在识别中文窗口标题时超时；CI 未创建版本标签或公开 Release。

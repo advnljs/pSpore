@@ -25,7 +25,19 @@ function tree() {
   try { return execFileSync('xwininfo', ['-root', '-tree'], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C.UTF-8' }, stdio: ['ignore','pipe','pipe'] }); }
   catch { return ''; } // The window may disappear between QueryTree/GetAttributes.
 }
-function windowId() { return tree().match(/(0x[0-9a-f]+) "pSpore · 正在启动"/)?.[1]; }
+function windowId() {
+  const id = tree().match(/(0x[0-9a-f]+) "pSpore · 正在启动"/)?.[1];
+  if (!id) return undefined;
+  // XCreateWindow/WM_NAME precede XMapWindow. Finding the title alone can
+  // observe a valid window before GTK has made it visible, especially in CI.
+  try {
+    const info = execFileSync('xwininfo', ['-id', id], { encoding: 'utf8', env: { ...process.env, LC_ALL: 'C.UTF-8' }, stdio: ['ignore','pipe','pipe'] });
+    return info.includes('Map State: IsViewable') ? id : undefined;
+  } catch (error) {
+    if (/Bad (?:Drawable|Window)/.test(String(error.stderr))) return undefined;
+    throw error;
+  }
+}
 let active;
 function launch(config, mode = 'handoff') {
   const process_ = spawn(binary, [fixture, 'argument with spaces', 'literal $x;`q`'], {
