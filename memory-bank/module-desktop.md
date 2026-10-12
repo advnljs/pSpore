@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-10-12 淡色品牌、启动窗与任务栏入口
+
+- `assets/pspore.svg` 为可编辑图标源，`pspore.png` 为同源 512×512 系统窗口图标；renderer、startup、桌面菜单统一使用。PNG 可用 `gdk-pixbuf-thumbnailer -s 512 src/desktop/assets/pspore.svg src/desktop/assets/pspore.png` 重生成（仅维护资源时需要，正常 build 不需要额外工具）。
+- `splash/{index.html,styles.css,splash.ts}` 是 512×332 的透明无边框窗口，包含 480×300 淡色卡片、取消按钮与减弱动画支持。无 preload / Node 权限，沿用导航与会话安全边界。
+- main 在初始化 home/服务前显示 splash，按启动阶段更新文案，renderer 的 ready 标志完成后显示主界面并销毁 splash；启动失败显示错误，取消启动关闭窗口。
+- Linux `app.setDesktopName("pSpore.desktop")` + `--class=pSpore` 对齐已有 Desktop Entry 与 `StartupWMClass`；Linux 启动窗使用原生 `type: splash`，供窗口管理器和任务栏识别为临时启动界面；Electron 43 的 `skipTaskbar` 仅在 macOS/Windows 实现，不依赖它隐藏 Linux 启动窗。生产进程 single-instance lock 将二次启动路由到已有窗口并恢复最小化。
+- 快捷方式安装器将 PNG/SVG 安装到 XDG hicolor 目录，Desktop Entry 用稳定 `Icon=pspore`。electron-builder `extraResources` 将图标放在 `resources/icons`，full 与 overlay 均携带；升级更新快捷方式时同步更新图标。
+- 测试：`scripts/electron-smoke.mjs` 检查 splash 首屏/安全/资源/无溢出及切换后销毁；release-scripts 集成测试检查图标落地、应用标识和移动安装路径后固定入口不变。
+
 ## 模块职责
 
 提供 Linux Electron 43 桌面客户端，同时保持 Daemon 为唯一权威状态 owner。main process 连接私有 UDS；preload 暴露最小 API；sandboxed renderer 负责可丢弃状态归并与 DOM 展示。

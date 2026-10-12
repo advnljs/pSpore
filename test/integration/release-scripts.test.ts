@@ -35,6 +35,7 @@ test("desktop shortcut uses a stable launcher and records launch diagnostics", a
   try {
     await mkdir(join(home, "Desktop"), { recursive: true });
     await mkdir(installDirectory, { recursive: true });
+    await seedIcons(installDirectory);
     await copyFile(shortcutScript, packagedScript);
     await writeFile(executable, [
       "#!/usr/bin/env bash",
@@ -64,6 +65,16 @@ test("desktop shortcut uses a stable launcher and records launch diagnostics", a
     assert.match(desktop, new RegExp(`^Exec="${escapeRegex(escapedLauncher)}"$`, "m"));
     assert.doesNotMatch(desktop, /^Path=/m);
     assert.doesNotMatch(desktop, new RegExp(escapeRegex(installDirectory)));
+    assert.match(desktop, /^Icon=pspore$/m);
+    assert.match(desktop, /^StartupWMClass=pSpore$/m);
+    assert.deepEqual(
+      await readFile(join(dataHome, "icons/hicolor/512x512/apps/pspore.png")),
+      await readFile(join(repositoryRoot, "src/desktop/assets/pspore.png")),
+    );
+    assert.deepEqual(
+      await readFile(join(dataHome, "icons/hicolor/scalable/apps/pspore.svg")),
+      await readFile(join(repositoryRoot, "src/desktop/assets/pspore.svg")),
+    );
     assert.equal((await stat(launcher)).mode & 0o777, 0o700);
 
     await execFileAsync(launcher, [], { env: environment });
@@ -74,6 +85,17 @@ test("desktop shortcut uses a stable launcher and records launch diagnostics", a
     if (await commandExists("desktop-file-validate")) {
       await execFileAsync("desktop-file-validate", [desktopEntry]);
     }
+    // Reinstall into another versioned directory. A pinned desktop ID, Exec and
+    // icon name must stay unchanged while the stable launcher follows the move.
+    const upgradedDirectory = join(root, "next install");
+    await mkdir(upgradedDirectory);
+    await seedIcons(upgradedDirectory);
+    await copyFile(executable, join(upgradedDirectory, "pspore-desktop"));
+    await copyFile(shortcutScript, join(upgradedDirectory, "创建桌面快捷方式.sh"));
+    await execFileAsync("bash", [join(upgradedDirectory, "创建桌面快捷方式.sh")], { env: environment });
+    assert.equal(await readFile(desktopEntry, "utf8"), desktop);
+    await execFileAsync(launcher, [], { env: environment });
+    assert.equal((await readFile(probe, "utf8")).trim(), upgradedDirectory);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -235,6 +257,7 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
   const systemctlLog = join(root, "systemctl.log");
   const installRecord = join(dataHome, "pspore", "install-dir");
   await mkdir(join(payloadResources, "app.asar.unpacked"), { recursive: true });
+  await seedIcons(payload);
   await mkdir(join(targetResources, "app.asar.unpacked"), { recursive: true });
   await mkdir(join(configHome, "systemd", "user"), { recursive: true });
   await mkdir(join(dataHome, "pspore"), { recursive: true });
@@ -327,6 +350,13 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
       WAYLAND_DISPLAY: "",
     },
   };
+}
+
+async function seedIcons(directory: string): Promise<void> {
+  await mkdir(join(directory, "resources/icons"), { recursive: true });
+  for (const file of ["pspore.png", "pspore.svg"]) {
+    await copyFile(join(repositoryRoot, "src/desktop/assets", file), join(directory, "resources/icons", file));
+  }
 }
 
 async function payloadDigest(root: string): Promise<string> {

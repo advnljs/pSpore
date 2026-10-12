@@ -6,6 +6,11 @@
 - `ArticlePreviewBus` 在 120 ms 窗口末尾补发最新草稿通知；adapter 在工具完成、会话 settled 和 dispose 时取消待发内容。
 - renderer 在活跃调用期间用既有单读取循环执行 300 ms 空闲补取，允许瞬时通知丢失或短暂读取失败；按草稿内容去重重绘，结束/关闭/切会话通过 token 使旧循环和计时器失效。
 
+## 2026-10-12 变更：桌面启动生命周期与稳定任务栏身份
+
+- Electron main 在后台服务初始化前创建无 preload 的 sandboxed splash；主 renderer 完成 bootstrap/render 后切换，退出/失败统一清理。Daemon 与 systemd 的所有权边界保持现有设计。
+- Linux Desktop Entry 文件名、WM_CLASS 和 stable launcher 共同维持跨版本任务栏关联；图标复制到 XDG 图标主题路径，overlay 资源更新与快捷方式刷新共用原有升级事务。生产 Electron 单实例锁负责将重复启动带回已有窗口。
+
 ## 系统边界
 
 pSpore 是 Linux 本地单用户 Agent。Daemon 是会话、任务、审批和事件序号的唯一写入者；TUI/Electron 是无权威状态客户端。模型循环复用 Pi SDK，OS 权限边界来自启动 Daemon 的用户，不提供默认 sandbox。

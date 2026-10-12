@@ -132,6 +132,19 @@ LAUNCHER
   mv -f "$launcher_tmp" "$LAUNCHER"
 }
 
+install_icons() {
+  local source="$APP_DIR/resources/icons" theme="$DATA_HOME/icons/hicolor"
+  if [[ ! -f "$source/pspore.png" || ! -f "$source/pspore.svg" ]]; then
+    fail "安装包缺少应用图标，请重新解压完整包或覆盖升级包。"
+  fi
+  # A theme name avoids embedding a versioned install path in pinned entries.
+  install -Dm644 "$source/pspore.png" "$theme/512x512/apps/pspore.png"
+  install -Dm644 "$source/pspore.svg" "$theme/scalable/apps/pspore.svg"
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "$theme" >/dev/null 2>&1 || true
+  fi
+}
+
 write_desktop_file() {
   local target="$1" desktop_exec
   desktop_exec="$(desktop_exec_escape "$LAUNCHER")"
@@ -140,6 +153,7 @@ write_desktop_file() {
 Type=Application
 Version=1.0
 Name=${APP_NAME}
+Icon=pspore
 Comment=Linux-first local proactive agent
 Comment[zh_CN]=本地优先的主动式智能助手
 Exec="${desktop_exec}"
@@ -157,6 +171,7 @@ EOF
   chmod 755 "$target"
 }
 
+install_icons
 install_launcher
 DESKTOP_DIR="$(resolve_desktop_dir)"
 APPLICATIONS_DIR="$DATA_HOME/applications"
@@ -180,6 +195,7 @@ echo "已创建桌面快捷方式："
 echo "  $DESKTOP_DIR/$DESKTOP_FILENAME"
 echo "并已加入应用菜单："
 echo "  $APPLICATIONS_DIR/$DESKTOP_FILENAME"
+echo "启动后右击任务栏中的 pSpore 图标，选择「固定到任务栏」或「加入收藏」。"
 echo "启动日志："
 echo "  $LOG_FILE"
 

@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pSpore · 正在启动</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./splash.js"></script>
+  </head>
+  <body>
+    <main class="card">
+      <button class="close" type="button" aria-label="取消启动" title="取消启动（Esc）">×</button>
+      <div class="brand">
+        <img src="../assets/pspore.svg" width="86" height="86" alt="" />
+        <div><h1>pSpore</h1><p>让灵感，悄然生长。</p></div>
+      </div>
+      <div class="loading" role="status" aria-live="polite">
+        <div class="status-line"><span id="status">正在准备你的工作空间</span><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span></div>
+        <div class="track" role="progressbar" aria-label="启动中"><span></span></div>
+      </div>
+      <footer><span class="local-dot"></span>本地相伴 · 从容开始<span class="edition">LOCAL COWORK AGENT</span></footer>
+    </main>
+  </body>
+</html>

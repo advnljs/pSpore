@@ -1,0 +1,24 @@
+:root { color-scheme: light; font-family: "Inter", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif; color: #425d61; }
+* { box-sizing: border-box; }
+body { margin: 0; padding: 16px; background: transparent; user-select: none; }
+.card { height: 300px; padding: 48px 38px 25px; position: relative; overflow: hidden; border-radius: 24px; border: 1px solid #ffffffdb; background: radial-gradient(ellipse at 95% 5%, #dbe9f2b0, transparent 60%), radial-gradient(ellipse at 5% 80%, #e2edd4a0, transparent 60%), #f8fbf7; box-shadow: 0 5px 15px #2d4c4b1c, inset 0 0 0 1px #536d6510; -webkit-app-region: drag; }
+.close { -webkit-app-region: no-drag; position: absolute; right: 13px; top: 12px; width: 30px; height: 30px; border: 0; border-radius: 50%; background: transparent; color: #7b9293; font: 24px/1 sans-serif; cursor: pointer; }
+.close:hover, .close:focus-visible { background: #dfe9e6; color: #425d61; outline: 2px solid #accac5; }
+.brand { display: flex; align-items: center; gap: 22px; }
+.brand img { flex: 0 0 auto; filter: drop-shadow(0 5px 7px #42685b10); }
+h1 { margin: 0 0 10px; color: #385658; font-size: 34px; font-weight: 650; line-height: 1; letter-spacing: -1.4px; }
+.brand p { margin: 0; color: #718883; font-size: 13px; letter-spacing: 2px; }
+.loading { margin-top: 35px; }
+.status-line { display: flex; align-items: center; justify-content: space-between; font-size: 12px; letter-spacing: .6px; color: #6e8681; }
+.dots { display: flex; gap: 4px; }
+.dots i { width: 4px; height: 4px; border-radius: 50%; background: #88aaa0; animation: breathe 1.5s ease-in-out infinite; }
+.dots i:nth-child(2) { animation-delay: .18s; }
+.dots i:nth-child(3) { animation-delay: .36s; }
+.track { height: 3px; margin-top: 14px; overflow: hidden; border-radius: 3px; background: #dae6df; }
+.track span { display: block; width: 38%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #bdd4bf, #83aaa4, #b3cbdc); animation: travel 2s ease-in-out infinite; }
+footer { display: flex; align-items: center; margin-top: 30px; color: #8a9c96; font-size: 10px; letter-spacing: .7px; }
+.local-dot { width: 5px; height: 5px; border-radius: 50%; background: #9bb7a4; margin-right: 7px; }
+.edition { margin-left: auto; font-size: 8px; letter-spacing: 1.1px; }
+@keyframes travel { from { transform: translateX(-110%); } to { transform: translateX(365%); } }
+@keyframes breathe { 0%, 100% { opacity: .3; } 50% { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .track span, .dots i { animation: none; } .track span { width: 100%; opacity: .7; } }

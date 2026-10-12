@@ -1,4 +1,5 @@
 import type { BrowserWindowConstructorOptions } from "electron";
+export declare const DESKTOP_ICON: string;
 export declare const DESKTOP_CSP: string;
 export declare const DESKTOP_PREFERRED_SIZE: {
     readonly width: 1920;

@@ -56,6 +56,7 @@ try {
     electronTimeoutMs,
   );
   const report = JSON.parse(await readFile(join(outputDirectory, "desktop-security.json"), "utf8"));
+  await verifyStartup(outputDirectory);
   if (report?.probe?.viewport?.width !== 1_920 || report?.probe?.viewport?.height !== 1_080) {
     throw new Error("Electron smoke report did not contain the 1920x1080 viewport");
   }
@@ -80,6 +81,7 @@ try {
     electronTimeoutMs,
   );
   const ownedReport = JSON.parse(await readFile(join(ownedOutputDirectory, "desktop-security.json"), "utf8"));
+  await verifyStartup(ownedOutputDirectory);
   if (ownedReport?.daemonOwnership !== "owned" || ownedReport?.connection?.phase !== "connected") {
     throw new Error("Electron did not initialize and own its desktop daemon");
   }
@@ -106,6 +108,15 @@ try {
     process.stderr.write(
       `Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}; external output: ${externalFiles}; owned output: ${ownedFiles}\n`,
     );
+  }
+}
+
+async function verifyStartup(directory) {
+  const startup = JSON.parse(await readFile(join(directory, "desktop-startup.json"), "utf8"));
+  if (!startup.visible || startup.mainCreated || !startup.probe.iconLoaded || startup.probe.overflow
+    || startup.probe.width !== 512 || startup.probe.height !== 332
+    || startup.probe.node !== "undefined" || startup.probe.preload !== "undefined") {
+    throw new Error(`Invalid startup window: ${JSON.stringify(startup)}`);
   }
 }
 

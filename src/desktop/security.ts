@@ -1,4 +1,7 @@
 import type { BrowserWindowConstructorOptions } from "electron";
+import { fileURLToPath } from "node:url";
+
+export const DESKTOP_ICON = fileURLToPath(new URL("./assets/pspore.png", import.meta.url));
 
 export const DESKTOP_CSP = [
   "default-src 'none'",
@@ -42,8 +45,9 @@ export function desktopWindowOptions(
     minHeight: DESKTOP_MINIMUM_SIZE.height,
     useContentSize: true,
     show: false,
-    backgroundColor: "#141310",
+    backgroundColor: "#f4f7fb",
     title: "pSpore",
+    icon: DESKTOP_ICON,
     autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,

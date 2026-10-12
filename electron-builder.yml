@@ -38,6 +38,13 @@ asarUnpack:
   - dist/bundled-skills/**
 linux:
   category: Utility
+  icon: src/desktop/assets/pspore.png
   executableName: pspore-desktop
   target:
     - dir
+extraResources:
+  - from: src/desktop/assets
+    to: icons
+    filter:
+      - pspore.png
+      - pspore.svg

@@ -18,12 +18,19 @@ import { decodeOpenLocalPath } from "./local-path.js";
 import { DaemonBridge } from "./daemon-bridge.js";
 import { DESKTOP_ARTICLE_EXPORT_CHANNEL, DESKTOP_OPEN_LOCAL_PATH_CHANNEL, DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_ATTACH_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, decodeAttachmentKind, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeArticleExportRequest, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
 import { MIN_ARTICLE_WIDTH, MIN_CONVERSATION_WIDTH } from "./renderer/article-split.js";
-import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
+import { DESKTOP_CSP, DESKTOP_ICON, desktopWindowOptions, isTrustedRendererUrl } from "./security.js";
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 const arguments_ = parseArguments(process.argv.slice(1));
 if (arguments_.smokeDirectory)
     app.disableHardwareAcceleration();
+// Keep the existing filename: pinned launchers must survive overlay upgrades.
+app.setName("pSpore");
+if (process.platform === "linux") {
+    app.setDesktopName("pSpore.desktop");
+    app.commandLine.appendSwitch("class", "pSpore");
+}
 let window;
+let splash;
 let bridge;
 let daemonSupervisor;
 let systemService;
@@ -44,8 +51,26 @@ app.on("before-quit", (event) => {
 });
 process.once("SIGINT", () => requestShutdown(0));
 process.once("SIGTERM", () => requestShutdown(0));
-app.whenReady().then(startDesktop).catch(failStartup);
+if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
+    app.on("second-instance", () => {
+        const target = splash ?? window;
+        if (!target || target.isDestroyed())
+            return;
+        if (target.isMinimized())
+            target.restore();
+        target.show();
+        target.focus();
+    });
+    app.whenReady().then(startDesktop).catch(failStartup);
+}
+else {
+    app.exit(0);
+}
 async function startDesktop() {
+    installSessionSecurity();
+    await showStartupWindow();
+    if (shuttingDown)
+        return;
     const home = resolvePsporeHome(arguments_.home);
     const { paths } = await initializePsporeHome(home);
     articleRoot = join(paths.workspace, "articles");
@@ -53,7 +78,9 @@ async function startDesktop() {
     const preloadPath = join(moduleDirectory, "preload.cjs");
     const rendererPath = join(moduleDirectory, "renderer", "index.html");
     rendererUrl = pathToFileURL(rendererPath).href;
-    installSessionSecurity();
+    await setStartupMessage("正在唤醒本地助手");
+    if (shuttingDown)
+        return;
     if (arguments_.smokeDirectory) {
         // The visual harness owns an isolated temporary daemon and must never
         // register persistent services in the developer's real user manager.
@@ -74,6 +101,8 @@ async function startDesktop() {
             process.stderr.write("pSpore service: cleared a failed unit state before starting the daemon\n");
         }
     }
+    if (shuttingDown)
+        return;
     bridge = new DaemonBridge({
         socketPath: paths.socket,
         stagingRoot: join(paths.workspace, "staging"),
@@ -87,13 +116,24 @@ async function startDesktop() {
     bridge.start();
     settingsService = new LlmSettingsService(home, paths);
     const indexingService = new IndexingSettingsService(home, paths);
+    await setStartupMessage("正在整理工作空间");
+    if (shuttingDown)
+        return;
     window = new BrowserWindow(desktopWindowOptions(preloadPath, primaryWorkArea()));
+    // Closing the main window must also close a still-visible startup window.
+    window.on("closed", () => requestShutdown(0));
     captureRendererDiagnostics(window);
     hardenWindow(window, rendererUrl);
     installIpc(window, bridge, settingsService, indexingService);
     unsubscribeBridge = bridge.subscribe((frame) => sendFrame(window, frame));
     await window.loadFile(rendererPath);
+    await waitForRenderer(window, "document.documentElement.dataset.ready === 'true'", 15_000);
+    if (shuttingDown)
+        return;
     if (arguments_.smokeDirectory) {
+        window.setContentSize(1_920, 1_080);
+        window.show();
+        closeStartupWindow();
         await runSmoke(window, bridge, arguments_.smokeDirectory, arguments_.smokeFixture);
         await bridge.stop();
         requestShutdown(exitCode);
@@ -101,9 +141,70 @@ async function startDesktop() {
     }
     // The workspace is a full-height application shell, so the first launch fills
     // the display instead of leaving the desktop visible around a floating window.
-    window.once("ready-to-show", () => showMaximized(window));
-    if (!window.isVisible())
-        showMaximized(window);
+    showMaximized(window);
+    closeStartupWindow();
+}
+async function showStartupWindow() {
+    const startupPath = fileURLToPath(new URL("./splash/index.html", import.meta.url));
+    const target = new BrowserWindow({
+        width: 512, height: 332, useContentSize: true, center: true,
+        show: false, frame: false, transparent: true, backgroundColor: "#00000000",
+        resizable: false, maximizable: false, minimizable: false,
+        // Electron 43's skipTaskbar is only implemented on macOS/Windows. Linux
+        // window managers use the native splash type to omit this transient window.
+        ...(process.platform === "linux" ? { type: "splash" } : {}),
+        skipTaskbar: true, autoHideMenuBar: true, title: "pSpore · 正在启动", icon: DESKTOP_ICON,
+        webPreferences: {
+            contextIsolation: true, sandbox: true, nodeIntegration: false,
+            webSecurity: true, webviewTag: false, spellcheck: false,
+        },
+    });
+    splash = target;
+    captureRendererDiagnostics(target);
+    hardenWindow(target, pathToFileURL(startupPath).href);
+    target.on("closed", () => {
+        if (splash !== target)
+            return;
+        splash = undefined;
+        requestShutdown(0);
+    });
+    target.once("ready-to-show", () => {
+        if (!shuttingDown && !target.isDestroyed())
+            target.show();
+    });
+    await target.loadFile(startupPath);
+    await waitFor(() => shuttingDown || target.isVisible(), 10_000);
+    if (shuttingDown)
+        return;
+    await waitForRenderer(target, "document.documentElement.dataset.ready === 'true'", 10_000);
+    if (shuttingDown)
+        return;
+    if (arguments_.smokeDirectory) {
+        await mkdir(arguments_.smokeDirectory, { recursive: true, mode: 0o700 });
+        const probe = await target.webContents.executeJavaScript(`({
+      width: innerWidth, height: innerHeight,
+      node: typeof process, preload: typeof window.pspore,
+      iconLoaded: document.querySelector('img').complete && document.querySelector('img').naturalWidth > 0,
+      overflow: document.documentElement.scrollWidth > innerWidth || document.documentElement.scrollHeight > innerHeight,
+      status: document.getElementById('status').textContent
+    })`);
+        await writeFile(join(arguments_.smokeDirectory, "desktop-startup.json"), JSON.stringify({
+            visible: target.isVisible(), mainCreated: window !== undefined,
+            probe,
+        }, null, 2));
+        await writeFile(join(arguments_.smokeDirectory, "desktop-startup.png"), (await target.webContents.capturePage()).toPNG());
+    }
+}
+async function setStartupMessage(message) {
+    if (!splash || splash.isDestroyed() || shuttingDown)
+        return;
+    await splash.webContents.executeJavaScript(`document.getElementById('status').textContent = ${JSON.stringify(message)}`);
+}
+function closeStartupWindow() {
+    const target = splash;
+    splash = undefined;
+    if (target && !target.isDestroyed())
+        target.destroy();
 }
 /** At most this many paths from one chooser, matching the composer's own ceiling. */
 const MAX_ATTACHMENTS = 32;
@@ -344,6 +445,8 @@ function sendFrame(target, frame) {
     target.webContents.send(DESKTOP_FRAME_CHANNEL, frame);
 }
 async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
+    if (splash || BrowserWindow.getAllWindows().length !== 1)
+        throw new Error("Startup window survived the handoff");
     if (!isAbsolute(outputDirectory))
         throw new Error("--smoke-dir must be an absolute path");
     await mkdir(outputDirectory, { recursive: true, mode: 0o700 });
@@ -1688,14 +1791,21 @@ function parseArguments(argv) {
     };
 }
 function failStartup(error) {
+    if (shuttingDown)
+        return;
     exitCode = 1;
     process.stderr.write(`pSpore desktop: ${toError(error).message}\n`);
+    if (!arguments_.smokeDirectory && app.isReady()) {
+        // A service/configuration failure must not leave an endless loading card.
+        dialog.showErrorBox("pSpore 启动失败", `无法打开工作空间。\n\n${toError(error).message}\n\n可从应用快捷方式菜单打开启动日志。`);
+    }
     requestShutdown(exitCode);
 }
 function requestShutdown(code) {
     if (shuttingDown)
         return;
     shuttingDown = true;
+    closeStartupWindow();
     exitCode = code;
     unsubscribeBridge?.();
     unsubscribeBridge = undefined;

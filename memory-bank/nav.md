@@ -21,6 +21,8 @@
 | `src/plugins/workspace-skills.ts` | 用户自己放进 `workspace/skills/` 的 skill：按 Pi 规则发现、宽容解析 frontmatter/描述、同名遮蔽与未加载原因；结果供会话注入与 `skills.catalog` |
 | `src/domain/indexing.ts` | 索引状态的纯类型与初始值；`KernelState` 经渲染器导入，因此这里必须不含任何 Node 内置模块 |
 | `src/indexing/index-service.ts` | 守护进程持续调用 `aegis-search` CLI 做增量索引，解析 `--json` 进度并发布 `indexing.status` |
+| `src/desktop/assets/` | 淡色 pSpore 品牌 SVG 与 512×512 PNG；窗口、页面、启动小窗及发行快捷方式共用 |
+| `src/desktop/splash/` | 独立无边框启动小窗 HTML/CSS/TS；构建复制到 `dist/desktop/splash` |
 | `src/desktop/renderer/indexing-view.ts` | GUI 本机索引面板的纯展示逻辑（阶段文案、确定/不确定进度、已用时、上次结果），DOM 无关、可单测 |
 | `src/settings/model-api.ts` | `ModelApi` 与 `MODEL_APIS` 的唯一定义，供 `config.json` 校验与设置面板共用 |
 | `src/protocol/server-frame-codec.ts` | 协商式 server 大消息 gzip/base64 有界分片与严格重组；物理 frame 仍保持 1 MiB 上限 |

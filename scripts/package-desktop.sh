@@ -113,6 +113,8 @@ pSpore Desktop ${VERSION}
 1. 解压本压缩包到任意目录，例如 ~/Apps/${FULL_NAME}
 2. 双击或运行「创建桌面快捷方式.sh」，会在桌面和应用菜单生成 pSpore 快捷方式
 3. 之后可从桌面图标启动，无需再打开此目录
+4. 启动后右击任务栏中的 pSpore 图标，选择「固定到任务栏」或「加入收藏」
+   （名称取决于桌面环境）；固定入口在覆盖升级后仍可使用
 
 升级
 请使用较小的 overlay 压缩包 pspore-desktop-${VERSION}-linux-${ARCH}-overlay.zip。

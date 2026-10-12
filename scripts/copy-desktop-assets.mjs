@@ -7,6 +7,10 @@ const assets = [
   ["src/desktop/preload.cjs", "dist/desktop/preload.cjs"],
   ["src/desktop/renderer/index.html", "dist/desktop/renderer/index.html"],
   ["src/desktop/renderer/styles.css", "dist/desktop/renderer/styles.css"],
+  ["src/desktop/assets/pspore.svg", "dist/desktop/assets/pspore.svg"],
+  ["src/desktop/assets/pspore.png", "dist/desktop/assets/pspore.png"],
+  ["src/desktop/splash/index.html", "dist/desktop/splash/index.html"],
+  ["src/desktop/splash/styles.css", "dist/desktop/splash/styles.css"],
   // GSAP is vendored as a self-contained UMD build; the sandboxed renderer loads
   // it as a classic script (CSP `script-src 'self'`) before the ES module entry.
   ["node_modules/gsap/dist/gsap.min.js", "dist/desktop/renderer/vendor/gsap.min.js"],

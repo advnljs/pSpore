@@ -33,6 +33,13 @@ shells only: closing either client leaves sessions, scheduled jobs, MCP connecti
 other background work running. pSpore also attempts to enable user lingering so the
 service can start at boot without waiting for an interactive login.
 
+The Linux desktop release includes a pastel application icon and a frameless startup
+window while the workspace opens. After extracting the full desktop ZIP, run
+`创建桌面快捷方式.sh` once to install the desktop/menu entry and icon. Launch pSpore,
+then right-click its taskbar icon and choose **Pin to taskbar** or **Add to favorites**
+(wording varies by desktop). The stable launcher survives overlay upgrades; launching
+again brings the existing window forward. The startup window can be closed with its × button / Escape.
+
 ## Configure a model
 
 No model is configured out of the box. The daemon still starts so you can check its
