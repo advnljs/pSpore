@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-10-12 17:49 CST — 确认 x64 快捷方式回归并完成兼容修复实现
+
+- 根因证据：用户日志明确报原生 `pspore-startup` 要求 `GLIBC_2.34` 而目标系统缺失；直接运行 Electron 正常。对 0.1.39 公开 x64 ELF 的符号检查定位到 Ubuntu 22.04 crt 引入的 `__libc_start_main@GLIBC_2.34`。本次设备实际使用 x64 包，不能沿用此前 ARM64 假设。
+- 修改：x64 原生 helper 改由 Ubuntu 20.04/glibc 2.31 工具链构建并实跑窗口；原生编译和预编译复用都必须通过架构/GLIBC ≤2.17 的 ABI 检查，主 CI 与正式发布均设检查。Node/Electron 原有打包环境不变。版本升至 0.1.40。
+- 快捷方式：保留父 shell 捕获原生 ELF 加载失败并回退 Electron，清除失效控制 socket 环境；正常退出、取消和激活已有实例不重新打开应用，退出信号转发给自有原生子进程。
+- 测试：`npm run check` 296/296、typecheck/build 通过；0.1.40 版本 build 已执行。真实原生 smoke 改走安装脚本生成的稳定 launcher，1920×1080 下约 67 ms 可见，五秒延迟、参数、聚焦、取消、失败提示与实际 ELF 依赖加载失败回退均通过。新增 ABI 检查成功拒绝旧的 0.1.39 x64 产物。Shell 语法与 `git diff --check` 通过。
+- 修改文件：`scripts/{build-native-startup,build-native-startup-container,check-native-startup,native-startup-smoke}`、快捷方式安装脚本、C 错误提示、发布脚本集成测试、两个现有 CI workflow、版本与相关 memory-bank。
+- 当前状态：兼容工具链本地环境准备中，双架构 CI/发布和最终完整/overlay 包验收仍待完成；现有隔离 0.1.39 桌面预览保留，最终打包后替换为 0.1.40。目标机新包效果仍需用户复验；不会要求用户升级 libc。
+
 ## 2026-10-12 15:10 CST — v0.1.39 双架构发布及公开资产核验完成
 
 - 阶段目标：点击桌面/任务栏后由原生窗口先反馈，再启动 Electron；发布可通过旧入口直接升级的版本。

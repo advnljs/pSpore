@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install a stable launcher, then point both Desktop Entry files at it. The
 # launcher keeps working across in-place overlay upgrades and records startup
-# failures in an XDG state log that can be opened from the shortcut menu.
+# failures in an XDG state log. Desktop menus that support actions can open it.
 set -euo pipefail
 umask 077
 
@@ -131,8 +131,28 @@ fi
 printf '[%s] launching %s\n' "$timestamp" "$binary"
 native_startup="$app_dir/resources/native/pspore-startup"
 if [[ -x "$native_startup" ]]; then
-  exec "$native_startup" "$binary" "$@"
+  # Keep a parent shell: exec would discard the only fallback before the ELF
+  # loader can report missing libraries, ABI mismatches or an invalid binary.
+  # The native helper exits 0 after normal quit, cancellation or activation of
+  # an existing instance, so none of those paths should reopen the application.
+  "$native_startup" "$binary" "$@" &
+  native_pid=$!
+  stop_native() {
+    trap - TERM INT HUP
+    kill -TERM "$native_pid" 2>/dev/null || true
+    wait "$native_pid" 2>/dev/null || true
+    exit 0
+  }
+  trap stop_native TERM INT HUP
+  wait "$native_pid"
+  native_status=$?
+  trap - TERM INT HUP
+  if (( native_status == 0 )); then
+    exit 0
+  fi
+  printf '[%s] native startup exited with status %s; falling back to Electron\n' "$timestamp" "$native_status"
 fi
+unset PSPORE_STARTUP_SOCKET
 exec "$binary" "$@"
 LAUNCHER
   chmod 700 "$launcher_tmp"

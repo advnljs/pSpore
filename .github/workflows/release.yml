@@ -114,9 +114,13 @@ jobs:
       - name: Typecheck, test, and build
         run: npm run check
 
+      - name: Build and test native startup on glibc 2.31
+        run: bash scripts/build-native-startup-container.sh "$RUNNER_TEMP/pspore-startup"
+
       - name: Package x64 desktop and standalone CLI
         env:
           VERSION: ${{ needs.validate-release.outputs.version }}
+          PSPORE_NATIVE_STARTUP_BINARY: ${{ runner.temp }}/pspore-startup
           # Bundled skill binaries live in a separate private repository, which
           # the default GITHUB_TOKEN cannot read. Without this the packaging step
           # still succeeds and the skill simply ships without its binary.

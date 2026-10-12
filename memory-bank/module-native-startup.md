@@ -10,8 +10,10 @@
 - `src/desktop/native/startup.c`：独立原生入口、绘图、abstract socket、信号/子进程监控。
 - `src/desktop/native-startup.ts`：Electron 端连接、状态文本与聚焦处理；`main.ts` 决定原生接管或 HTML 回退。
 - `scripts/build-native-startup.sh`：本机架构 C 编译，无额外 npm 依赖。
-- `scripts/native-startup-smoke.mjs`：五秒延迟、帧顺序、参数、重复点击、交接、取消、失败真实 X11 测试。
-- `scripts/linux/create-desktop-shortcut.sh`：稳定入口优先执行原生 ELF，旧包无 ELF 则直启 Electron。
+- `scripts/build-native-startup-container.sh`：在 Ubuntu 20.04/glibc 2.31 中编译并运行原生窗口测试，供较新 x64 构建机使用；输出可通过 `PSPORE_NATIVE_STARTUP_BINARY` 交给打包脚本。
+- `scripts/check-native-startup.sh`：校验 ELF 架构，拒绝任何高于 GLIBC_2.17 的原生启动器。不能用“在构建机能运行”替代 ABI 检查。
+- `scripts/native-startup-smoke.mjs`：经安装脚本生成的真实稳定入口测试五秒延迟、帧顺序、参数、重复点击、交接、取消、失败与 ELF 加载失败回退。
+- `scripts/linux/create-desktop-shortcut.sh`：父 shell 监控原生 ELF；正常退出/取消/激活已有实例返回 0，不重新打开应用；非零退出清除原生控制环境并回退 Electron。转发 TERM/INT/HUP 给自有子进程，避免留下窗口。
 - `scripts/package-desktop.sh`、`apply-overlay-upgrade.sh`：随 `resources/` 分发与恢复执行位，升级后刷新已安装的稳定 launcher。
 
 ## 接口与生命周期
@@ -26,7 +28,9 @@
 ## 依赖与约束
 
 - Linux GTK 3.24 / GLib 2.64 / Cairo / Pango，均属于现有 Electron 系统运行时依赖。GTK 自动适配 X11/Wayland。当前自动化视觉证据为 X11，目标麒麟/Wayland 仍需实机复验。
-- 构建依赖 `libgtk-3-dev pkg-config`；ARM64 使用现有 Ubuntu 20.04 / glibc 2.31 原生构建。
+- 构建依赖 `libgtk-3-dev pkg-config binutils`；两种架构的原生启动器均使用 Ubuntu 20.04 / glibc 2.31 工具链，现代 x64 主机可通过已有 Docker 运行容器构建。最终 ELF 的 GLIBC 符号需求必须 ≤2.17，打包原生编译或复用预编译文件时均强制检查。
+- 0.1.39 的 x64 曾在 Ubuntu 22.04 编译，crt 引入 `__libc_start_main@GLIBC_2.34`，目标麒麟 x64 在进入 C main 前失败；必须使用旧工具链修复，不能只依赖 C 内部回退，也不要求用户升级系统 libc。
+- 原生动态加载错误落在 `${XDG_STATE_HOME:-$HOME/.local/state}/pspore/desktop-launcher.log`。桌面环境可能不显示 Desktop Actions，诊断时提供日志路径/终端读取方式。
 - ELF 必须放 `resources/native/pspore-startup`，不得覆盖顶层 `pspore-desktop` 或破坏 overlay Electron runtime 契约。
 - 改图标/尺寸时同步原生卡片与 `splash/` 回退卡片；改协议时同步 C 与 TypeScript 客户端及真实进程测试。
 

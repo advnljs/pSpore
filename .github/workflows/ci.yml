@@ -37,6 +37,9 @@ jobs:
       - name: Verify committed dist matches the build
         run: git diff --exit-code -- dist
 
+      - name: Build and test compatible native startup
+        run: bash scripts/build-native-startup-container.sh "$RUNNER_TEMP/pspore-startup"
+
   release:
     name: Tag and release a new version
     needs: check

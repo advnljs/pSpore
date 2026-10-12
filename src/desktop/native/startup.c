@@ -106,7 +106,7 @@ static void child_exited(GPid pid, gint result, gpointer data) {
   (void)data; g_spawn_close_pid(pid); child = 0;
   if (kill_timer) { g_source_remove(kill_timer); kill_timer=0; }
   if (window && !cancelling && !handed_off && (!WIFEXITED(result) || WEXITSTATUS(result)!=0)) {
-    g_strlcpy(status_text,"启动失败，请从快捷方式菜单打开启动日志",sizeof status_text);
+    g_strlcpy(status_text,"启动失败，请检查启动日志文件",sizeof status_text);
     animate=FALSE; if(canvas) gtk_widget_queue_draw(canvas);
     g_printerr("pSpore native startup: child exited with status %d\n",result);
   } else { hide_window(); gtk_main_quit(); }

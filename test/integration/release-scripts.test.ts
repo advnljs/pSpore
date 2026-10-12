@@ -109,6 +109,56 @@ test("desktop shortcut uses a stable launcher and records launch diagnostics", a
   }
 });
 
+test("desktop launcher recovers from native loader failures without reopening after cancellation", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pspore-launcher-recovery-"));
+  const installDirectory = join(root, "install with spaces");
+  const dataHome = join(root, "data");
+  const stateHome = join(root, "state");
+  const probe = join(root, "arguments.txt");
+  const native = join(installDirectory, "resources/native/pspore-startup");
+  const environment = {
+    ...process.env,
+    HOME: join(root, "home"), XDG_DATA_HOME: dataHome, XDG_STATE_HOME: stateHome,
+    DISPLAY: "", WAYLAND_DISPLAY: "", PSPORE_SHORTCUT_SKIP_NOTIFY: "1",
+    PSPORE_SHORTCUT_PROBE: probe, PSPORE_STARTUP_SOCKET: "stale-controller",
+  };
+  try {
+    await seedIcons(installDirectory);
+    await mkdir(join(installDirectory, "resources/native"), { recursive: true });
+    const installer = join(installDirectory, "创建桌面快捷方式.sh");
+    await copyFile(shortcutScript, installer);
+    await writeFile(join(installDirectory, "pspore-desktop"), [
+      "#!/usr/bin/env bash", "set -euo pipefail",
+      '[[ -z "${PSPORE_STARTUP_SOCKET:-}" ]]',
+      'printf \'%s\\n\' "$PWD" "$@" > "$PSPORE_SHORTCUT_PROBE"', "",
+    ].join("\n"), { mode: 0o755 });
+    await execFileAsync("bash", [installer], { env: environment });
+    const launcher = join(dataHome, "pspore/bin/pspore-desktop-launcher");
+    const args = ["argument with spaces", "literal $x;`q`"];
+    for (const source of [
+      // The kernel fails before main(), just like an unavailable ELF loader.
+      "#!/missing/pspore-test-interpreter\n",
+      "#!/usr/bin/env bash\necho 'symbol lookup error: native dependency' >&2\nexit 127\n",
+      "#!/usr/bin/env bash\nulimit -c 0\nkill -SEGV \"$$\"\n",
+    ]) {
+      await writeFile(native, source, { mode: 0o755 });
+      await execFileAsync(launcher, args, { env: environment });
+      assert.deepEqual((await readFile(probe, "utf8")).trimEnd().split("\n"), [installDirectory, ...args]);
+      await rm(probe);
+    }
+    const log = await readFile(join(stateHome, "pspore/desktop-launcher.log"), "utf8");
+    assert.equal(log.match(/falling back to Electron/g)?.length, 3);
+    assert.match(log, /symbol lookup error: native dependency/);
+    // Native 0 also represents user cancellation and second-instance focus.
+    await writeFile(native, "#!/usr/bin/env bash\nexit 0\n");
+    await execFileAsync(launcher, args, { env: environment });
+    await assert.rejects(readFile(probe), { code: "ENOENT" });
+    assert.equal(await readFile(join(stateHome, "pspore/desktop-launcher.log"), "utf8").then((value) => value.match(/falling back to Electron/g)?.length), 3);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("overlay upgrade validates compatibility, replaces the full app payload, and keeps a rollback", async () => {
   const fixture = await createOverlayFixture();
   try {
@@ -147,6 +197,12 @@ test("overlay upgrade validates compatibility, replaces the full app payload, an
     const launcher = join(fixture.environment["XDG_DATA_HOME"]!, "pspore/bin/pspore-desktop-launcher");
     await execFileAsync(launcher, ["overlay argument"], { env: fixture.environment });
     assert.equal(await readFile(join(fixture.root, "native-entry.txt"), "utf8"), `${join(fixture.target, "pspore-desktop")}\noverlay argument\n`);
+    // The refreshed existing launcher must recover even if the upgraded native
+    // helper cannot load on the target desktop.
+    await writeFile(native, "#!/missing/pspore-test-interpreter\n");
+    await execFileAsync(launcher, [], { env: fixture.environment });
+    assert.match(await readFile(join(fixture.environment["XDG_STATE_HOME"]!, "pspore/desktop-launcher.log"), "utf8"), /falling back to Electron/);
+    assert.equal(await readFile(join(fixture.root, "native-entry.txt.direct"), "utf8"), "desktop started\n");
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -302,6 +358,10 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
   const runtimeSource = [
     "#!/usr/bin/env bash",
     "set -euo pipefail",
+    'if (( $# == 0 )); then',
+    '  printf \'desktop started\\n\' > "$PSPORE_NATIVE_PROBE.direct"',
+    "  exit 0",
+    "fi",
     'if [[ "${1:-}" == "-e" && "${2:-}" == *"process.versions.electron"* ]]; then',
     `  printf '%s\\nlinux\\n${architecture}\\n' "\${PSPORE_FIXTURE_ELECTRON:-43.3.0}"`,
     "  exit 0",

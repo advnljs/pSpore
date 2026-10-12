@@ -6,6 +6,7 @@
 - 原生启动器用按 UID + XDG config scope 的 Linux abstract socket 取得单实例所有权；内核随进程退出清理 socket。重复点击聚焦 loading 或经 IPC 聚焦已有主窗口，Electron 仍保留自身单实例锁。控制连接校验 UID 与直接子进程 PID，消息与连接数量有界。
 - Electron `native-startup.ts` 通过 `HELLO/WELCOME` 接管状态，主窗口可见后发送 `HIDE`。未连接原生启动器时复用 HTML splash；原生关闭/Esc 终止本次启动的进程组，3 秒后兜底清理。独立 systemd 服务仍由既有服务逻辑管理。
 - 原生 ELF 在每个架构构建机编译进 `resources/native/`，可经现有 overlay 整体替换；不改 Electron runtime。GTK3 是 Electron 已有系统依赖，`libgtk-3-dev/pkg-config` 仅用于构建。ARM64 继续在 glibc 2.31 基线构建。
+- 原生入口兼容性：x64 也使用 Ubuntu 20.04/glibc 2.31 工具链，打包强制检查最终 ELF 的 GLIBC 符号需求 ≤2.17；现代 x64 CI 仅将 GTK helper 的构建/运行测试放进旧 userspace。稳定 launcher 保留父 shell 捕获 ELF 加载失败并回退 Electron，正常取消不重启应用。
 
 ## 2026-10-12 变更：loading 首屏与业务模块加载解耦
 

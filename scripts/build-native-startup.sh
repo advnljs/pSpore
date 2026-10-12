@@ -2,6 +2,11 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT="${1:?Usage: build-native-startup.sh /path/to/pspore-startup}"
+if [[ -n "${PSPORE_NATIVE_STARTUP_BINARY:-}" ]]; then
+  bash "$ROOT/scripts/check-native-startup.sh" "$PSPORE_NATIVE_STARTUP_BINARY"
+  install -Dm755 "$PSPORE_NATIVE_STARTUP_BINARY" "$OUTPUT"
+  exit 0
+fi
 PKG_CONFIG="${PKG_CONFIG:-pkg-config}"
 if ! "$PKG_CONFIG" --exists gtk+-3.0 gio-unix-2.0; then
   echo "Native startup build needs libgtk-3-dev and pkg-config (build dependencies only)." >&2
@@ -16,3 +21,4 @@ mkdir -p "$(dirname "$OUTPUT")"
   "${CFLAGS[@]}" "$ROOT/src/desktop/native/startup.c" \
   -o "$OUTPUT" "${LIBS[@]}" -lm -Wl,-z,relro,-z,now
 chmod 0755 "$OUTPUT"
+bash "$ROOT/scripts/check-native-startup.sh" "$OUTPUT"

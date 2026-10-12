@@ -74,6 +74,8 @@
 | `src/desktop/native/startup.c` | Electron 启动前的 GTK3 loading、单实例 socket、取消与焦点交接 |
 | `src/desktop/native-startup.ts` | Electron 与原生 loading 的 IPC 客户端，无连接时回退 HTML splash |
 | `scripts/build-native-startup.sh` | 使用 C 编译器、`libgtk-3-dev` 与 `pkg-config` 生成本机架构原生启动器 |
+| `scripts/build-native-startup-container.sh` | 在 Ubuntu 20.04 容器中编译并实跑原生入口，输出供 `PSPORE_NATIVE_STARTUP_BINARY` 打包复用 |
+| `scripts/check-native-startup.sh` | 打包必须通过的 ELF 架构 / GLIBC ≤2.17 检查 |
 | `scripts/native-startup-smoke.mjs` | Xvfb 下延迟五秒的原生首帧、参数、重复点击、交接、Esc 取消和失败验证 |
 | `scripts/package-desktop.sh` | 按当前原生 `x64|arm64` 使用 electron-builder 生成全量/overlay zip，并调用 `build-cli-binary.sh` 生成同架构 CLI |
 | `scripts/build-cli-binary.sh` | esbuild bundle + 当前原生 Node SEA 注入，产出 `release-dist/pspore-<version>-linux-<arch>` 并自检；拒绝跨架构复制 Node |
@@ -163,6 +165,7 @@
 
 ### 原生启动器（0.1.39）
 
-- 构建：`bash scripts/build-native-startup.sh /tmp/pspore-startup`；需要已有 C toolchain 和构建依赖 `libgtk-3-dev pkg-config`。正式打包会自动生成 `resources/native/pspore-startup`。
+- 旧工具链构建：`bash scripts/build-native-startup.sh /tmp/pspore-startup`；需要已有 C toolchain 和构建依赖 `libgtk-3-dev pkg-config binutils`，最终 ABI 检查必须通过。
+- 现代 x64 主机：先 `npm run build`，再 `bash scripts/build-native-startup-container.sh /tmp/pspore-startup`（需要可用 Docker）；随后 `PSPORE_NATIVE_STARTUP_BINARY=/tmp/pspore-startup npm run package:desktop`，打包会再次检查 ELF 并装入 `resources/native/pspore-startup`。CI 两阶段自动执行，保留 Electron/Node 原有构建环境。
 - 验证：`xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/native-startup-smoke.mjs /tmp/pspore-startup`；需要先 `npm run build`，测试工具是 `xvfb x11-utils xdotool`。
 - 实际预览：运行安装包 `创建桌面快捷方式.sh` 后点击桌面/任务栏 pSpore；或执行 `resources/native/pspore-startup /absolute/install/path/pspore-desktop`。`npm run desktop` 仍直接启动 Electron，使用回退 HTML loading。
