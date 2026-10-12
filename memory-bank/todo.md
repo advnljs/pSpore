@@ -2,7 +2,8 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 发布并核验图标/启动窗/任务栏更新 `v0.1.36` | In progress | 无 | 实现、295 项测试、Electron 主基准及原生窗口交互已通过；最终 x64 包及 SHA-256/包内一致性已通过，提交并监控双架构发布 |
+| P0 | 发布并核验图标/启动窗/任务栏更新 `v0.1.36` | Done | 无 | `f11bf8d` 已推送；CI `38189854040`、ARM64 `38189853979`、Release `38190137003` 成功。12 项资产公开；两份 overlay SHA-256、payload hash、10 项包内文件及图标/快捷方式一致性全部通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.36 |
+| P3 | 既有 CI actions v4 的 Node 20 弃用提示 | Pending | 本轮构建成功，GitHub 自动按 Node 24 执行；不属于本次 UI 范围 | 后续专门维护工作流时评估 checkout/setup-node 的 action major 升级 |
 | P1 | 目标银河麒麟/Wayland 桌面复验任务栏固定及启动窗 | Pending | 本地是 Xvfb + Openbox，非目标桌面 | 安装 0.1.36 后运行快捷方式脚本，检查固定图标、覆盖升级后重启和启动窗视觉 |
 | P0 | 推送并核验本地链接功能 `v0.1.35` | Done | 无 | `5bf496c` 已推送；CI `38012657406`、ARM64 `38012657407`、Release `38012942031` 成功。12 项资产公开，两种架构 overlay SHA-256、manifest 与 8 个包内文件一致性已复核。<https://github.com/advnljs/pSpore/releases/tag/v0.1.35> |
 | P1 | 在目标 Linux 桌面复验本地链接调用系统默认程序 | Pending | 本容器缺完整桌面 D-Bus；本地已验证 UI 点击、IPC 路径与 `xdg-open` 接收路径，无法证明目标机文件关联效果 | 升级 0.1.35 后让智能体输出一个真实 `.txt` 文件与目录，点击并确认文本编辑器/文件管理器打开；若系统打开器无响应，UI 会在 15 秒后提示 |

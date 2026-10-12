@@ -1,12 +1,21 @@
 # Overall Progress
 
+## 2026-10-12 09:06 CST — v0.1.36 双架构发布与远端资产核验完成
+
+- 阶段目标：直接发布本次淡色图标、无边框 loading 与任务栏固定支持更新，并验证用户下载到的产物。
+- 完成内容：功能提交 `f11bf8d` 已推送 `main`；CI `38189854040`、ARM64 预构建 `38189853979`、正式 Release `38190137003` 全部成功。自动 annotated `v0.1.36` 解引用到 `f11bf8d1cde46edf0907fe6124a0c4c8bbc0431e`。Release <https://github.com/advnljs/pSpore/releases/tag/v0.1.36> 已公开，非 draft/prerelease，共 12 项 x64/ARM64 资产；发布时间 `2026-10-12T01:04:28Z`。
+- 独立远端验证：下载两种架构 overlay 及 SHA-256；ZIP 校验、manifest `0.1.36 / Electron 43.3.0 / 对应架构` 与完整 payload hash 均通过。每份包内 `desktop/main.js`、`security.js`、图标 PNG/SVG、splash HTML/CSS/JS、renderer HTML/CSS、`version.js` 共 10 个文件逐字匹配已提交构建；外置两份图标和快捷方式安装器也逐字匹配源码。
+- 修改文件：本阶段仅同步 `memory-bank/overall-progress.md` 与 `todo.md` 的发布事实。
+- 当前状态：开发、构建、真实 Electron/原生窗口交互、x64 本地打包、远端双架构发布和下载校验全部完成。最终包位于 `release-dist/pspore-desktop-0.1.36-linux-x64*`，启动窗预览为 `release-dist/pspore-0.1.36-startup.png`。测试应用/Daemon 已退出；本容器缺实际 systemd 用户会话，不提供生产常驻预览。目标 Linux 桌面可解压完整包并运行快捷方式脚本，源码环境启动命令仍为 `npm run desktop`。
+- 遗留问题：目标银河麒麟/Wayland 的实际任务栏菜单和合成器视觉待实机复验；CI 既有 actions v4 的 Node 运行时弃用提示单列低优先级待办，不在本轮升级工作流。
+
 ## 2026-10-12 08:53 CST — v0.1.36 淡色图标、启动小窗与任务栏固定入口
 
 - 阶段目标：为最终 Linux 桌面产物统一淡色品牌图标，增加无边框启动 loading，并支持系统任务栏固定与再次唤回。
 - 完成内容：新增可编辑 SVG 与同源 512×512 PNG，主窗口/页面/启动小窗/XDG 菜单共用；启动页在初始化 home/服务前显示，页面脚本就绪后推进阶段文案，主 renderer 就绪后关闭。×/Esc 可取消，失败有错误提示并统一退出。Linux 使用原生 splash 窗口类型，主窗口 `WM_CLASS=pSpore` 匹配现有 `pSpore.desktop`；生产单实例锁在重复启动时恢复并聚焦主窗口。快捷方式安装器安装 hicolor 图标，full/overlay 同时携带外置图标并复用稳定启动器。
 - 修改文件：`src/desktop/assets/`、`src/desktop/splash/`、`src/desktop/{main,security}.ts`、renderer HTML/CSS、资源复制/打包/快捷方式脚本、electron-builder 配置、release-scripts 集成测试、Electron smoke、三个版本事实源及 `dist/`；README、项目文档和 memory-bank 同步。
 - 验证方式与结果：`npm run check` 通过（295/295 测试、typecheck、build）；最终 Electron 43 smoke 在 PC `1920×1080` 主基准及既有回归视口通过，owned/external 两轮均确认小窗先显示、图标加载、无溢出、无 Node/preload 权限及切换销毁。Xvfb + Openbox 原生探针确认无边框 splash 类型、主窗口 512×512 `_NET_WM_ICON`、`WM_CLASS`、重复启动不新增窗口、最小化后恢复；CDP 鼠标点击 × 成功退出，错误 home 路径以失败状态退出并清理窗口；该原生探针随后也在最终打包的可执行目录上完整复验通过。截图/日志位于 `/tmp/pspore-branding/` 和 `/tmp/pspore-electron-smoke-txareu/smoke/`。
-- 当前状态：本地实现及运行验收完成；`bash scripts/package-desktop.sh 0.1.36 x64` 已生成最新全量 zip、overlay zip、独立 CLI 和可运行目录，三份 SHA-256 通过，asar 内 10 个代码/资源文件与两份外置图标逐字匹配最新构建。待提交、push 与双架构 Release。生产 systemd 用户会话在本容器不可用，原生探针使用隔离目录、systemctl/loginctl 替身及真实临时 Daemon，未修改用户服务；临时应用已退出。
+- 当前状态：本地实现及运行验收完成；`bash scripts/package-desktop.sh 0.1.36 x64` 已生成最新全量 zip、overlay zip、独立 CLI 和可运行目录，三份 SHA-256 通过，asar 内 10 个代码/资源文件与两份外置图标逐字匹配最新构建。随后已提交、push 并完成双架构 Release，见上条。生产 systemd 用户会话在本容器不可用，原生探针使用隔离目录、systemctl/loginctl 替身及真实临时 Daemon，未修改用户服务；临时应用已退出。
 - 遗留问题：银河麒麟任务栏菜单和 Wayland 实机效果尚未直接验证。Linux 原生 splash 类型用于任务栏隐藏；Electron 43 的 `skipTaskbar` 仅支持 macOS/Windows，已据实际检查修正。本地可选私有 aegis-search 二进制下载仍受访问权限限制，沿用既有降级；正式 CI 使用既有私有仓库凭据配置。
 
 ## 2026-10-10 09:30 CST — v0.1.35 已发布并核验本地链接双架构资产
