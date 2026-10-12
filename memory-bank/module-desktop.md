@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-10-12 loading 尽早可见
+
+- 入口 `main.ts` 不静态导入业务模块；`showStartupWindow` 完成首帧、原生显示及页面就绪后，才 `import("./application.js")`。
+- `application.ts` 接管主窗口、IPC、工作区与 systemd 初始化、smoke 和业务退出；仅测试需要的 `DaemonSupervisor` 使用动态导入，避免生产 GUI 额外加载完整 Pi SDK。
+- `window-security.ts` 共用会话/窗口安全策略；`renderer-diagnostics.ts` 共用受限诊断缓冲和页面就绪等待，不依赖业务或第三方模块。
+- 关闭 loading / Escape 可在业务模块载入前直接退出；载入后走已有 bridge/owned-daemon 清理。重复启动在轻量入口唤回现有窗口。
+- `scripts/electron-smoke.mjs` 的 `verifyEarlyStartup` 将最小启动依赖复制到隔离目录；替身业务模块在求值瞬间验证 splash 已可见且页面 ready，业务依赖缺失也不影响 loading 出现。
+- 后续修改须保持首屏静态依赖足够小：业务依赖放到 `application.ts` 或更晚的位置，避免将模型、服务或工作区初始化重新带入入口依赖图。
+
 ## 2026-10-12 淡色品牌、启动窗与任务栏入口
 
 - `assets/pspore.svg` 为可编辑图标源，`pspore.png` 为同源 512×512 系统窗口图标；renderer、startup、桌面菜单统一使用。PNG 可用 `gdk-pixbuf-thumbnailer -s 512 src/desktop/assets/pspore.svg src/desktop/assets/pspore.png` 重生成（仅维护资源时需要，正常 build 不需要额外工具）。

@@ -2,6 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 提前 loading 首次可见并发布 0.1.37 | In progress | 无 | 轻量启动入口和业务后置已完成；295 项测试、完整 Electron smoke、最终包交互均通过；本机 x64 loading 中位数从 1087 ms 降至约 300 ms（首轮 269 ms，最终复测 307 ms）。待提交并监控双架构发布 |
 | P0 | 发布并核验图标/启动窗/任务栏更新 `v0.1.36` | Done | 无 | `f11bf8d` 已推送；CI `38189854040`、ARM64 `38189853979`、Release `38190137003` 成功。12 项资产公开；两份 overlay SHA-256、payload hash、10 项包内文件及图标/快捷方式一致性全部通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.36 |
 | P3 | 既有 CI actions v4 的 Node 20 弃用提示 | Pending | 本轮构建成功，GitHub 自动按 Node 24 执行；不属于本次 UI 范围 | 后续专门维护工作流时评估 checkout/setup-node 的 action major 升级 |
 | P1 | 目标银河麒麟/Wayland 桌面复验任务栏固定及启动窗 | Pending | 本地是 Xvfb + Openbox，非目标桌面 | 安装 0.1.36 后运行快捷方式脚本，检查固定图标、覆盖升级后重启和启动窗视觉 |

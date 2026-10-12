@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-10-12 09:27 CST — v0.1.37 loading 提前到轻量入口并完成本地验收
+
+- 阶段目标：响应用户“点击后立即显示、尽可能最快弹出 loading”的反馈，将业务与模型依赖加载移出首屏关键路径。
+- 完成内容：`main.ts` 仅保留轻量入口，splash 实际可见且页面就绪后才动态加载 `application.ts`；生产 GUI 移除 `DaemonSupervisor`/Pi SDK 的静态依赖，smoke 分支按需导入。共用窗口安全/诊断模块；继续支持早期取消、业务清理、任务栏单实例及错误退出。版本升至 `0.1.37`。
+- 修改文件：`src/desktop/{main,application,window-security,renderer-diagnostics}.ts`、`scripts/electron-smoke.mjs`、`test/unit/desktop-security.test.ts`、版本文件、项目既有受版本管理的 `dist/` 和相关 memory-bank。
+- 性能证据：同一 Xvfb 1920×1080 + Openbox 环境，外部计时从进程 spawn 到 X11 loading 窗口 `Map State: IsViewable`，两版最终 x64 包各测 3 次；0.1.36 为 `1087/1102/1057 ms`（中位 `1087 ms`），0.1.37 为 `295/257/269 ms`（中位 `269 ms`），首轮等待减少约 `75.3%`。最终复核将二次启动精确定位到主 renderer，避免选中 PDF 导出的隐藏窗口；重新打包后复测为 `322/307/277 ms`（中位 `307 ms`，较旧版减少约 `71.8%`），原生窗口交互复验全部通过。以上为本机重复启动样本，不代表目标 ARM64 机器的冷启动上限。
+- 验证：`npm run check` 295/295、typecheck/build 通过；`node scripts/electron-smoke.mjs` 新增业务模块求值前 splash 可见的隔离断言，原有完整 smoke 通过，主验收 viewport 为 1920×1080；人工查看 splash 和主界面截图无回归。`npm run package:desktop -- 0.1.37 x64` 成功；最终包实测 WM_CLASS、512×512 图标、无边框 splash、最小化后重复启动恢复、取消退出与错误退出全部通过。
+- 验证环境处理：打包重建 dist 与第一次 smoke 重叠曾导致临时缺失模块，改为构建完成后运行；Openbox 在 1920×1080 屏幕内裁减内容视口，完整 smoke 使用既有 2048×1200 虚拟屏幕获得精确 1920×1080 内容区。原生探针针对销毁 splash 时的 X11 BadWindow 查询竞态增加有限重试。最终完整验证均通过，未放宽产品断言。
+- 当前状态：源码与最终包已编译、运行并验收；测试应用/Daemon 已退出。准备提交、push 并监控双架构发布。源码运行命令为 `npm run desktop`；当前容器无生产 systemd 用户会话，不提供常驻真实桌面预览。
+- 遗留问题：目标银河麒麟/飞腾 ARM64 的真实点击冷启动时间需实机复验，已从架构上保证后台/模型工作不会阻塞 loading 首屏。
+
 ## 2026-10-12 09:06 CST — v0.1.36 双架构发布与远端资产核验完成
 
 - 阶段目标：直接发布本次淡色图标、无边框 loading 与任务栏固定支持更新，并验证用户下载到的产物。

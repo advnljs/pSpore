@@ -98,9 +98,9 @@ test("the preload surface and the smoke's pinned list stay in step", async () =>
   const frozen = preload.slice(preload.indexOf("const api = Object.freeze({"));
   const exposed = [...frozen.matchAll(/^ {2}(\w+)\(/gm)].map((match) => match[1]).sort();
 
-  const main = await readFile(resolve(root, "src/desktop/main.ts"), "utf8");
+  const main = await readFile(resolve(root, "src/desktop/application.ts"), "utf8");
   const pinned = main.match(/const expectedApi = \[([\s\S]*?)\]\.join/);
-  assert.ok(pinned, "main.ts must pin the expected preload API surface");
+  assert.ok(pinned, "application.ts must pin the expected preload API surface");
   const expected = [...(pinned[1] ?? "").matchAll(/"([^"]+)"/g)].map((match) => match[1]);
 
   assert.ok(exposed.length > 3, `expected a real API surface, parsed ${exposed.join(",")}`);

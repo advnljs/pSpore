@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createRequire } from "node:module";
@@ -26,6 +26,7 @@ let daemonExit;
 let succeeded = false;
 
 try {
+  await verifyEarlyStartup();
   await seedWorkspaceSkills(temporaryHome);
   await seedWorkspaceSkills(ownedHome);
   await seedArticle(temporaryHome);
@@ -109,6 +110,38 @@ try {
       `Electron smoke artifacts retained at ${temporaryHome} and ${ownedHome}; external output: ${externalFiles}; owned output: ${ownedFiles}\n`,
     );
   }
+}
+
+// Run the real entry with only its splash dependencies present. The replacement
+// application asserts at module evaluation time, so moving a heavy import back
+// ahead of the splash fails before it can silently regress launch feedback.
+async function verifyEarlyStartup() {
+  const isolated = join(temporaryHome, "early-startup");
+  const output = join(isolated, "smoke");
+  await mkdir(isolated, { recursive: true });
+  await writeFile(join(isolated, "package.json"), JSON.stringify({ type: "module" }));
+  for (const name of ["main.js", "security.js", "window-security.js", "renderer-diagnostics.js", "assets", "splash"]) {
+    await cp(join(root, "dist/desktop", name), join(isolated, name), { recursive: true });
+  }
+  await writeFile(join(isolated, "application.js"), `
+    import assert from "node:assert/strict";
+    import { app, BrowserWindow } from "electron";
+    const windows = BrowserWindow.getAllWindows();
+    assert.equal(windows.length, 1, "loading must exist before application import");
+    assert.ok(windows[0].isVisible(), "loading must be visible before application import");
+    assert.equal(await windows[0].webContents.executeJavaScript(
+      "document.documentElement.dataset.ready"), "true");
+    export function requestShutdown(code) { app.exit(code); }
+    export async function startDesktop(_options, startup) {
+      await startup.setMessage("启动顺序已验证");
+      startup.close();
+      app.exit(0);
+    }
+  `);
+  await run("xvfb-run", ["-a", "-s", "-screen 0 1920x1080x24", electron,
+    ...electronFlags, join(isolated, "main.js"), "--smoke-dir", output], electronTimeoutMs);
+  await verifyStartup(output);
+  process.stdout.write("Early startup passed: the painted loading window precedes application module evaluation.\n");
 }
 
 async function verifyStartup(directory) {
