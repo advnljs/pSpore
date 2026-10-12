@@ -2,7 +2,8 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 修复 0.1.39 快捷方式无法启动并发布修复 | In progress | 无 | 用户日志确认 x64 原生程序要求 GLIBC_2.34 高于目标系统；降低原生构建基线，补 ABI 阻断和加载失败回退，全量与 overlay 验证正常启动、错误恢复和取消不重开 |
+| P0 | 修复 0.1.39 快捷方式无法启动并发布 0.1.40 | Done | 无 | `2f265ae` 已推送；CI `38232317864`、ARM64 `38232317860`、Release `38232887640` 全部成功并公开 12 项资产。x64 helper 从 GLIBC_2.34 降到 2.10，旧 glibc 实跑与全量/overlay 实际入口、失败回退、取消均通过；公开包 checksum/digest/内容一致性已核验。https://github.com/advnljs/pSpore/releases/tag/v0.1.40 |
+| P1 | 目标麒麟 x64 设备复验 0.1.40 快捷方式与冷启动 | Pending | 当前无法直接连接目标机 | 用户日志已明确根因，旧 glibc 复现和修复已验证；在目标机安装 x64 overlay 后，从已有桌面/任务栏入口确认 loading 与主窗口正常出现 |
 | P0 | 原生 loading 先于 Electron，验证 overlay 后桌面/任务栏入口并发布 0.1.39 | Done | 无 | `646af02` 已推送；CI `38215080906`、ARM64 `38215080831`、Release `38215525143` 全部成功，12 项资产公开。两份 overlay ZIP/GitHub digest/payload 与每架构 14 项包内文件核验通过；本机旧入口 57 ms，ARM64 CI 108 ms、x64 CI 518 ms，最终 0.1.39 预览运行中。https://github.com/advnljs/pSpore/releases/tag/v0.1.39 |
 | P0 | 提前 loading 首次可见并发布 0.1.37 | Done | 无 | `ce47a01` 已推送；本机 x64 loading 中位数 1087→约300 ms，295 项测试与双架构 Electron 验收通过；CI `38192260169`、ARM64 `38192260157`、Release `38192545383` 成功。12 项资产公开，两份 overlay checksum/payload hash 和 13 项包内文件一致性均通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.37 |
 | P0 | 发布并核验图标/启动窗/任务栏更新 `v0.1.36` | Done | 无 | `f11bf8d` 已推送；CI `38189854040`、ARM64 `38189853979`、Release `38190137003` 成功。12 项资产公开；两份 overlay SHA-256、payload hash、10 项包内文件及图标/快捷方式一致性全部通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.36 |

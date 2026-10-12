@@ -128,7 +128,8 @@ preload 仅暴露：
 - bootstrap 多了一个 `places` 字段（`desktop` / `home`），由 Electron 主进程用 `app.getPath()` 解析——本地化的目录名（例如「桌面」）因此不需要渲染器去猜。字段是可选的：`DaemonBridge` 不知道 Electron，只有主进程能填。
 - 首页第三条示例点击后会把桌面目录挂成引用，让"把目录交给它"这件事在被解释之前就出现在屏幕上。
 
-## 0.1.39 原生启动入口
+## 0.1.40 原生启动入口
 
 - 桌面/任务栏稳定 launcher 先进入 GTK3 原生 loading，再启动 Electron；详见 `module-native-startup.md`。Electron 轻量 `main.ts` 支持原生 IPC 接管与 HTML splash 回退。
 - loading 的显示顺序为：原生首帧 → Electron → 业务/后台 → 主窗口可见 → 隐藏 loading。原生 ELF 随 overlay 的 `resources/` 更新，固定入口身份不变。
+- x64 原生启动器以旧工具链构建，最高 GLIBC 符号需求为 2.10；打包统一拒绝高于 2.17 的 helper。稳定 launcher 捕获进入 C main 之前的动态加载错误并回退 Electron，正常退出和取消不触发重新启动。

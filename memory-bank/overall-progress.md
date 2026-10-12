@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-10-12 18:06 CST — v0.1.40 发布、旧 glibc 与公开全量/overlay 核验完成
+
+- 发布：源码提交 `2f265ae736e390e8dec9d1dec2a569315cc5889f` 已推送；CI `38232317864`、ARM64 preview `38232317860`、Release `38232887640` 全部成功。annotated `v0.1.40` 指向该源码提交，`2026-10-12T10:01:34Z` 公开 12 项资产：<https://github.com/advnljs/pSpore/releases/tag/v0.1.40>。
+- 根因复现与修复证据：本地 Ubuntu 20.04/glibc 2.31 隔离环境中，原公开 0.1.39 x64 helper 报与用户相同的 `GLIBC_2.34 not found`；新 helper 在相同库环境通过稳定快捷方式、五秒延迟、首帧先于 Electron、重复点击、聚焦、取消和 ELF 加载失败回退测试，1920×1080 下约 65 ms 可见。主 CI 的完整 Ubuntu 20.04 容器也通过（133 ms）；正式发布容器 142 ms、宿主 375 ms。旧库测试的本地 rootless 环境缺 `/proc`，Node fixture 需以绝对 `/usr/local/bin/node` 启动；测试输入修正后完整通过，产品代码未为此放宽检查。
+- ABI：公开 x64 helper 的最高 GLIBC 符号要求为 2.10，ARM64 为 2.17；x64 公开文件 SHA-256 `12d7e7c97bec643623ad08b2928df21158a5cd29707c700e510dc9a601d2f83a` 与本地旧工具链已测试 ELF 完全一致。旧 0.1.39 x64 helper 会被新的发布 ABI 检查拒绝。
+- 实际包验证：全新 0.1.40 x64 完整安装，以及真实旧稳定入口从 0.1.39 overlay 到 0.1.40，均通过原生 loading → 实际 Electron 主界面、无重复 HTML splash、512×512 图标/WM_CLASS、最小化恢复、单实例、鼠标取消与外部 Daemon 所有权验证；两条路径本机 loading 约 57 ms。升级前后 Electron runtime SHA-256 相同，旧 launcher 已被自动刷新。单独注入 ELF 版本不存在错误，实际 Electron 仍通过新 launcher 回退并正常就绪。
+- 公开下载核验：两份 overlay 与 x64 完整 ZIP 的 SHA-256、六项已下载文件的 GitHub asset digest、overlay manifest/payload digest、图标/安装器/升级器均通过；每架构 14 项 app 文件匹配已提交 dist。x64 公开完整包与 overlay 的 helper、app.asar 和快捷方式脚本逐字一致；两种 helper 的 `0755` 模式正确。
+- 验证总览：296/296 测试、typecheck/build、Shell 语法、dist 同步、本地 x64 打包、1920×1080 原生与 Electron 验收、双架构 CI/Release 均通过。核心改动为原生构建/ABI 检查、稳定 launcher 恢复、真实入口 smoke 与相关回归测试；最终补充项目文档和 memory-bank 发布/运行记录。
+- 当前运行：0.1.40 的已升级稳定入口 + Electron 和隔离 Daemon 保留运行；主 renderer `ready=true` 且实际显示版本 0.1.40。桌面基准为 Xvfb :99 的 1920×1080，Openbox 窗饰使当前最大化 renderer 内容为 1920×1061；CI Electron 主基准按 1920×1080 验收。未创建用户生产服务，未触碰 `refer/`。
+- 剩余：目标麒麟 x64 设备尚未直接连接，新包安装后的实际快捷方式恢复和冷启动时间仍需用户复验；已确认并消除了日志中的 libc 版本阻塞，保留额外加载失败回退。
+
 ## 2026-10-12 17:49 CST — 确认 x64 快捷方式回归并完成兼容修复实现
 
 - 根因证据：用户日志明确报原生 `pspore-startup` 要求 `GLIBC_2.34` 而目标系统缺失；直接运行 Electron 正常。对 0.1.39 公开 x64 ELF 的符号检查定位到 Ubuntu 22.04 crt 引入的 `__libc_start_main@GLIBC_2.34`。本次设备实际使用 x64 包，不能沿用此前 ARM64 假设。

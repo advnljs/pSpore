@@ -163,7 +163,7 @@
 - resource trust：`~/.pspore/state/resource-trust.json`；installed skill：`workspace/skills/.installed/<name>/<digest>/`；host plugin：`plugins/<name>/<digest>/`。
 - lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。
 
-### 原生启动器（0.1.39）
+### 原生启动器（0.1.40）
 
 - 旧工具链构建：`bash scripts/build-native-startup.sh /tmp/pspore-startup`；需要已有 C toolchain 和构建依赖 `libgtk-3-dev pkg-config binutils`，最终 ABI 检查必须通过。
 - 现代 x64 主机：先 `npm run build`，再 `bash scripts/build-native-startup-container.sh /tmp/pspore-startup`（需要可用 Docker）；随后 `PSPORE_NATIVE_STARTUP_BINARY=/tmp/pspore-startup npm run package:desktop`，打包会再次检查 ELF 并装入 `resources/native/pspore-startup`。CI 两阶段自动执行，保留 Electron/Node 原有构建环境。

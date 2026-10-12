@@ -97,6 +97,8 @@ pspore config clear-cookie
 
 桌面图标采用统一淡色 SVG/PNG，应用窗口、任务栏、启动小窗与应用菜单保持一致。启动时先显示无边框的小窗 loading，可用 × 或 Esc 取消；工作空间初始化后切换主界面。首次运行 `创建桌面快捷方式.sh` 会安装 XDG 图标，随后右击任务栏图标选择「固定到任务栏」或「加入收藏」即可；覆盖升级继续沿用相同入口，重复启动会恢复并聚焦已有窗口。
 
+桌面/任务栏入口先用 GTK3 显示 loading，再启动 Electron。原生入口加载失败时自动回退 Electron；启动日志位于 `${XDG_STATE_HOME:-$HOME/.local/state}/pspore/desktop-launcher.log`，部分桌面环境不显示右键日志菜单，可直接读取该文件。原生 helper 的 x64/ARM64 构建都使用 Ubuntu 20.04 工具链，打包检查最终 ELF 的 GLIBC 符号要求不高于 2.17。现代 x64 构建机先执行 `npm run build` 和 `bash scripts/build-native-startup-container.sh /tmp/pspore-startup`（需要 Docker），再执行 `PSPORE_NATIVE_STARTUP_BINARY=/tmp/pspore-startup npm run package:desktop`；容器步骤包含旧 glibc 下的真实快捷方式/窗口测试。
+
 ARM64 包由 `Package Linux ARM64` GitHub Actions 工作流生成：它在原生 `ubuntu-24.04-arm` runner 上进入 Ubuntu 20.04 容器，以与银河麒麟 V10 SP1 相同的 `glibc 2.31` 执行依赖安装、完整测试、Electron `1920 × 1080` 主基准 smoke、Electron/SEA 架构自检和 SHA-256 校验。`main` 相关改动或手动运行时保留 14 天预览 artifact；正式 annotated `v<version>` tag 会复用同一 ARM 链，并在 x64 与 ARM64 两侧都成功后，把两种架构的 CLI、全量桌面 zip、overlay zip 及各自校验文件一次性发布到新的不可变 GitHub Release。Release 资产使用 `ARM64 / Kylin V10` 与 `x86_64` 显示标签自动分类，发行说明同步按架构分区。打包脚本只允许当前 Node 原生架构，手工 ARM 构建入口为 `bash scripts/package-desktop.sh <version> arm64`，必须在 ARM64 Node 24 环境运行。
 
 `npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home，并以 `1920 × 1080` 为主基准、补充 `1440 × 900` 与 `1180 × 720` PC 窗口，自动验证外部/桌面拥有两种 Daemon 路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、计算后字号下限、响应式面板收纳、真实文件/目录拖拽仅形成路径引用且不提交消息、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；长历史 fixture 含 1007 条消息，并断言实际 DOM 少于 40 条。成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留深色、浅色、文件拖拽、设置、响应式与审批截图及 JSON 探针。
