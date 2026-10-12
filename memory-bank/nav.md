@@ -71,6 +71,10 @@
 | `src/desktop/` | Electron 43 main/preload/renderer、Daemon bridge、三 Provider 设置、响应式双主题、IPC validation、安全基线与 smoke fixture |
 | `scripts/clean-dist.mjs` | 构建前只清理仓库内精确 `dist/`，避免已删除模块混入 npm 包 |
 | `scripts/copy-desktop-assets.mjs` | 将 preload/HTML/CSS 静态资源复制到最新 `dist/` |
+| `src/desktop/native/startup.c` | Electron 启动前的 GTK3 loading、单实例 socket、取消与焦点交接 |
+| `src/desktop/native-startup.ts` | Electron 与原生 loading 的 IPC 客户端，无连接时回退 HTML splash |
+| `scripts/build-native-startup.sh` | 使用 C 编译器、`libgtk-3-dev` 与 `pkg-config` 生成本机架构原生启动器 |
+| `scripts/native-startup-smoke.mjs` | Xvfb 下延迟五秒的原生首帧、参数、重复点击、交接、Esc 取消和失败验证 |
 | `scripts/package-desktop.sh` | 按当前原生 `x64|arm64` 使用 electron-builder 生成全量/overlay zip，并调用 `build-cli-binary.sh` 生成同架构 CLI |
 | `scripts/build-cli-binary.sh` | esbuild bundle + 当前原生 Node SEA 注入，产出 `release-dist/pspore-<version>-linux-<arch>` 并自检；拒绝跨架构复制 Node |
 | `scripts/linux/create-desktop-shortcut.sh` | 全量 zip 内快捷方式安装器：生成稳定 XDG launcher、Desktop Entry 与私有启动日志 |
@@ -156,3 +160,9 @@
 - 根 session mapping：`~/.pspore/state/session-catalog.json`；Pi JSONL：`~/.pspore/state/sessions/`；runs/approval grants/notifications/audit：`~/.pspore/state/`
 - resource trust：`~/.pspore/state/resource-trust.json`；installed skill：`workspace/skills/.installed/<name>/<digest>/`；host plugin：`plugins/<name>/<digest>/`。
 - lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。
+
+### 原生启动器（0.1.38）
+
+- 构建：`bash scripts/build-native-startup.sh /tmp/pspore-startup`；需要已有 C toolchain 和构建依赖 `libgtk-3-dev pkg-config`。正式打包会自动生成 `resources/native/pspore-startup`。
+- 验证：`xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/native-startup-smoke.mjs /tmp/pspore-startup`；需要先 `npm run build`，测试工具是 `xvfb x11-utils xdotool`。
+- 实际预览：运行安装包 `创建桌面快捷方式.sh` 后点击桌面/任务栏 pSpore；或执行 `resources/native/pspore-startup /absolute/install/path/pspore-desktop`。`npm run desktop` 仍直接启动 Electron，使用回退 HTML loading。

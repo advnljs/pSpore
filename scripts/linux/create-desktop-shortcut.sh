@@ -32,6 +32,9 @@ if [[ "$APP_DIR" == *$'\n'* || "$APP_DIR" == *$'\r'* ]]; then
   fail "安装目录不能包含换行符。"
 fi
 chmod +x "$EXEC" || fail "无法为可执行文件添加运行权限: $EXEC"
+if [[ -f "$APP_DIR/resources/native/pspore-startup" ]]; then
+  chmod 0755 "$APP_DIR/resources/native/pspore-startup" || fail "无法为原生启动器添加运行权限。"
+fi
 
 resolve_desktop_dir() {
   local dir=""
@@ -126,6 +129,10 @@ if ! cd "$app_dir"; then
 fi
 
 printf '[%s] launching %s\n' "$timestamp" "$binary"
+native_startup="$app_dir/resources/native/pspore-startup"
+if [[ -x "$native_startup" ]]; then
+  exec "$native_startup" "$binary" "$@"
+fi
 exec "$binary" "$@"
 LAUNCHER
   chmod 700 "$launcher_tmp"

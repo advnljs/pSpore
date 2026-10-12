@@ -6,6 +6,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog } from "electron";
 import { captureRendererDiagnostics, waitFor, waitForRenderer } from "./renderer-diagnostics.js";
 import { DESKTOP_ICON } from "./security.js";
+import { connectNativeStartup } from "./native-startup.js";
 import { hardenWindow, installSessionSecurity } from "./window-security.js";
 const arguments_ = parseArguments(process.argv.slice(1));
 if (arguments_.smokeDirectory)
@@ -17,6 +18,7 @@ if (process.platform === "linux") {
     app.commandLine.appendSwitch("class", "pSpore");
 }
 let splash;
+let nativeStartup;
 let shuttingDown = false;
 let stopApplication;
 app.on("window-all-closed", () => shutdown(0));
@@ -27,19 +29,12 @@ app.on("before-quit", (event) => {
 process.once("SIGINT", () => shutdown(0));
 process.once("SIGTERM", () => shutdown(0));
 if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
-    app.on("second-instance", () => {
-        // PDF export also creates a hidden BrowserWindow; only restore the workspace.
-        const target = splash ?? BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL() === new URL("./renderer/index.html", import.meta.url).href);
-        if (!target || target.isDestroyed())
-            return;
-        if (target.isMinimized())
-            target.restore();
-        target.show();
-        target.focus();
-    });
+    app.on("second-instance", focusDesktop);
     app.whenReady().then(async () => {
         installSessionSecurity();
-        await showStartupWindow();
+        nativeStartup = await connectNativeStartup(focusDesktop);
+        if (!nativeStartup)
+            await showStartupWindow();
         if (shuttingDown)
             return;
         // No workspace IO, settings, service management or model SDK may run until
@@ -48,7 +43,7 @@ if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
         if (shuttingDown)
             return;
         stopApplication = application.requestShutdown;
-        await application.startDesktop(arguments_, {
+        await application.startDesktop(arguments_, nativeStartup ?? {
             setMessage: setStartupMessage,
             close: closeStartupWindow,
         });
@@ -56,6 +51,16 @@ if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
 }
 else {
     app.exit(0);
+}
+function focusDesktop() {
+    // PDF export also creates a hidden BrowserWindow; only restore the workspace.
+    const target = splash ?? BrowserWindow.getAllWindows().find((candidate) => candidate.webContents.getURL() === new URL("./renderer/index.html", import.meta.url).href);
+    if (!target || target.isDestroyed())
+        return;
+    if (target.isMinimized())
+        target.restore();
+    target.show();
+    target.focus();
 }
 async function showStartupWindow() {
     const startupPath = fileURLToPath(new URL("./splash/index.html", import.meta.url));
@@ -170,6 +175,7 @@ function shutdown(code) {
     if (stopApplication)
         stopApplication(code);
     else {
+        nativeStartup?.close();
         closeStartupWindow();
         app.exit(code);
     }

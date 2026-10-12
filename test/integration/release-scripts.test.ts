@@ -90,11 +90,19 @@ test("desktop shortcut uses a stable launcher and records launch diagnostics", a
     const upgradedDirectory = join(root, "next install");
     await mkdir(upgradedDirectory);
     await seedIcons(upgradedDirectory);
+    // ZIP extraction may remove executable bits. The installer restores the
+    // native entry and preserves every argument, including shell characters.
+    const native = join(upgradedDirectory, "resources/native/pspore-startup");
+    await mkdir(join(upgradedDirectory, "resources/native"), { recursive: true });
+    await writeFile(native, "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$PSPORE_NATIVE_PROBE\"\nexec \"$@\"\n", { mode: 0o644 });
     await copyFile(executable, join(upgradedDirectory, "pspore-desktop"));
     await copyFile(shortcutScript, join(upgradedDirectory, "创建桌面快捷方式.sh"));
     await execFileAsync("bash", [join(upgradedDirectory, "创建桌面快捷方式.sh")], { env: environment });
     assert.equal(await readFile(desktopEntry, "utf8"), desktop);
-    await execFileAsync(launcher, [], { env: environment });
+    const nativeProbe = join(root, "native-arguments.txt");
+    await execFileAsync(launcher, ["argument with spaces", "literal $x;`q`"], { env: { ...environment, PSPORE_NATIVE_PROBE: nativeProbe } });
+    assert.equal((await stat(native)).mode & 0o111, 0o111);
+    assert.deepEqual((await readFile(nativeProbe, "utf8")).trimEnd().split("\n"), [join(upgradedDirectory, "pspore-desktop"), "argument with spaces", "literal $x;`q`"]);
     assert.equal((await readFile(probe, "utf8")).trim(), upgradedDirectory);
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -134,6 +142,11 @@ test("overlay upgrade validates compatibility, replaces the full app payload, an
     // An existing shortcut must end up pointing at the directory just upgraded.
     assert.match(result.stdout, /已将桌面快捷方式指向本次升级的安装目录/);
     assert.equal((await readFile(fixture.installRecord, "utf8")).trim(), fixture.target);
+    const native = join(fixture.target, "resources/native/pspore-startup");
+    assert.equal((await stat(native)).mode & 0o111, 0o111);
+    const launcher = join(fixture.environment["XDG_DATA_HOME"]!, "pspore/bin/pspore-desktop-launcher");
+    await execFileAsync(launcher, ["overlay argument"], { env: fixture.environment });
+    assert.equal(await readFile(join(fixture.root, "native-entry.txt"), "utf8"), `${join(fixture.target, "pspore-desktop")}\noverlay argument\n`);
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -258,6 +271,8 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
   const installRecord = join(dataHome, "pspore", "install-dir");
   await mkdir(join(payloadResources, "app.asar.unpacked"), { recursive: true });
   await seedIcons(payload);
+  await mkdir(join(payloadResources, "native"));
+  await writeFile(join(payloadResources, "native/pspore-startup"), "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$PSPORE_NATIVE_PROBE\"\n", { mode: 0o644 });
   await mkdir(join(targetResources, "app.asar.unpacked"), { recursive: true });
   await mkdir(join(configHome, "systemd", "user"), { recursive: true });
   await mkdir(join(dataHome, "pspore"), { recursive: true });
@@ -345,6 +360,7 @@ async function createOverlayFixture(architecture: "x64" | "arm64" = "x64"): Prom
       XDG_STATE_HOME: join(root, "xdg-state"),
       PATH: `${fakeBin}:${process.env["PATH"] ?? ""}`,
       PSPORE_SYSTEMCTL_LOG: systemctlLog,
+      PSPORE_NATIVE_PROBE: join(root, "native-entry.txt"),
       PSPORE_SHORTCUT_SKIP_NOTIFY: "1",
       DISPLAY: "",
       WAYLAND_DISPLAY: "",

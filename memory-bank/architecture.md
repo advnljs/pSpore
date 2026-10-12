@@ -1,5 +1,12 @@
 # Architecture
 
+## 2026-10-12 变更：原生首帧先于 Electron
+
+- 已安装的桌面/任务栏稳定 launcher 优先执行 `resources/native/pspore-startup`。独立 GTK3 进程绘制 loading，在 GDK `after-paint` 完成并同步显示连接后才启动 Electron；不再依赖 Chromium 初始化才能反馈。
+- 原生启动器用按 UID + XDG config scope 的 Linux abstract socket 取得单实例所有权；内核随进程退出清理 socket。重复点击聚焦 loading 或经 IPC 聚焦已有主窗口，Electron 仍保留自身单实例锁。控制连接校验 UID 与直接子进程 PID，消息与连接数量有界。
+- Electron `native-startup.ts` 通过 `HELLO/WELCOME` 接管状态，主窗口可见后发送 `HIDE`。未连接原生启动器时复用 HTML splash；原生关闭/Esc 终止本次启动的进程组，3 秒后兜底清理。独立 systemd 服务仍由既有服务逻辑管理。
+- 原生 ELF 在每个架构构建机编译进 `resources/native/`，可经现有 overlay 整体替换；不改 Electron runtime。GTK3 是 Electron 已有系统依赖，`libgtk-3-dev/pkg-config` 仅用于构建。ARM64 继续在 glibc 2.31 基线构建。
+
 ## 2026-10-12 变更：loading 首屏与业务模块加载解耦
 
 - `desktop/main.ts` 是轻量启动入口，仅静态加载 Electron、Node 内置模块及本地窗口安全/诊断工具。先取得单实例锁，再在 Electron ready 后加载并显示 splash；原生窗口可见、页面就绪之后才动态导入 `application.ts`。

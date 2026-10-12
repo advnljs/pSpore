@@ -120,7 +120,7 @@ async function verifyEarlyStartup() {
   const output = join(isolated, "smoke");
   await mkdir(isolated, { recursive: true });
   await writeFile(join(isolated, "package.json"), JSON.stringify({ type: "module" }));
-  for (const name of ["main.js", "security.js", "window-security.js", "renderer-diagnostics.js", "assets", "splash"]) {
+  for (const name of ["main.js", "native-startup.js", "security.js", "window-security.js", "renderer-diagnostics.js", "assets", "splash"]) {
     await cp(join(root, "dist/desktop", name), join(isolated, name), { recursive: true });
   }
   await writeFile(join(isolated, "application.js"), `

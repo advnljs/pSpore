@@ -248,6 +248,10 @@ for script in "$TARGET"/*.sh; do
   [[ -f "$script" ]] && chmod 0755 "$script" 2>/dev/null || true
 done
 
+if [[ -f "$RESOURCES/native/pspore-startup" ]]; then
+  chmod 0755 "$RESOURCES/native/pspore-startup" || fail "无法设置原生启动器的执行权限"
+fi
+
 progress 80 "正在校验升级结果…"
 
 verified_output="$(electron_node "$RESOURCES/app.asar/dist/cli/main.js" version 2>&1)" \

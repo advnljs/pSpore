@@ -8,6 +8,7 @@ import { app, BrowserWindow, dialog } from "electron";
 
 import { captureRendererDiagnostics, waitFor, waitForRenderer } from "./renderer-diagnostics.js";
 import { DESKTOP_ICON } from "./security.js";
+import { connectNativeStartup } from "./native-startup.js";
 import { hardenWindow, installSessionSecurity } from "./window-security.js";
 
 export interface DesktopArguments {
@@ -32,6 +33,7 @@ if (process.platform === "linux") {
 }
 
 let splash: BrowserWindow | undefined;
+let nativeStartup: DesktopStartup | undefined;
 let shuttingDown = false;
 let stopApplication: ((code: number) => void) | undefined;
 
@@ -44,31 +46,34 @@ process.once("SIGINT", () => shutdown(0));
 process.once("SIGTERM", () => shutdown(0));
 
 if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
-  app.on("second-instance", () => {
-    // PDF export also creates a hidden BrowserWindow; only restore the workspace.
-    const target = splash ?? BrowserWindow.getAllWindows().find((candidate) =>
-      candidate.webContents.getURL() === new URL("./renderer/index.html", import.meta.url).href);
-    if (!target || target.isDestroyed()) return;
-    if (target.isMinimized()) target.restore();
-    target.show();
-    target.focus();
-  });
+  app.on("second-instance", focusDesktop);
   app.whenReady().then(async () => {
     installSessionSecurity();
-    await showStartupWindow();
+    nativeStartup = await connectNativeStartup(focusDesktop);
+    if (!nativeStartup) await showStartupWindow();
     if (shuttingDown) return;
     // No workspace IO, settings, service management or model SDK may run until
     // the startup card has painted and its native window is actually visible.
     const application = await import("./application.js");
     if (shuttingDown) return;
     stopApplication = application.requestShutdown;
-    await application.startDesktop(arguments_, {
+    await application.startDesktop(arguments_, nativeStartup ?? {
       setMessage: setStartupMessage,
       close: closeStartupWindow,
     });
   }).catch(failStartup);
 } else {
   app.exit(0);
+}
+
+function focusDesktop(): void {
+  // PDF export also creates a hidden BrowserWindow; only restore the workspace.
+  const target = splash ?? BrowserWindow.getAllWindows().find((candidate) =>
+    candidate.webContents.getURL() === new URL("./renderer/index.html", import.meta.url).href);
+  if (!target || target.isDestroyed()) return;
+  if (target.isMinimized()) target.restore();
+  target.show();
+  target.focus();
 }
 
 async function showStartupWindow(): Promise<void> {
@@ -174,6 +179,7 @@ function shutdown(code: number): void {
   shuttingDown = true;
   if (stopApplication) stopApplication(code);
   else {
+    nativeStartup?.close();
     closeStartupWindow();
     app.exit(code);
   }

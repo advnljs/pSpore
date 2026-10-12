@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-10-12 14:28 CST — 0.1.38 原生 loading 与真实 overlay 验收完成
+
+- 阶段目标：用户反馈 overlay 后点击桌面/任务栏仍要等待 loading；将窗口前移到 Electron 启动之前。
+- 完成内容：新增 GTK3 原生启动器，GDK 首帧后再 spawn Electron；abstract socket 单实例、状态/聚焦交接、取消与失败处理。稳定 launcher 优先执行原生程序，overlay 自动携带并恢复执行位、刷新已安装快捷方式。版本升至 0.1.38；双架构工作流加入原生编译与真实 X11 延迟测试。
+- 修改文件：`src/desktop/native/startup.c`、`native-startup.ts`、`main.ts`，原生构建/验证脚本、打包与快捷方式/overlay 脚本、发布工作流、release-scripts 测试、版本文件、受版本管理的 `dist/` 与相关 memory-bank。
+- 验证：`npm run check`（295/295、typecheck/build 均通过）；C `-Wall -Wextra -Werror` 编译；`bash -n`；原生 smoke 在 1920×1080 及无 WM 环境通过，五秒延迟客户端前窗口已可见，外部观察约 89–92 ms；实际首帧日志约 44–50 ms。参数原样传递、重复点击、交接、聚焦、Esc 取消、异常退出提示均通过。
+- 实际安装链路：完整 x64 打包成功，将真实 0.1.37 安装副本经 0.1.38 overlay 升级；旧稳定快捷方式更新成功，Electron runtime SHA-256 保持不变。经旧入口启动实际 Electron，外部观察约 57 ms 显示 loading，原生窗口隐藏后没有 HTML splash，主窗口 WM_CLASS/图标正确；最小化后重复点击恢复、关闭按钮取消、既有外部 Daemon 不受影响均通过。
+- Electron 验证：`node scripts/electron-smoke.mjs` 全部通过，主基准 viewport 1920×1080，含既有 UI/IPC/owned 和 external Daemon 验证。截图与日志在临时验收目录，测试工作区/配置完全隔离；本地编译与安装包均为最新代码。
+- 当前状态：本地实现与验收完成，准备提交并由既有 CI 自动发布双架构 0.1.38；发布与远端资产核验尚未完成。
+- 遗留：目标飞腾/银河麒麟真实冷启动时间、Wayland 桌面实机效果仍待复验；本地计时不能代替目标机数据。
+
 ## 2026-10-12 09:43 CST — v0.1.37 双架构发布与远端核验完成
 
 - 阶段目标：直接发布 loading 加速修复，并确认用户下载到的完整启动模块与版本。

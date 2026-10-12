@@ -105,6 +105,7 @@ fi
 STAGE_FULL="$DIST_DIR/staging-full/$FULL_NAME"
 mkdir -p "$STAGE_FULL"
 cp -a "$UNPACKED_DIR"/. "$STAGE_FULL/"
+bash "$REPO_ROOT/scripts/build-native-startup.sh" "$STAGE_FULL/resources/native/pspore-startup"
 install -m 0755 "$REPO_ROOT/scripts/linux/create-desktop-shortcut.sh" "$STAGE_FULL/创建桌面快捷方式.sh"
 cat > "$STAGE_FULL/安装说明.txt" <<EOF
 pSpore Desktop ${VERSION}
