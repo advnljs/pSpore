@@ -161,7 +161,7 @@
 - resource trust：`~/.pspore/state/resource-trust.json`；installed skill：`workspace/skills/.installed/<name>/<digest>/`；host plugin：`plugins/<name>/<digest>/`。
 - lexical search cache：`~/.pspore/cache/search/index.json`（可删除、可重建）。
 
-### 原生启动器（0.1.38）
+### 原生启动器（0.1.39）
 
 - 构建：`bash scripts/build-native-startup.sh /tmp/pspore-startup`；需要已有 C toolchain 和构建依赖 `libgtk-3-dev pkg-config`。正式打包会自动生成 `resources/native/pspore-startup`。
 - 验证：`xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/native-startup-smoke.mjs /tmp/pspore-startup`；需要先 `npm run build`，测试工具是 `xvfb x11-utils xdotool`。

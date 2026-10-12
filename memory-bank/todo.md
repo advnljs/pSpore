@@ -2,12 +2,12 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 原生 loading 先于 Electron，验证 overlay 后桌面/任务栏入口并发布 0.1.39 | In progress | 无 | 实现与 x64 打包、295 项测试、原生五秒延迟测试、真实 0.1.37→0.1.38 overlay/旧快捷方式交接验证均通过；0.1.38 因旧视觉测试竞态保留草稿；0.1.39 纳入修正后重新执行 CI 双架构发布与远端核验 |
+| P0 | 原生 loading 先于 Electron，验证 overlay 后桌面/任务栏入口并发布 0.1.39 | Done | 无 | `646af02` 已推送；CI `38215080906`、ARM64 `38215080831`、Release `38215525143` 全部成功，12 项资产公开。两份 overlay ZIP/GitHub digest/payload 与每架构 14 项包内文件核验通过；本机旧入口 57 ms，ARM64 CI 108 ms、x64 CI 518 ms，最终 0.1.39 预览运行中。https://github.com/advnljs/pSpore/releases/tag/v0.1.39 |
 | P0 | 提前 loading 首次可见并发布 0.1.37 | Done | 无 | `ce47a01` 已推送；本机 x64 loading 中位数 1087→约300 ms，295 项测试与双架构 Electron 验收通过；CI `38192260169`、ARM64 `38192260157`、Release `38192545383` 成功。12 项资产公开，两份 overlay checksum/payload hash 和 13 项包内文件一致性均通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.37 |
 | P0 | 发布并核验图标/启动窗/任务栏更新 `v0.1.36` | Done | 无 | `f11bf8d` 已推送；CI `38189854040`、ARM64 `38189853979`、Release `38190137003` 成功。12 项资产公开；两份 overlay SHA-256、payload hash、10 项包内文件及图标/快捷方式一致性全部通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.36 |
 | P3 | 既有 CI actions v4 的 Node 20 弃用提示 | Pending | 本轮构建成功，GitHub 自动按 Node 24 执行；不属于本次 UI 范围 | 后续专门维护工作流时评估 checkout/setup-node 的 action major 升级 |
 | P1 | 在目标飞腾 ARM64 桌面测量新版点击至 loading 可见的冷启动时间 | Pending | 当前已增加原生 GTK 入口，本机 x64 首帧约 0.05 s、外部可见约 0.09 s；目标机尚无测量 | 升级 0.1.39 后从既有桌面/任务栏入口冷启动计时，确认原生窗先于 Electron 出现 |
-| P1 | 目标银河麒麟/Wayland 桌面复验任务栏固定及启动窗 | Pending | 本地是 Xvfb + Openbox，非目标桌面 | 安装 0.1.36 后运行快捷方式脚本，检查固定图标、覆盖升级后重启和启动窗视觉 |
+| P1 | 目标银河麒麟/Wayland 桌面复验任务栏固定及启动窗 | Pending | 本地是 Xvfb + Openbox，非目标桌面 | 安装 0.1.39 后使用既有桌面/任务栏入口，检查图标归组、覆盖升级后重启和原生启动窗视觉 |
 | P0 | 推送并核验本地链接功能 `v0.1.35` | Done | 无 | `5bf496c` 已推送；CI `38012657406`、ARM64 `38012657407`、Release `38012942031` 成功。12 项资产公开，两种架构 overlay SHA-256、manifest 与 8 个包内文件一致性已复核。<https://github.com/advnljs/pSpore/releases/tag/v0.1.35> |
 | P1 | 在目标 Linux 桌面复验本地链接调用系统默认程序 | Pending | 本容器缺完整桌面 D-Bus；本地已验证 UI 点击、IPC 路径与 `xdg-open` 接收路径，无法证明目标机文件关联效果 | 升级 0.1.35 后让智能体输出一个真实 `.txt` 文件与目录，点击并确认文本编辑器/文件管理器打开；若系统打开器无响应，UI 会在 15 秒后提示 |
 | P0 | 文稿与对话始终是可拖动分屏、随窗口缩放更新，并发布 0.1.34 | Done | 目标机实机复验待用户 | 293 项测试（4 项可选索引器跳过）、Electron smoke 新分屏断言、article-stream、x64 打包与 28 步 XTest 实操验证通过；CI `37445241923`、ARM64 `37445241914`、Release `37445762684` 成功，双架构 overlay SHA-256 与六项修复文件逐字校验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.34 |

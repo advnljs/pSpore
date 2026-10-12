@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-10-12 15:10 CST — v0.1.39 双架构发布及公开资产核验完成
+
+- 阶段目标：点击桌面/任务栏后由原生窗口先反馈，再启动 Electron；发布可通过旧入口直接升级的版本。
+- 发布事实：源码/版本提交 `646af02dd77106a72c550df000db99214c7055e9` 已推送；CI `38215080906`、ARM64 preview `38215080831`、Release `38215525143` 全部成功。annotated `v0.1.39` 解引用到该提交；<https://github.com/advnljs/pSpore/releases/tag/v0.1.39> 于 `2026-10-12T07:07:34Z` 公开，非 draft/prerelease，共 12 项 x64/ARM64 资产。0.1.38 草稿未公开，已有标签未移动。
+- 原生启动验证：两种正式架构均通过 1920×1080、五秒延迟客户端、首帧先于子进程、参数原样传递、重复点击、交接、聚焦、取消与失败提示检查。正式 x64 CI 可见约 518 ms，ARM64 CI 约 108 ms；本机真实升级后旧快捷方式约 57 ms。环境差异明显，这些数值不代替目标飞腾设备冷启动测量。
+- 公开包独立核验：下载两份 0.1.39 overlay，ZIP SHA-256 与 GitHub 发布资产 digest 一致，manifest 为 `0.1.39 / Electron 43.3.0 / 对应架构`，完整 payload digest、外置图标、快捷方式安装器、升级脚本均通过；每架构 14 项 app 代码/资源逐字匹配已提交构建。原生程序的 ELF 架构和 `0755` 模式正确，大小 x64 44,216 bytes / ARM64 41,768 bytes；最大 GLIBC 符号需求分别为 2.34 / 2.17，ARM64 保持现有 glibc 2.31 构建基线。
+- 本地最终版本：0.1.39 `npm run check` 295/295、typecheck/build 通过；完整 x64 打包通过。对原始 0.1.37 安装副本经 overlay 更新到 0.1.39 后，运行时 SHA-256 不变；真实旧快捷方式启动、无第二个 HTML splash、主窗口图标/WM_CLASS、最小化恢复、鼠标取消、外部 Daemon 所有权检查全部通过。此前同实现的完整 Electron smoke 已通过 1920×1080 主基准，正式 ARM64 再次通过完整 Electron 验收。
+- 修改与同步：本阶段更新 `memory-bank/overall-progress.md`、`todo.md`、`nav.md`、`module-desktop.md` 的最终版本/发布/运行事实；核心实现与测试已在此前提交中完成。
+- 运行状态：当前会话保留最新 0.1.39 原生入口 + Electron 桌面预览（隔离的 Xvfb :99，1920×1080 桌面；主 renderer 就绪并显示 0.1.39）及隔离验收 Daemon；未创建用户生产服务。可复现真实入口为安装包 `创建桌面快捷方式.sh` 生成的稳定 launcher；源码开发仍可用 `npm run desktop`（HTML loading 回退）。
+- 遗留：目标银河麒麟/飞腾硬件的冷启动时间、真实 Wayland 桌面归组仍需实机复验，已保留在 todo；原有未跟踪 `refer/` 未修改。
+
 ## 2026-10-12 14:55 CST — 以 0.1.39 纳入完整原生可见性验证
 
 - 0.1.38 正式 x64 重跑仍在旧测试的 `IsUnMapped` 断言失败，Release `38213869523` 保持 draft，未公开。已有 annotated 标签保持不可变。
