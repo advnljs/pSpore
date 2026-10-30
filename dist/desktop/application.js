@@ -1,7 +1,7 @@
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { app, BrowserWindow, dialog, ipcMain, screen, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, screen } from "electron";
 import { ArticleStore } from "../articles/store.js";
 import { resolvePsporeHome } from "../config/config.js";
 import { stopLegacyDaemon } from "../service/legacy-daemon.js";
@@ -13,7 +13,8 @@ import { BYPASS_PERMISSION_MODE } from "../settings/llm-settings.js";
 import { initializePsporeHome } from "../storage/home.js";
 import { PI_VERSION, PSPORE_VERSION } from "../version.js";
 import { exportArticleFile } from "./article-export.js";
-import { decodeOpenLocalPath } from "./local-path.js";
+import { decodeLocalPathRequest, resolveLocalPath } from "./local-path.js";
+import { openLocalItem, revealLocalItem } from "./system-open.js";
 import { DaemonBridge } from "./daemon-bridge.js";
 import { DESKTOP_ARTICLE_EXPORT_CHANNEL, DESKTOP_OPEN_LOCAL_PATH_CHANNEL, DESKTOP_BOOTSTRAP_CHANNEL, DESKTOP_DISPATCH_CHANNEL, DESKTOP_FRAME_CHANNEL, DESKTOP_INDEXING_GET_CHANNEL, DESKTOP_ATTACH_CHANNEL, DESKTOP_INDEXING_PICK_CHANNEL, decodeAttachmentKind, DESKTOP_INDEXING_SAVE_CHANNEL, DESKTOP_SETTINGS_GET_CHANNEL, DESKTOP_SETTINGS_SAVE_CHANNEL, decodeArticleExportRequest, decodeDesktopIndexingSettingsUpdate, decodeDesktopLlmSettingsUpdate, } from "./ipc-contract.js";
 import { MIN_ARTICLE_WIDTH, MIN_CONVERSATION_WIDTH } from "./renderer/article-split.js";
@@ -35,6 +36,7 @@ let shuttingDown = false;
 let savingSettings = false;
 let articleRoot = "";
 const smokeOpenedPaths = [];
+const smokeRevealedPaths = [];
 export async function startDesktop(options, startupWindow) {
     arguments_ = options;
     startup = startupWindow;
@@ -209,27 +211,20 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
     });
     ipcMain.handle(DESKTOP_OPEN_LOCAL_PATH_CHANNEL, async (event, candidate) => {
         assertTrustedSender(event, target.webContents);
-        const path = await decodeOpenLocalPath(candidate);
+        const request = decodeLocalPathRequest(candidate);
+        const path = await resolveLocalPath(request.path, request.action);
         if (arguments_.smokeFixture) {
-            smokeOpenedPaths.push(path);
+            if (request.action === "reveal")
+                smokeRevealedPaths.push(path);
+            else
+                smokeOpenedPaths.push(path);
             return;
         }
-        let timer;
-        let error;
-        try {
-            error = await Promise.race([
-                shell.openPath(path),
-                new Promise((_resolve, reject) => {
-                    timer = setTimeout(() => reject(new Error("系统打开器未响应")), 15_000);
-                }),
-            ]);
+        if (request.action === "reveal") {
+            await revealLocalItem(path);
+            return;
         }
-        finally {
-            if (timer)
-                clearTimeout(timer);
-        }
-        if (error)
-            throw new Error(`无法打开文件或目录：${error}`);
+        await openLocalItem(path);
     });
     ipcMain.handle(DESKTOP_ATTACH_CHANNEL, async (event, candidate) => {
         assertTrustedSender(event, target.webContents);
@@ -348,6 +343,7 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 8_000).catch(() => undefined);
     let reconnectVerified = false;
     let reconnectMasked = false;
+    let sessionSearchProbe = { opened: false, matched: false, closed: false };
     if (fixture && daemonBridge.bootstrap().connection.phase === "connected") {
         await daemonBridge.stop();
         // A long run drops and re-establishes the socket constantly; the shell must
@@ -664,6 +660,26 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
     })()`);
         await waitFor(() => smokeOpenedPaths.filter((path) => path === linkedFile).length === 2
             && smokeOpenedPaths.includes(linkedDirectory), 3_000);
+        await target.webContents.executeJavaScript(`(() => {
+      const file = [...document.querySelectorAll('.message.assistant .md-local-link')]
+        .find((node) => node.title === ${JSON.stringify(linkedFile)});
+      if (!file) return;
+      const rect = file.getBoundingClientRect();
+      file.dispatchEvent(new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        clientX: rect.left + 8,
+        clientY: rect.bottom + 4,
+      }));
+    })()`);
+        await waitForRenderer(target, `(() => {
+        const menu = document.querySelector('.local-link-menu');
+        const open = menu?.querySelector('[data-action="open"]');
+        const reveal = menu?.querySelector('[data-action="reveal"]');
+        return Boolean(menu && open && reveal && open.textContent?.includes('打开') && reveal.textContent?.includes('打开所在目录'));
+      })()`, 2_000);
+        await target.webContents.executeJavaScript(`document.querySelector('.local-link-menu [data-action="reveal"]')?.click()`);
+        await waitFor(() => smokeRevealedPaths.includes(linkedFile), 3_000);
         await writeFile(join(outputDirectory, "desktop-local-links-1920x1080.png"), (await target.webContents.capturePage()).toPNG(), { mode: 0o600 });
         mainVisual.tailDistanceAfterReturn = await target.webContents.executeJavaScript(`(() => {
       const transcript = document.querySelector('#transcript');
@@ -675,6 +691,27 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         // refused — which is exactly the path that has to leave the button usable.
         await target.webContents.executeJavaScript("document.querySelector('#transcript .message-truncated button')?.click()");
         mainVisual.truncationRetryOffered = await waitForRenderer(target, "(() => { const b = document.querySelector('#transcript .message-truncated button'); return Boolean(b && !b.disabled && b.textContent === '重试载入全文'); })()", 5_000).then(() => true, () => false);
+        sessionSearchProbe = await target.webContents.executeJavaScript(`(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', code: 'KeyF', ctrlKey: true, bubbles: true, cancelable: true }));
+      const bar = document.querySelector('#session-search');
+      const input = document.querySelector('#session-search-input');
+      if (!(input instanceof HTMLInputElement) || bar?.hidden !== false) return { opened: false, matched: false, closed: false };
+      input.value = 'virtual rendering fixture';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return { opened: true, matched: false, closed: false };
+    })()`);
+        sessionSearchProbe.matched = await waitForRenderer(target, `(() => {
+        const count = document.querySelector('#session-search-count')?.textContent ?? '';
+        return count.includes('/') && Boolean(document.querySelector('mark.session-find-hit.current'));
+      })()`, 3_000).then(() => true, () => false);
+        await target.webContents.executeJavaScript(`(() => {
+      document.querySelector('#session-search-close')?.click();
+      const transcript = document.querySelector('#transcript');
+      if (!transcript) return;
+      transcript.scrollTop = transcript.scrollHeight;
+      transcript.dispatchEvent(new Event('scroll'));
+    })()`);
+        sessionSearchProbe.closed = await waitForRenderer(target, `document.querySelector('#session-search')?.hidden === true && !document.querySelector('mark.session-find-hit')`, 2_000).then(() => true, () => false);
     }
     const darkTheme = await readThemeSnapshot(target);
     const typography = await target.webContents.executeJavaScript(`(() => {
@@ -840,12 +877,16 @@ async function runSmoke(target, daemonBridge, outputDirectory, fixture) {
         capturedAt: new Date().toISOString(),
         connection: daemonBridge.bootstrap().connection,
         daemonOwnership: daemonSupervisor?.ownership ?? "external",
-        ...(fixture ? { localLinks: {
+        ...(fixture ? {
+            localLinks: {
                 fileOpened: smokeOpenedPaths.includes(linkedFile),
                 directoryOpened: smokeOpenedPaths.includes(linkedDirectory),
                 codePathOpened: smokeOpenedPaths.filter((path) => path === linkedFile).length === 2,
+                fileRevealed: smokeRevealedPaths.includes(linkedFile),
                 openedPaths: [...smokeOpenedPaths],
-            } } : {}),
+            },
+            sessionSearch: sessionSearchProbe,
+        } : {}),
         reconnectVerified,
         reconnectMasked,
         images: {
@@ -886,6 +927,12 @@ function assertSmokeReport(report, fixture) {
         failures.push("desktop reconnect path was not verified");
     if (fixture && (!report.localLinks?.fileOpened || !report.localLinks.directoryOpened || !report.localLinks.codePathOpened)) {
         failures.push("assistant output did not open its linked file, directory and inline-code path");
+    }
+    if (fixture && !report.localLinks?.fileRevealed) {
+        failures.push("the local-link menu did not reveal the file in its directory");
+    }
+    if (fixture && (!report.sessionSearch?.opened || !report.sessionSearch.matched || !report.sessionSearch.closed)) {
+        failures.push("current-session search did not open, match, and close");
     }
     if (fixture && !report.reconnectMasked)
         failures.push("a brief outage was surfaced instead of being settled");

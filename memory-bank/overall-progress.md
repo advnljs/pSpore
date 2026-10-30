@@ -1,5 +1,12 @@
 # Overall Progress
 
+## 2026-10-30 17:01 CST — 当前会话搜索与本地链接右键
+
+- 会话标题栏增加搜索按钮，Ctrl/Cmd+F 同样打开。搜索扫当前会话已加载正文和正在生成的草稿，可跳到虚拟列表之外的消息；Enter、Shift+Enter 和 F3 切换命中，Esc 关闭。高亮沿用钴蓝/琥珀色，不另起一套视觉。
+- 回复里的本地路径仍是按钮。左键打开；右键可选「打开」或「打开所在目录」。所在目录优先走 FileManager1.ShowItems，以便选中该文件；没有这项服务时改为打开父目录。
+- 点击报错的原因：Electron `shell.openPath` 在 Linux 上会等一个常常不来的激活令牌，Promise 不返回，界面 15 秒后显示「系统打开器未响应」。现改为直接启动 `xdg-open`，进程还在运行就视为已经交给系统。可执行文件和 `.desktop` 仍然不能被直接打开，但可以在目录里定位。
+- 验证：相关单元测试通过；`node scripts/electron-smoke.mjs` 通过，包含 1920×1080 下的点击打开、右键定位和 Ctrl+F 搜索到视口外历史。未改版本号，未打包发行。
+
 ## 2026-10-12 18:06 CST — v0.1.40 发布、旧 glibc 与公开全量/overlay 核验完成
 
 - 发布：源码提交 `2f265ae736e390e8dec9d1dec2a569315cc5889f` 已推送；CI `38232317864`、ARM64 preview `38232317860`、Release `38232887640` 全部成功。annotated `v0.1.40` 指向该源码提交，`2026-10-12T10:01:34Z` 公开 12 项资产：<https://github.com/advnljs/pSpore/releases/tag/v0.1.40>。

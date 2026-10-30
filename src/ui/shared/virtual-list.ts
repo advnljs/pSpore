@@ -110,6 +110,12 @@ export class VirtualHeightIndex {
     return this.#prefix(this.#keys.length);
   }
 
+  /** Pixel offset of an item, used to scroll a match into the virtual window. */
+  offsetAt(index: number): number {
+    if (!Number.isInteger(index) || index <= 0) return 0;
+    return this.#prefix(Math.min(index, this.#keys.length));
+  }
+
   #add(index: number, delta: number): void {
     for (let cursor = index + 1; cursor < this.#tree.length; cursor += cursor & -cursor) {
       this.#tree[cursor] = (this.#tree[cursor] ?? 0) + delta;

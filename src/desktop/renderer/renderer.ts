@@ -45,6 +45,7 @@ import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
+import { createSessionSearch } from "./session-search.js";
 import {
   animateMessagesIn,
   animateTranscriptHero,
@@ -127,6 +128,8 @@ interface TranscriptRenderState {
   items: Array<{ key: string; message: RuntimeMessage; address: MessageAddress }>;
   hasStreaming: boolean;
   followTail: boolean;
+  /** Message kept rendered while session search is showing one of its hits. */
+  pinnedIndex: number | undefined;
   /** True while an older history page is in flight, so scrolls do not stack. */
   loadingHistory: boolean;
   /**
@@ -150,6 +153,7 @@ const transcriptState: TranscriptRenderState = {
   items: [],
   hasStreaming: false,
   followTail: true,
+  pinnedIndex: undefined,
   spacerStart: virtualSpacer("start"),
   spacerEnd: virtualSpacer("end"),
   stream: undefined,
@@ -228,6 +232,13 @@ const elements = {
   versionLine: byId<HTMLElement>("version-line"),
   runtimeLine: byId<HTMLElement>("runtime-line"),
   sessionTitle: byId<HTMLElement>("session-title"),
+  sessionSearchButton: byId<HTMLButtonElement>("session-search-button"),
+  sessionSearch: byId<HTMLElement>("session-search"),
+  sessionSearchInput: byId<HTMLInputElement>("session-search-input"),
+  sessionSearchCount: byId<HTMLElement>("session-search-count"),
+  sessionSearchPrevious: byId<HTMLButtonElement>("session-search-prev"),
+  sessionSearchNext: byId<HTMLButtonElement>("session-search-next"),
+  sessionSearchClose: byId<HTMLButtonElement>("session-search-close"),
   sessionStatus: byId<HTMLElement>("session-status"),
   modelName: byId<HTMLElement>("model-name"),
   transcript: byId<HTMLElement>("transcript"),
@@ -301,6 +312,32 @@ const elements = {
   approvalCommand: byId<HTMLElement>("approval-command"),
   approvalActions: byId<HTMLElement>("approval-actions"),
 };
+
+const sessionSearch = createSessionSearch({
+  bar: elements.sessionSearch,
+  input: elements.sessionSearchInput,
+  count: elements.sessionSearchCount,
+  button: elements.sessionSearchButton,
+  previous: elements.sessionSearchPrevious,
+  next: elements.sessionSearchNext,
+  close: elements.sessionSearchClose,
+  transcript: elements.transcript,
+  requestRender: () => scheduleTranscriptRender(),
+  getTexts: () => currentSessionTexts(store.snapshot()),
+  getSessionId: () => store.snapshot().selectedSessionId,
+  getOffset: (index) => transcriptState.heights.offsetAt(index),
+  setFollowTail: (value) => {
+    transcriptState.followTail = value;
+  },
+  setPinnedIndex: (index) => {
+    transcriptState.pinnedIndex = index;
+  },
+  forEachMessage: (visit) => {
+    for (const node of transcriptState.nodes.values()) visit(node);
+    if (transcriptState.stream) visit(transcriptState.stream.node);
+  },
+  isModalOpen: () => !elements.settingsOverlay.hidden || !elements.approvalOverlay.hidden,
+});
 
 applyTheme(initialTheme());
 syncResponsivePanels(true);
@@ -1445,6 +1482,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     transcriptState.items = [];
     transcriptState.hasStreaming = false;
     transcriptState.followTail = true;
+    transcriptState.pinnedIndex = undefined;
     transcriptState.stream = undefined;
   }
   transcriptState.sessionId = snapshot.selectedSessionId;
@@ -1454,6 +1492,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     const empty = emptyTranscript(Boolean(child));
     transcript.replaceChildren(empty);
     if (sessionChanged) animateTranscriptHero(empty.querySelector(":scope > div"));
+    sessionSearch.paint();
     return;
   }
 
@@ -1479,6 +1518,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     ]);
   }
   const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
+  sessionSearch.prepare(sessionChanged);
   const viewportHeight = Math.max(1, transcript.clientHeight);
   // A held selection outranks the tail: scrolling under a drag would keep
   // changing what is selected, which is what made copying mid-reply impossible.
@@ -1494,7 +1534,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     scrollTop,
     viewportHeight,
     undefined,
-    Number.isInteger(heldIndex) ? heldIndex : undefined,
+    Number.isInteger(heldIndex) ? heldIndex : transcriptState.pinnedIndex,
   );
   const content: HTMLElement[] = [sizeSpacer(transcriptState.spacerStart, range.paddingStart)];
   const visibleMessages: HTMLElement[] = [];
@@ -1547,6 +1587,21 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   }
   if (shouldPin) transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
   scheduleTranscriptMeasurement();
+  sessionSearch.paint();
+}
+
+function currentSessionTexts(snapshot: DesktopStoreSnapshot): string[] {
+  const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
+  const messages = session?.messages ?? [];
+  const offset = session?.messageOffset ?? 0;
+  const texts = messages.map((message, index) => {
+    const address: MessageAddress = message.id === undefined ? { index: offset + index } : { id: message.id };
+    return fullMessageTexts.get(fullTextKey(snapshot.selectedSessionId, address)) ?? message.text;
+  });
+  const streaming = snapshot.streamingText[snapshot.selectedSessionId] ?? "";
+  const thinking = snapshot.streamingThinking[snapshot.selectedSessionId] ?? "";
+  if (streaming || thinking) texts.push(`${thinking}${thinking && streaming ? "\n" : ""}${streaming}`);
+  return texts;
 }
 
 function cachedMessage(key: string, message: RuntimeMessage, address: MessageAddress): HTMLElement {

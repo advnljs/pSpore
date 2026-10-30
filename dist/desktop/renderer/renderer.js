@@ -11,6 +11,7 @@ import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
+import { createSessionSearch } from "./session-search.js";
 import { animateMessagesIn, animateTranscriptHero, crossfadeText, flipStatusChip, hideOverlayMotion, introChoreography, nudgeElement, popChips, pulseStatus, revealListItems, revealPanel, setReconnectingPulse, showOverlayMotion, toggleBannerMotion, tweenMetric, } from "./motion.js";
 import { CONNECTION_SETTLE_MS, DesktopStore } from "./store.js";
 const store = new DesktopStore();
@@ -73,6 +74,7 @@ const transcriptState = {
     items: [],
     hasStreaming: false,
     followTail: true,
+    pinnedIndex: undefined,
     spacerStart: virtualSpacer("start"),
     spacerEnd: virtualSpacer("end"),
     stream: undefined,
@@ -143,6 +145,13 @@ const elements = {
     versionLine: byId("version-line"),
     runtimeLine: byId("runtime-line"),
     sessionTitle: byId("session-title"),
+    sessionSearchButton: byId("session-search-button"),
+    sessionSearch: byId("session-search"),
+    sessionSearchInput: byId("session-search-input"),
+    sessionSearchCount: byId("session-search-count"),
+    sessionSearchPrevious: byId("session-search-prev"),
+    sessionSearchNext: byId("session-search-next"),
+    sessionSearchClose: byId("session-search-close"),
     sessionStatus: byId("session-status"),
     modelName: byId("model-name"),
     transcript: byId("transcript"),
@@ -216,6 +225,33 @@ const elements = {
     approvalCommand: byId("approval-command"),
     approvalActions: byId("approval-actions"),
 };
+const sessionSearch = createSessionSearch({
+    bar: elements.sessionSearch,
+    input: elements.sessionSearchInput,
+    count: elements.sessionSearchCount,
+    button: elements.sessionSearchButton,
+    previous: elements.sessionSearchPrevious,
+    next: elements.sessionSearchNext,
+    close: elements.sessionSearchClose,
+    transcript: elements.transcript,
+    requestRender: () => scheduleTranscriptRender(),
+    getTexts: () => currentSessionTexts(store.snapshot()),
+    getSessionId: () => store.snapshot().selectedSessionId,
+    getOffset: (index) => transcriptState.heights.offsetAt(index),
+    setFollowTail: (value) => {
+        transcriptState.followTail = value;
+    },
+    setPinnedIndex: (index) => {
+        transcriptState.pinnedIndex = index;
+    },
+    forEachMessage: (visit) => {
+        for (const node of transcriptState.nodes.values())
+            visit(node);
+        if (transcriptState.stream)
+            visit(transcriptState.stream.node);
+    },
+    isModalOpen: () => !elements.settingsOverlay.hidden || !elements.approvalOverlay.hidden,
+});
 applyTheme(initialTheme());
 syncResponsivePanels(true);
 const articles = new ArticlePanel({
@@ -1347,6 +1383,7 @@ function renderConversation(snapshot) {
         transcriptState.items = [];
         transcriptState.hasStreaming = false;
         transcriptState.followTail = true;
+        transcriptState.pinnedIndex = undefined;
         transcriptState.stream = undefined;
     }
     transcriptState.sessionId = snapshot.selectedSessionId;
@@ -1357,6 +1394,7 @@ function renderConversation(snapshot) {
         transcript.replaceChildren(empty);
         if (sessionChanged)
             animateTranscriptHero(empty.querySelector(":scope > div"));
+        sessionSearch.paint();
         return;
     }
     const hasStreaming = Boolean(streaming || thinking);
@@ -1381,6 +1419,7 @@ function renderConversation(snapshot) {
         ]);
     }
     const itemCount = transcriptState.items.length + (hasStreaming ? 1 : 0);
+    sessionSearch.prepare(sessionChanged);
     const viewportHeight = Math.max(1, transcript.clientHeight);
     // A held selection outranks the tail: scrolling under a drag would keep
     // changing what is selected, which is what made copying mid-reply impossible.
@@ -1392,7 +1431,7 @@ function renderConversation(snapshot) {
     // it: dropping its element is the one way left to collapse a selection the
     // reader is still dragging.
     const heldIndex = Number(selectedTranscriptNode()?.dataset["virtualIndex"] ?? Number.NaN);
-    const range = transcriptState.heights.range(scrollTop, viewportHeight, undefined, Number.isInteger(heldIndex) ? heldIndex : undefined);
+    const range = transcriptState.heights.range(scrollTop, viewportHeight, undefined, Number.isInteger(heldIndex) ? heldIndex : transcriptState.pinnedIndex);
     const content = [sizeSpacer(transcriptState.spacerStart, range.paddingStart)];
     const visibleMessages = [];
     const appeared = [];
@@ -1448,6 +1487,21 @@ function renderConversation(snapshot) {
     if (shouldPin)
         transcript.scrollTo({ top: transcript.scrollHeight, behavior: "auto" });
     scheduleTranscriptMeasurement();
+    sessionSearch.paint();
+}
+function currentSessionTexts(snapshot) {
+    const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
+    const messages = session?.messages ?? [];
+    const offset = session?.messageOffset ?? 0;
+    const texts = messages.map((message, index) => {
+        const address = message.id === undefined ? { index: offset + index } : { id: message.id };
+        return fullMessageTexts.get(fullTextKey(snapshot.selectedSessionId, address)) ?? message.text;
+    });
+    const streaming = snapshot.streamingText[snapshot.selectedSessionId] ?? "";
+    const thinking = snapshot.streamingThinking[snapshot.selectedSessionId] ?? "";
+    if (streaming || thinking)
+        texts.push(`${thinking}${thinking && streaming ? "\n" : ""}${streaming}`);
+    return texts;
 }
 function cachedMessage(key, message, address) {
     const cached = transcriptState.nodes.get(key);
