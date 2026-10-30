@@ -699,6 +699,25 @@ select {
 .md-local-link:hover { text-decoration-color: currentColor; }
 .md-local-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .md-local-link:disabled { cursor: wait; opacity: 0.7; }
+.md-local-reveal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15em;
+  height: 1.15em;
+  margin: 0 1px 0 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  vertical-align: -0.18em;
+  color: var(--accent);
+  background: var(--accent-soft);
+  cursor: pointer;
+}
+.md-local-reveal svg { width: 0.82em; height: 0.82em; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.md-local-reveal:hover { color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.md-local-reveal:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.md-local-reveal:disabled { cursor: wait; opacity: 0.55; }
 .md-link-error { margin-left: 5px; color: var(--rust); font-size: 0.85em; }
 .local-link-menu { position: fixed; z-index: 40; min-width: 188px; display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-drawer); }
 .local-link-menu-item { width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); cursor: pointer; font: 13.5px/1.3 var(--font-sans); text-align: left; }

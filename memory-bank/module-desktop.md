@@ -75,7 +75,7 @@ preload 仅暴露：
 - BrowserWindow 固定 `contextIsolation=true`、`sandbox=true`、`nodeIntegration=false`、`webviewTag=false`、`webSecurity=true`。
 - main 拒绝权限请求、下载、外部/非 exact-file 导航、新窗口、webview 和 HTTP(S)/WS 请求；HTML CSP 不允许 remote content、inline script、object、form 或 frame。
 - renderer 所有动态内容都通过 `textContent`/Text node 写入，不使用 `innerHTML`；Markdown 也走 `src/ui/shared/markdown.ts` 解析 + `markdown-view.ts` 建 DOM 的两段式，绝不拼 HTML 字符串。
-- Markdown 支持标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表、分隔线、GFM 表格与行内标记。外部链接仍是可复制的惰性文本；本地绝对路径、`file://`、本地 Markdown 链接与仅含路径的行内代码渲染为打开按钮。左键打开，右键可选择打开或在文件管理器中选中。`src/desktop/local-path.ts` 校验路径存在且为普通文件或目录；直接打开仍拒绝可执行文件和 `.desktop`，定位目录允许它们。实际启动交给 `src/desktop/system-open.ts` 的 `xdg-open`（不等待应用退出）和 `FileManager1.ShowItems`，不再使用会一直不返回的 `shell.openPath`。页面导航限制不变。
+- Markdown 支持标题、围栏代码（含 streaming 未闭合围栏）、引用、有序/无序/任务列表、分隔线、GFM 表格与行内标记。外部链接仍是可复制的惰性文本；本地绝对路径、`file://`、本地 Markdown 链接与仅含路径的行内代码渲染为打开按钮，紧随其后有一个文件夹图标，点击即在文件管理器中定位该路径。左键打开，右键可选择打开或在文件管理器中选中。`src/desktop/local-path.ts` 校验路径存在且为普通文件或目录；直接打开仍拒绝可执行文件和 `.desktop`，定位目录允许它们。实际启动交给 `src/desktop/system-open.ts` 的 `xdg-open`（不等待应用退出）和 `FileManager1.ShowItems`，不再使用会一直不返回的 `shell.openPath`。页面导航限制不变。
 - 当前会话搜索：会话标题栏的搜索按钮或 Ctrl/Cmd+F 打开。匹配针对已加载消息正文和正在生成的草稿，而不是只扫虚拟列表里看得见的节点；Enter / Shift+Enter / F3 在结果间跳转，Esc 关闭。命中用语义色标出，当前一处更亮。
 - 设置弹层含“权限”区，写入共享 `permissionMode` → `config.permissions.mode`；选择 `allow_all` 时必须显示 bypass 风险告警，保存结果文案也会复述该风险。
 - 设置弹层含“自动压缩”区，配置 `enabled/reserveTokens/keepRecentTokens`；旧客户端未发送这些可选 IPC 字段时保持当前值，避免 overlay 升级窗口重置配置。

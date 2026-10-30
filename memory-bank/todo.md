@@ -2,7 +2,8 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 当前会话搜索，以及本地链接右键打开/定位并修复点击报错 | Done | 无 | 搜索条、Ctrl/Cmd+F、右键「打开 / 打开所在目录」已接入。点击不再等待 `shell.openPath`。单元测试与 Electron smoke（含 1920×1080 点击、右键定位、Ctrl+F）已通过。未升版本 |
+| P0 | 发布 0.1.41：会话搜索、本地链接右键/文件夹图标、打开不再超时 | In Progress | 无 | 文件夹图标已接在链接后；Electron smoke 通过后推 main，由 CI 打 annotated tag 并启动 Release |
+| P0 | 当前会话搜索，以及本地链接右键打开/定位并修复点击报错 | Done | 无 | 搜索条、Ctrl/Cmd+F、右键「打开 / 打开所在目录」已接入。点击不再等待 `shell.openPath`。文件夹图标是 0.1.41 的补充入口 |
 | P0 | 修复 0.1.39 快捷方式无法启动并发布 0.1.40 | Done | 无 | `2f265ae` 已推送；CI `38232317864`、ARM64 `38232317860`、Release `38232887640` 全部成功并公开 12 项资产。x64 helper 从 GLIBC_2.34 降到 2.10，旧 glibc 实跑与全量/overlay 实际入口、失败回退、取消均通过；公开包 checksum/digest/内容一致性已核验。https://github.com/advnljs/pSpore/releases/tag/v0.1.40 |
 | P1 | 目标麒麟 x64 设备复验 0.1.40 快捷方式与冷启动 | Pending | 当前无法直接连接目标机 | 用户日志已明确根因，旧 glibc 复现和修复已验证；在目标机安装 x64 overlay 后，从已有桌面/任务栏入口确认 loading 与主窗口正常出现 |
 | P0 | 原生 loading 先于 Electron，验证 overlay 后桌面/任务栏入口并发布 0.1.39 | Done | 无 | `646af02` 已推送；CI `38215080906`、ARM64 `38215080831`、Release `38215525143` 全部成功，12 项资产公开。两份 overlay ZIP/GitHub digest/payload 与每架构 14 项包内文件核验通过；本机旧入口 57 ms，ARM64 CI 108 ms、x64 CI 518 ms，最终 0.1.39 预览运行中。https://github.com/advnljs/pSpore/releases/tag/v0.1.39 |

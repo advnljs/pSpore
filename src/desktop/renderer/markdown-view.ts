@@ -231,7 +231,13 @@ function appendInline(container: HTMLElement, nodes: readonly MarkdownInline[], 
     switch (node.kind) {
       case "text":
         for (const part of linkifyText ? localTextParts(node.value) : [{ text: node.value }]) {
-          container.append(part.href ? localPathButton(part.href, part.text) : document.createTextNode(part.text));
+          if (!part.href) {
+            container.append(document.createTextNode(part.text));
+            continue;
+          }
+          mountLocalPath(container, part.href, (button) => {
+            button.textContent = part.text;
+          });
         }
         break;
       case "break":
@@ -239,8 +245,14 @@ function appendInline(container: HTMLElement, nodes: readonly MarkdownInline[], 
         break;
       case "code": {
         const local = node.value.startsWith("/") || node.value.startsWith("file:///");
-        const code = local ? localPathButton(node.value, node.value) : element("code", "md-code-span");
-        code.classList.add("md-code-span");
+        if (local) {
+          mountLocalPath(container, node.value, (button) => {
+            button.classList.add("md-code-span");
+            button.textContent = node.value;
+          });
+          break;
+        }
+        const code = element("code", "md-code-span");
         code.textContent = node.value;
         container.append(code);
         break;
@@ -265,12 +277,19 @@ function appendInline(container: HTMLElement, nodes: readonly MarkdownInline[], 
       }
       case "link": {
         const local = node.href.startsWith("/") || node.href.startsWith("file:");
-        const label = local ? localPathButton(node.href) : element("span", "md-link");
+        if (local) {
+          mountLocalPath(container, node.href, (button) => {
+            button.title = node.href;
+            appendInline(button, node.children, false);
+            button.setAttribute("aria-label", `打开 ${button.textContent || node.href}`);
+          });
+          break;
+        }
+        const label = element("span", "md-link");
         label.title = node.href;
         appendInline(label, node.children, false);
-        if (local) label.setAttribute("aria-label", `打开 ${label.textContent || node.href}`);
         container.append(label);
-        if (!local && label.textContent !== node.href) {
+        if (label.textContent !== node.href) {
           const destination = element("span", "md-link-url");
           destination.textContent = node.href;
           container.append(destination);
@@ -281,12 +300,17 @@ function appendInline(container: HTMLElement, nodes: readonly MarkdownInline[], 
   }
 }
 
-function localPathButton(href: string, text?: string): HTMLButtonElement {
+function mountLocalPath(container: HTMLElement, href: string, prepare: (button: HTMLButtonElement) => void): void {
+  const button = localPathButton(href);
+  prepare(button);
+  container.append(button, revealButton(button, href));
+}
+
+function localPathButton(href: string): HTMLButtonElement {
   const button = element("button", "md-link md-local-link") as HTMLButtonElement;
   button.type = "button";
   button.title = href;
-  button.setAttribute("aria-label", `打开 ${text ?? href}`);
-  if (text) button.textContent = text;
+  button.setAttribute("aria-label", `打开 ${href}`);
   button.addEventListener("click", () => {
     void openLinkedPath(button, href, "open");
   });
@@ -298,19 +322,56 @@ function localPathButton(href: string, text?: string): HTMLButtonElement {
   return button;
 }
 
+/** A folder mark sitting on the link, for the same “show this file in its folder” action as the menu. */
+function revealButton(link: HTMLButtonElement, href: string): HTMLButtonElement {
+  const button = element("button", "md-local-reveal") as HTMLButtonElement;
+  button.type = "button";
+  button.title = "打开所在目录";
+  button.setAttribute("aria-label", "打开所在目录");
+  button.append(folderIcon());
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    void openLinkedPath(link, href, "reveal");
+  });
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showLocalLinkMenu(link, href, event.clientX, event.clientY);
+  });
+  return button;
+}
+
+function folderIcon(): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", "M3 7a2 2 0 0 1 2-2h4l2 2.5h8a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z");
+  svg.append(path);
+  return svg;
+}
+
 function openLinkedPath(button: HTMLButtonElement, href: string, action: "open" | "reveal"): void {
   closeLocalLinkMenu();
-  const pending = button.nextElementSibling;
+  const reveal = button.nextElementSibling instanceof HTMLButtonElement && button.nextElementSibling.classList.contains("md-local-reveal")
+    ? button.nextElementSibling
+    : undefined;
+  const anchor = reveal ?? button;
+  const pending = anchor.nextElementSibling;
   if (pending?.classList.contains("md-link-error")) pending.remove();
   button.disabled = true;
+  if (reveal) reveal.disabled = true;
   void window.pspore.openLocalPath({ path: href, action }).then(() => {
     button.disabled = false;
+    if (reveal) reveal.disabled = false;
   }, (error: unknown) => {
     button.disabled = false;
+    if (reveal) reveal.disabled = false;
     const notice = element("span", "md-link-error");
     notice.setAttribute("role", "status");
     notice.textContent = localOpenError(error);
-    button.after(notice);
+    anchor.after(notice);
     globalThis.setTimeout(() => notice.remove(), 5_000);
   });
 }

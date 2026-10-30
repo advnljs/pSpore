@@ -56,6 +56,7 @@ interface SmokeReport {
     directoryOpened: boolean;
     codePathOpened: boolean;
     fileRevealed: boolean;
+    iconRevealed: boolean;
     openedPaths: string[];
   };
   sessionSearch?: { opened: boolean; matched: boolean; closed: boolean };
@@ -974,6 +975,14 @@ async function runSmoke(
     );
     await target.webContents.executeJavaScript(`document.querySelector('.local-link-menu [data-action="reveal"]')?.click()`);
     await waitFor(() => smokeRevealedPaths.includes(linkedFile), 3_000);
+    await target.webContents.executeJavaScript(`(() => {
+      const code = [...document.querySelectorAll('.message.assistant .md-local-link')]
+        .find((node) => node.title === ${JSON.stringify(linkedFile)});
+      const icon = code?.nextElementSibling;
+      if (!(icon instanceof HTMLButtonElement) || !icon.classList.contains('md-local-reveal')) return;
+      icon.click();
+    })()`);
+    await waitFor(() => smokeRevealedPaths.filter((path) => path === linkedFile).length >= 2, 3_000);
     await writeFile(
       join(outputDirectory, "desktop-local-links-1920x1080.png"),
       (await target.webContents.capturePage()).toPNG(),
@@ -1203,6 +1212,7 @@ async function runSmoke(
         directoryOpened: smokeOpenedPaths.includes(linkedDirectory),
         codePathOpened: smokeOpenedPaths.filter((path) => path === linkedFile).length === 2,
         fileRevealed: smokeRevealedPaths.includes(linkedFile),
+        iconRevealed: smokeRevealedPaths.filter((path) => path === linkedFile).length >= 2,
         openedPaths: [...smokeOpenedPaths],
       },
       sessionSearch: sessionSearchProbe,
@@ -1250,6 +1260,9 @@ function assertSmokeReport(report: SmokeReport, fixture: boolean): void {
   }
   if (fixture && !report.localLinks?.fileRevealed) {
     failures.push("the local-link menu did not reveal the file in its directory");
+  }
+  if (fixture && !report.localLinks?.iconRevealed) {
+    failures.push("the folder icon after a local link did not reveal the file");
   }
   if (fixture && (!report.sessionSearch?.opened || !report.sessionSearch.matched || !report.sessionSearch.closed)) {
     failures.push("current-session search did not open, match, and close");
