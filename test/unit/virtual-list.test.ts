@@ -28,6 +28,10 @@ test("virtual height index applies variable measurements without scanning the li
   assert.equal(index.update("b", 250), true);
   assert.equal(index.update("b", 250), false);
   assert.equal(index.totalSize(), 550);
+  assert.equal(index.offsetAt(0), 0);
+  assert.equal(index.offsetAt(1), 100);
+  assert.equal(index.offsetAt(2), 350);
+  assert.equal(index.offsetAt(4), 550);
   assert.deepEqual(index.range(340, 50, 0), {
     start: 1,
     end: 3,

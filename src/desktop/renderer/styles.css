@@ -572,9 +572,22 @@ select {
    it stopped shrinking and was clipped under it instead. The inline-size
    container lets the paddings below follow the column rather than the window. */
 .conversation { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; container-type: inline-size; }
-.conversation-header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 24px 15px; border-bottom: 1px solid var(--border-soft); }
-.conversation-header > div:first-child { min-width: 0; }
+.conversation-header { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 17px 24px 15px; border-bottom: 1px solid var(--border-soft); }
+.conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-width: 0; }
+.conversation-heading > div:first-child { min-width: 0; }
 .conversation-header h2 { max-width: min(70%, 780px); margin: 6px 0 0; overflow: hidden; color: var(--text); font: 600 clamp(21px, 1.3vw, 25px)/1.1 var(--font-mono); letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
+#session-search-button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
+.session-search { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
+.session-search-field { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-input); color: var(--faint); }
+.session-search-field:focus-within { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); box-shadow: 0 0 0 3px var(--accent-soft); }
+.session-search-field svg { width: 15px; height: 15px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.session-search-field input { width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; background: transparent; color: var(--text); font-size: 14px; line-height: 1.4; }
+.session-search-field input:focus-visible { outline: none; }
+.session-search-count { flex: 0 0 auto; min-width: 4.6em; color: var(--faint); font: 12px/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.session-search-nav { display: flex; align-items: center; gap: 2px; flex: 0 0 auto; }
+.session-search-nav .icon-button { width: 28px; min-height: 28px; }
+.session-search-nav .icon-button:disabled { opacity: 0.38; cursor: default; background: transparent; color: var(--faint); }
+.session-search-nav .icon-button svg { width: 15px; height: 15px; }
 .session-health { justify-content: flex-end; gap: 11px; max-width: 45%; min-width: 0; }
 .session-health > * { flex: 0 0 auto; }
 .session-health > #model-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -687,6 +700,12 @@ select {
 .md-local-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
 .md-local-link:disabled { cursor: wait; opacity: 0.7; }
 .md-link-error { margin-left: 5px; color: var(--rust); font-size: 0.85em; }
+.local-link-menu { position: fixed; z-index: 40; min-width: 188px; display: flex; flex-direction: column; gap: 2px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); box-shadow: var(--shadow-drawer); }
+.local-link-menu-item { width: 100%; padding: 8px 10px; border: 0; border-radius: var(--radius-sm); background: transparent; color: var(--text); cursor: pointer; font: 13.5px/1.3 var(--font-sans); text-align: left; }
+.local-link-menu-item:hover,
+.local-link-menu-item:focus-visible { background: var(--surface-hover); outline: none; }
+mark.session-find-hit { padding: 0 0.05em; border-radius: 3px; color: inherit; background: color-mix(in srgb, var(--honey) 34%, transparent); }
+mark.session-find-hit.current { background: color-mix(in srgb, var(--accent) 36%, transparent); box-shadow: inset 0 -1.5px 0 var(--accent); }
 .md-link-url { margin-left: 5px; color: var(--faint); font: 0.82em/1.4 var(--font-mono); overflow-wrap: anywhere; }
 .md-link-url::before { content: "("; }
 .md-link-url::after { content: ")"; }

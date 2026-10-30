@@ -28,5 +28,7 @@ export declare class VirtualHeightIndex {
      */
     range(scrollTop: number, viewportSize: number, overscan?: number, keep?: number): VirtualRange;
     totalSize(): number;
+    /** Pixel offset of an item, used to scroll a match into the virtual window. */
+    offsetAt(index: number): number;
 }
 //# sourceMappingURL=virtual-list.d.ts.map

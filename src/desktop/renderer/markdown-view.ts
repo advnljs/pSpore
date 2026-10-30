@@ -288,19 +288,107 @@ function localPathButton(href: string, text?: string): HTMLButtonElement {
   button.setAttribute("aria-label", `打开 ${text ?? href}`);
   if (text) button.textContent = text;
   button.addEventListener("click", () => {
-    button.disabled = true;
-    void window.pspore.openLocalPath(href).then(() => {
-      button.disabled = false;
-    }, (error: unknown) => {
-      button.disabled = false;
-      const notice = element("span", "md-link-error");
-      notice.setAttribute("role", "status");
-      notice.textContent = error instanceof Error ? error.message : "无法打开文件或目录";
-      button.after(notice);
-      globalThis.setTimeout(() => notice.remove(), 5_000);
-    });
+    void openLinkedPath(button, href, "open");
+  });
+  button.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    showLocalLinkMenu(button, href, event.clientX, event.clientY);
   });
   return button;
+}
+
+function openLinkedPath(button: HTMLButtonElement, href: string, action: "open" | "reveal"): void {
+  closeLocalLinkMenu();
+  const pending = button.nextElementSibling;
+  if (pending?.classList.contains("md-link-error")) pending.remove();
+  button.disabled = true;
+  void window.pspore.openLocalPath({ path: href, action }).then(() => {
+    button.disabled = false;
+  }, (error: unknown) => {
+    button.disabled = false;
+    const notice = element("span", "md-link-error");
+    notice.setAttribute("role", "status");
+    notice.textContent = localOpenError(error);
+    button.after(notice);
+    globalThis.setTimeout(() => notice.remove(), 5_000);
+  });
+}
+
+function localOpenError(error: unknown): string {
+  const message = error instanceof Error ? error.message : "";
+  const marker = "Error: ";
+  const index = message.lastIndexOf(marker);
+  const text = (index >= 0 ? message.slice(index + marker.length) : message).trim();
+  return text || "无法打开文件或目录";
+}
+
+let localLinkMenu: HTMLDivElement | undefined;
+let menuDismiss: ((event: Event) => void) | undefined;
+
+function showLocalLinkMenu(button: HTMLButtonElement, href: string, x: number, y: number): void {
+  closeLocalLinkMenu();
+  const menu = document.createElement("div");
+  menu.className = "local-link-menu";
+  menu.setAttribute("role", "menu");
+  menu.append(
+    localLinkMenuItem("打开", "open", () => openLinkedPath(button, href, "open")),
+    localLinkMenuItem("打开所在目录", "reveal", () => openLinkedPath(button, href, "reveal")),
+  );
+  document.body.append(menu);
+  localLinkMenu = menu;
+  const width = menu.offsetWidth;
+  const height = menu.offsetHeight;
+  menu.style.left = `${Math.max(8, Math.min(x, window.innerWidth - width - 8))}px`;
+  menu.style.top = `${Math.max(8, Math.min(y, window.innerHeight - height - 8))}px`;
+  menuDismiss = (event: Event) => {
+    if (event.type === "keydown" && event instanceof KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeLocalLinkMenu();
+        button.focus();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        const items = Array.from(menu.querySelectorAll<HTMLButtonElement>("[role=menuitem]"));
+        const current = items.indexOf(document.activeElement as HTMLButtonElement);
+        const next = event.key === "ArrowDown" ? current + 1 : current - 1;
+        items[(next + items.length) % items.length]?.focus();
+      }
+      return;
+    }
+    if (event.target instanceof Node && menu.contains(event.target)) return;
+    closeLocalLinkMenu();
+  };
+  document.addEventListener("pointerdown", menuDismiss, true);
+  document.addEventListener("keydown", menuDismiss, true);
+  document.addEventListener("scroll", menuDismiss, true);
+  menu.querySelector<HTMLButtonElement>("[data-action=open]")?.focus();
+}
+
+function localLinkMenuItem(label: string, action: "open" | "reveal", command: () => void): HTMLButtonElement {
+  const item = document.createElement("button");
+  item.type = "button";
+  item.className = "local-link-menu-item";
+  item.dataset["action"] = action;
+  item.setAttribute("role", "menuitem");
+  item.textContent = label;
+  item.addEventListener("click", (event) => {
+    event.preventDefault();
+    command();
+  });
+  return item;
+}
+
+function closeLocalLinkMenu(): void {
+  if (menuDismiss) {
+    document.removeEventListener("pointerdown", menuDismiss, true);
+    document.removeEventListener("keydown", menuDismiss, true);
+    document.removeEventListener("scroll", menuDismiss, true);
+    menuDismiss = undefined;
+  }
+  localLinkMenu?.remove();
+  localLinkMenu = undefined;
 }
 
 function element(tag: string, className?: string): HTMLElement {

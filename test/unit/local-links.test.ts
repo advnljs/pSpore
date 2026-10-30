@@ -44,6 +44,11 @@ test("open-local-path resolves real files and directories and rejects invalid ta
     await chmod(file, 0o700);
     await assert.rejects(decodeOpenLocalPath(file), /可执行/);
     await assert.rejects(decodeOpenLocalPath(desktopLauncher), /可执行/);
+    assert.equal(await decodeOpenLocalPath({ path: file, action: "reveal" }), file);
+    assert.equal(await decodeOpenLocalPath({ path: desktopLauncher, action: "reveal" }), desktopLauncher);
+    await assert.rejects(decodeOpenLocalPath({ path: file, action: "open" }), /可执行/);
+    await assert.rejects(decodeOpenLocalPath({ path: file, action: "run" }), /打开方式/);
+    await assert.rejects(decodeOpenLocalPath({ path: file, extra: true, action: "reveal" }), /无效/);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

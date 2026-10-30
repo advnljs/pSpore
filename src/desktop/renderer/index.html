@@ -115,14 +115,37 @@
 
         <section class="conversation panel" aria-label="Conversation">
           <header class="conversation-header">
-            <div>
-              <span class="eyebrow">ACTIVE SESSION</span>
-              <h2 id="session-title">main</h2>
-            </div>
-            <div class="session-health">
-              <button id="open-article-button" class="ghost-button article-reopen" type="button" hidden>文稿</button>
+            <div class="conversation-heading">
+              <div>
+                <span class="eyebrow">ACTIVE SESSION</span>
+                <h2 id="session-title">main</h2>
+              </div>
+              <div class="session-health">
+                <button id="session-search-button" class="icon-button" type="button" title="搜索当前会话（Ctrl+F）" aria-label="搜索当前会话" aria-keyshortcuts="Control+F" aria-expanded="false" aria-controls="session-search">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                </button>
+                <button id="open-article-button" class="ghost-button article-reopen" type="button" hidden>文稿</button>
               <span id="session-status" class="status-chip idle">IDLE</span>
               <span id="model-name" class="muted">未配置模型</span>
+              </div>
+            </div>
+            <div id="session-search" class="session-search" role="search" hidden>
+              <label class="session-search-field">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6"></circle><path d="m20 20-3.5-3.5"></path></svg>
+                <input id="session-search-input" type="text" placeholder="搜索当前会话" aria-label="搜索当前会话" autocomplete="off" spellcheck="false" maxlength="200" />
+              </label>
+              <span id="session-search-count" class="session-search-count" aria-live="polite"></span>
+              <div class="session-search-nav">
+                <button id="session-search-prev" class="icon-button" type="button" title="上一处（Shift+Enter）" aria-label="上一处" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 14.5 12 8.5l6 6"></path></svg>
+                </button>
+                <button id="session-search-next" class="icon-button" type="button" title="下一处（Enter）" aria-label="下一处" disabled>
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9.5 12 15.5l6-6"></path></svg>
+                </button>
+                <button id="session-search-close" class="icon-button" type="button" title="关闭（Esc）" aria-label="关闭搜索">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7 7 17"></path></svg>
+                </button>
+              </div>
             </div>
           </header>
 

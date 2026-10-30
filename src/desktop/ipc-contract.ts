@@ -175,8 +175,11 @@ export interface DesktopApi {
   /** Resolve only an operating-system-backed File supplied by a user drag. */
   getPathForFile(file: unknown): string;
   exportArticle(request: ArticleExportRequest): Promise<ArticleExportResult>;
-  /** Ask the main process to open an existing local file or directory after a click. */
-  openLocalPath(pathOrUrl: string): Promise<void>;
+  /**
+   * Open a local file or directory, or reveal it in its parent folder.
+   * A bare string is treated as "open" by the main process.
+   */
+  openLocalPath(request: { path: string; action: "open" | "reveal" } | string): Promise<void>;
   subscribe(listener: (frame: DesktopFrame) => void): () => void;
 }
 
