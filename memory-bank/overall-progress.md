@@ -1,5 +1,12 @@
 # Overall Progress
 
+## 2026-11-11 16:25 CST — v0.1.44 双架构 Release 与 npm 发布完成
+
+- 提交 `464a1ec`（Release 0.1.44：桌面中英双语、README TUI 章节与中英/TUI 截图、xterm 大写字母等修复）已推送；CI `42983917360`（Check + Tag and release）、ARM64 预览 `42983917263`、Release `42984539333` 全部成功。annotated `v0.1.44` 解引用到 `464a1ec`，2026-11-11T08:12:09Z 公开，非 draft/prerelease，12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.44
+- 独立核验：两份 overlay SHA-256 通过，manifest `0.1.44 / Electron 43.3.0 / x64|arm64`；asar 中 `version.js`、`i18n.js`、`main-i18n.js`、`main.js`、`application.js`、`preload.cjs`、渲染层 `i18n.js`/`messages-en.js`/`renderer.js`/`index.html`/`styles.css`、`splash.js`、TUI `view.js`/`tui-app.js` 共 14 个文件与提交逐字一致。
+- npm：HEAD 干净打包 541 文件（比 0.1.43 多 4 个多语言模块的 16 个产物），SHA-1 `35cfa41429e40183c545fa106af4906df49099d9`，tgz SHA-256 `606ecd1f…736b`；VM 全新 prefix 安装、双 CLI、隔离 Daemon（退出 0）与逐字比对通过。Mac 上 dry-run 一致后发布，沿用有效的 npm 网页登录，发布 2FA 由用户在浏览器确认，`+ p-spore@0.1.44`。registry `latest=0.1.44`，shasum/integrity/fileCount 541/unpackedSize 3085588 与候选一致；tarball 在 08:22:47Z（发布约 8 分钟后）可下载，随后从 registry 全新 cache/prefix 安装 `p-spore@latest` 复验：版本、双 CLI、隔离 Daemon 与 541 文件逐字一致。
+- 证据：`.cache/npm-release/0.1.44/`、`.cache/release-0.1.44/`、`.cache/i18n-check/`（均已忽略）。未在目标麒麟机实测；原生 GTK 启动窗仍为中文（todo）。
+
 ## 2026-11-11 16:10 CST — 桌面中英双语、英文/TUI 截图与 README TUI 章节（0.1.44 候选）
 
 - 用户要求英文 README 截图为英文、README 加入 TUI 说明，并选择为桌面端实现英文界面。

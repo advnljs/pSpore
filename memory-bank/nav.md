@@ -10,7 +10,7 @@
 - `src/desktop/renderer/conversation.ts`：过程分组、搜索文本、工具参数摘要；`test/unit/desktop-conversation.test.ts` 为对应回归。
 - `src/desktop/conversation-smoke.ts`：由既有 Electron smoke 调用的 1920×1080 工具过程交互验收，含超长路径/命令、标题与状态不重叠。
 - 当前容器的 GUI 测试应串行执行；本地 `xvfb-run` shim 复用 `DISPLAY=:112`，并发窗口会触发遮挡/后台节流，影响动画计时。CI 的原生 `xvfb-run -a` 会分配独立显示。
-- 当前发布版本 0.1.43（GitHub Release 与 npm 均已发布，见 overall-progress）。下面关于 WSL、DISPLAY `:112/:113` 与 `/tmp/psnpm-*` 的预览路径是 0.1.42 时期在旧开发机上的历史记录，在当前 Mac/VM 上不存在。
+- 当前发布版本 0.1.44（GitHub Release 与 npm 均已发布，见 overall-progress）。下面关于 WSL、DISPLAY `:112/:113` 与 `/tmp/psnpm-*` 的预览路径是 0.1.42 时期在旧开发机上的历史记录，在当前 Mac/VM 上不存在。
 - 2026-11-11（0.1.42）隔离预览：从 npm registry 全新安装的 `/tmp/pspore-npm-registry-9pn_wbjm/lib/node_modules/p-spore/dist/desktop/main.js`，使用已有 Electron 43.3.0 运行；DISPLAY `:113`，home `/tmp/psnpm-gui-9ih4y3x_`，只监听本机的 CDP 9337。报告与运行参数 `.cache/npm-release/0.1.42/`；README 公开演示截图在 `docs/images/`。早前桌面 Release 验收截图 `.cache/gui-preview/0.1.42/`、资产下载核验 `.cache/release-0.1.42/` 保留为历史证据。
 - npm/TUI 验收：本环境为未启用 systemd 的 WSL，标准 TUI 用户服务启动路径不可用；`.cache/npm-release/0.1.42/launch-tui.mjs` 使用已下载包的真实 TUI 与隔离 Daemon 做 160×45 交互验证。标准 GUI npm 命令因不含 Electron 而提示下载 Release；完整 GUI 实测使用已有 Electron 与隔离 smoke home，不安装用户生产服务。
 - 隔离持续预览：构建后以 `PSPORE_SMOKE_KEEP_OPEN=1 electron dist/desktop/main.js --home <隔离目录> --smoke-dir <截图目录> --smoke-fixture` 启动；沿用 smoke 的独立 Daemon，不安装系统服务。
