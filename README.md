@@ -2,170 +2,228 @@
 
 [English](README.md) · [简体中文](https://github.com/advnljs/pSpore/blob/main/README.zh-CN.md)
 
-A Linux-first, local-first AI agent you run from your own terminal. `p-spore` keeps a
-long-running local daemon that holds your sessions, memory, scheduled jobs and child
-agents, and gives you a reconnecting TUI on top of it. Everything lives on your machine
-under `~/.pspore` — there is no hosted backend and no account.
+**A local-first AI agent for Linux.** pSpore runs a small background service on your own
+machine. The service keeps your sessions, memory, scheduled jobs and child agents, and you
+work with it from a desktop app, a terminal UI, or one-line CLI commands. Everything lives
+under `~/.pspore`: there is no hosted backend and no account.
 
-Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`).
+Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`). MIT licensed.
 
-## Screenshots
+![pSpore desktop app in the light theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-light.png)
 
-The Linux desktop client shares the same local daemon as the terminal client. These
-screenshots show the application at 1920 × 1080 with demonstration data.
+<sub>The Linux desktop app at 1920 × 1080, showing demonstration data. More screenshots are in the [Desktop app](#desktop-app) section.</sub>
 
-![pSpore desktop workspace in the light theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-light.png)
+## Highlights
 
-![pSpore desktop workspace in the dark theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-dark.png)
+- **Keeps working after you close the window.** Sessions, scheduled jobs and child agents run in a
+  per-user systemd service. The desktop app and the TUI are clients that reconnect to it.
+- **Reads your files.** Plain text, Word, Excel, PowerPoint and PDF are turned into text the agent
+  can quote and summarize. Text is decoded as UTF-8, UTF-16 or GB18030.
+- **Shows its work.** Each tool call shows its name, input and output. When a run finishes, its
+  steps fold into one line and the answer stays in view.
+- **Writes long documents** in a side panel, with versions, a diff against the previous version,
+  and export to TXT, Markdown, DOCX and PDF.
+- **Asks before risky actions.** One approval policy covers file edits, shell commands, `sudo`
+  and MCP calls.
+- **Works with your own model.** It supports DeepSeek, OpenAI, and any OpenAI-compatible endpoint
+  that speaks Chat Completions or Responses.
 
-[Download the Linux desktop app](https://github.com/advnljs/pSpore/releases/latest)
-for x86_64 or ARM64, or install the terminal client from npm below.
+## Contents
 
-## Requirements
+- [Quick start](#quick-start)
+- [Desktop app](#desktop-app)
+- [Configure a model](#configure-a-model)
+- [Approvals](#approvals)
+- [Everyday use](#everyday-use)
+- [Automation and extensions](#automation-and-extensions)
+- [Where your data lives](#where-your-data-lives)
+- [Security model](#security-model)
+- [Development](#development)
 
-- Linux
+## Quick start
+
+You need:
+
+- Linux, x86_64 or ARM64
 - Node.js 24 (`>=24.0.0 <25`)
-- systemd user services (`systemctl --user`)
-
-## Install
-
-```bash
-npm install --global p-spore
-p-spore tui
-```
-
-This installs two equivalent commands, `p-spore` and the shorter `pspore` — both start the
-same CLI, so use whichever you prefer. To run it once without installing:
+- systemd user services (`systemctl --user`). WSL and minimal containers have to enable these first.
+- Optional: `ripgrep`, which file search uses. Run `p-spore doctor` to check your setup.
 
 ```bash
-npx p-spore --help
+npm install --global p-spore   # installs the `p-spore` and `pspore` commands
+p-spore setup                  # pick a provider and model, then enter the API key
+p-spore tui                    # open the terminal client
 ```
 
-`p-spore tui` initializes a missing home directory and automatically installs, enables,
-and starts the per-user `pSpore` system service. The TUI and desktop app are reconnecting
-shells only: closing either client leaves sessions, scheduled jobs, MCP connections and
-other background work running. pSpore also attempts to enable user lingering so the
-service can start at boot without waiting for an interactive login.
+`p-spore` and `pspore` are the same program, so use whichever you prefer. To look around
+without installing anything, run `npx p-spore --help`.
 
-The Linux desktop release includes a pastel application icon and a frameless startup
-window while the workspace opens. After extracting the full desktop ZIP, run
-`创建桌面快捷方式.sh` once to install the desktop/menu entry and icon. Launch pSpore,
-then right-click its taskbar icon and choose **Pin to taskbar** or **Add to favorites**
-(wording varies by desktop). The stable launcher survives overlay upgrades; launching
-again brings the existing window forward. The startup window can be closed with its × button / Escape.
+The first `p-spore tui` creates `~/.pspore` and installs, enables and starts the `pSpore` user
+service. It also tries to enable user lingering, so the service can start at boot without an
+interactive login. Leaving the TUI does not stop the service.
+
+Once the service is running (the TUI starts it, or run `p-spore service install`), you can
+also send a task without opening a client:
+
+```bash
+p-spore prompt "summarize the notes in ~/notes/this-week.md"
+```
+
+## Desktop app
+
+The npm package is the CLI only and does not include Electron. To get the desktop app, download
+the **full** ZIP for your architecture from
+[GitHub Releases](https://github.com/advnljs/pSpore/releases/latest):
+
+| Machine | Asset name contains |
+|---|---|
+| x86_64 / AMD64 | `linux-x64` |
+| ARM64 / AArch64 | `linux-arm64` |
+
+1. Extract the full ZIP. It includes the Electron/Chromium runtime.
+2. Run `创建桌面快捷方式.sh` ("create desktop shortcut") once. It installs the desktop and menu
+   entry and the icon.
+3. Launch pSpore from the desktop or the application menu. To keep it in the taskbar, right-click
+   its icon and choose **Pin to taskbar** or **Add to favorites** (the wording depends on your
+   desktop).
+
+Launching it a second time brings the open window to the front. While the workspace loads, a
+small startup window appears, and you can close it with its × button or Escape.
+
+**Upgrading.** Later versions also ship a smaller *overlay* ZIP. Run its
+`./覆盖升级.sh /path/to/install` ("overlay upgrade"). It checks that the installed runtime and
+architecture match, replaces the application files, keeps a rollback copy, and leaves
+`~/.pspore` alone. If the runtime does not match, it stops and asks you to use the full ZIP.
+Every release asset comes with a SHA-256 checksum, and published releases are never replaced.
+
+![pSpore desktop app in the dark theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-dark.png)
+
+The desktop app uses the same service as the TUI. It also adds a few things of its own:
+
+- **Tool steps you can open.** While a run is in progress, its thinking and tool calls stay
+  open. When it finishes they fold into one summary line, and you can open them again whenever
+  you like.
+
+  ![Thinking and tool calls expanded in the desktop app](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-process.png)
+
+- **File references by drag and drop.** Drop files or folders onto the message box to reference
+  them. Dropping records only the absolute path: nothing is read, uploaded or sent until you send
+  the message.
+- **Clickable local paths.** Absolute paths and `file://` links in a reply open with a click. The
+  folder icon next to a path shows the file in your file manager. The app checks first that the
+  target exists and is a regular, non-executable file or a directory.
+- **Search the current session** with <kbd>Ctrl</kbd>+<kbd>F</kbd>. The search also finds text
+  inside folded tool steps.
 
 ## Configure a model
 
-No model is configured out of the box. The daemon still starts so you can check its
-health, and the first prompt returns `model_not_configured` until you set one up.
+No model is configured out of the box. The service still starts, so you can check its health,
+but prompts return `model_not_configured` until you set one up. The quickest way is the guided
+`p-spore setup` (also `/config wizard` in the TUI, or the **Settings** button in the desktop app).
+You can also configure everything directly:
 
 ```bash
-p-spore config show
-p-spore config set deepseek deepseek-v4-flash off
+p-spore config show                                     # current settings, secrets hidden
+p-spore config set deepseek deepseek-v4-flash off       # provider, model, thinking level
 p-spore config set openai gpt-5.6-terra low
 p-spore config set custom-openai my-model https://gateway.example.com/v1 responses off
-p-spore config compact on 16384 20000 100000  # reserve / recent kept / direct trigger
-p-spore config key                 # hidden TTY input, or piped from stdin
-p-spore config cookie              # optional Cookie header for an LLM proxy
-p-spore config clear-key
-p-spore config clear-cookie
+p-spore config key                                      # hidden input, or piped from stdin
+p-spore service restart                                 # apply to a running service
 ```
 
-Three provider kinds are supported: `deepseek`, `openai`, and `custom-openai` for any
-OpenAI-compatible endpoint (choose `chat` or `responses` compatibility). API keys and
-optional proxy cookies are written to `~/.pspore/credentials/<provider>.api-key` and
-`<provider>.cookie` with mode `0600` and are never stored in `config.json`, sessions, or
-logs. The cookie is sent as an HTTP `Cookie` header when the model runtime calls the
-proxy. You can also supply credentials through the daemon's environment instead.
+| Provider | Use it for |
+|---|---|
+| `deepseek` | DeepSeek's API |
+| `openai` | OpenAI's API |
+| `custom-openai` | Any OpenAI-compatible endpoint. Choose `chat` or `responses` compatibility. |
 
-Automatic context compaction is enabled by default. Adjust it in the desktop Settings
-dialog, with `/config compact on|off [RESERVE] [KEEP] [TRIGGER]` in the TUI, or
-with `p-spore config compact ...`. `TRIGGER` is the direct context-token length,
-while `RESERVE` remains a safety margin below the model limit; whichever threshold
-is reached first triggers compaction. Existing v1 config files receive the defaults
-automatically.
+API keys are written to `~/.pspore/credentials/<provider>.api-key` with mode `0600`. They are never
+stored in `config.json`, sessions or logs. If your model sits behind a proxy, `config cookie` stores an
+optional `Cookie` header in the same way, and `config header NAME` stores any other request header.
+Use `config clear-key`, `config clear-cookie` and `config clear-header NAME` to remove them.
 
-## Reading your own documents
+**Automatic context compaction** is on by default. When a conversation gets long, older turns are
+summarized so that the run can continue.
 
-The built-in `document` tool turns a file on your machine into plain text, so the
-agent can summarize or quote from it. Word (`.docx`/`.doc`), Excel
-(`.xlsx`/`.xls`), PowerPoint (`.pptx`/`.ppt`), PDF and plain-text files are
-supported, and text files are decoded as UTF-8, UTF-16 or GB18030 as needed.
+```bash
+p-spore config compact on 16384 20000 100000   # RESERVE  KEEP  TRIGGER  (tokens)
+```
 
-The format is decided by the file's own bytes rather than its extension, so a
-renamed file or one WPS saved under its own extension still reads. WPS's
-proprietary `.wps`/`.et`/`.dps` are not supported; save those as `.docx`,
-`.xlsx` or `.pptx` first. A scanned PDF holds images rather than text and will
-come back empty.
+- `TRIGGER` compacts once the current context reaches this many tokens.
+- `RESERVE` compacts when the context comes within this many tokens of the model's limit.
+- `KEEP` sets how many recent tokens stay verbatim after compaction.
 
-PDF support needs `pdfjs-dist`, which ships with the desktop package and with an
-npm install. The standalone SEA binary does not carry it and says so; every
-other format works there.
+Compaction runs as soon as either `TRIGGER` or `RESERVE` is reached. The same settings are under
+**Settings** in the desktop app and `/config compact` in the TUI.
 
 ## Approvals
 
-Tool calls are gated by a single daemon-wide policy. The default `ask_risky` only stops on
-risky operations; `ask_all` confirms every mutating tool; `deny` refuses all of them.
+One service-wide policy decides which tool calls need your approval:
+
+| Mode | Behaviour |
+|---|---|
+| `ask_risky` *(default)* | Asks only before operations that look risky |
+| `ask_all` | Asks before every tool call that changes something |
+| `allow_all` (alias `bypass`) | Never asks. Reads, writes, shell, `sudo` and MCP calls run immediately. |
+| `deny` | Refuses every tool call that changes something |
 
 ```bash
-p-spore config permissions ask_risky      # default
-p-spore config permissions ask_all
-p-spore config permissions bypass         # alias for allow_all
-p-spore config permissions deny
+p-spore config permissions ask_risky
+p-spore service restart
 ```
 
-`allow_all` (`bypass`) skips every approval prompt: reads, writes, shell commands, `sudo`
-and MCP calls all run immediately with the privileges of the user running the daemon.
-pSpore is not a sandbox, so only bypass approvals for work you already trust. The same
-setting is available as `/config permissions ...` in the TUI and under **Settings →
-权限** in the desktop client. Restart the daemon to apply a change to a running one.
+The same setting is `/config permissions MODE` in the TUI and **Settings → 权限** in the desktop app.
+A running service picks up the change after a restart. pSpore is not a sandbox, so turn approvals
+off only for work you already trust.
 
-## Everyday commands
+## Everyday use
 
 ```bash
-p-spore init                       # create config/workspace/state directories
-p-spore doctor                     # check Node, config, model, shell, ripgrep, MCP, daemon
-p-spore status                     # daemon and session status
-p-spore sessions                   # list persistent root sessions
-p-spore session new "Research"     # create a persistent root session
-p-spore session delete ID          # delete a root session and its transcript
-p-spore prompt --session ID "..."  # send to a selected root session
-p-spore tui                        # reconnecting terminal client
-p-spore prompt "summarize today's notes"
-p-spore service status             # system service and boot state
-p-spore service logs               # recent service journal
+p-spore status                     # service and session status
+p-spore doctor                     # check Node, config, model, shell, ripgrep, MCP and the service
+p-spore sessions                   # list sessions
+p-spore session new "Research"     # create a session
+p-spore prompt --session ID "..."  # send to a specific session
+p-spore session delete ID          # delete a session and its transcript
+p-spore service logs               # recent service log
 p-spore service restart            # restart the background service
-p-spore daemon                     # foreground service process (diagnostics/systemd)
+p-spore help                       # every command
 ```
 
-Root sessions are catalogued in private state and their Pi JSONL histories are resumed
-when the service starts. In the GUI use the `＋` button to create a session; in the TUI
-use `/new [TITLE]` and `/select ID`. A normal message sent while that session is still
-running becomes a follow-up automatically. Each queued message remains labelled
-`继续排队` and offers `直接发送消息` (`/send-now N` in the TUI).
+- **Sessions** are saved and restored when the service restarts. Create one with `＋` in the desktop
+  app, or with `/new [TITLE]` and `/select ID` in the TUI.
+- **Messages sent while a session is busy** wait in a queue, marked `继续排队` ("queued"). Choose
+  `直接发送消息` ("send now") in the desktop app or `/send-now N` in the TUI to send one at the next
+  safe point instead of waiting.
+- **Documents.** The built-in `document` tool reads `.docx`/`.doc`, `.xlsx`/`.xls`, `.pptx`/`.ppt`,
+  PDF and text files. It recognizes the format from the file's contents, so a renamed file still
+  works. WPS's own `.wps`/`.et`/`.dps` formats are not supported, so save those as `.docx`, `.xlsx` or
+  `.pptx` first. A scanned PDF contains images rather than text and comes back empty.
+- **Another home directory.** Add `--home PATH` to any command, or set `PSPORE_HOME`, to use a
+  directory other than `~/.pspore`.
 
-Add `--home PATH` to any command, or set `PSPORE_HOME`, to work against a home other than
-the default `~/.pspore`. Run `p-spore help` for the full command list.
+## Automation and extensions
 
 ### Scheduled jobs
 
-Define a five-field cron job in `workspace/jobs/<job-id>.json`, or create and update one
-atomically from a file. Runs are recorded in a durable ledger and can be triggered or
-cancelled by hand.
+A job is a five-field cron definition in `workspace/jobs/<job-id>.json`. Every run is recorded,
+and you can trigger or cancel a run yourself. There is an example in
+[`examples/jobs/heartbeat.json`](examples/jobs/heartbeat.json).
 
 ```bash
-p-spore schedule put job.json
-p-spore jobs
-p-spore run <job-id>
-p-spore runs
+p-spore schedule put job.json      # create or update a job from a file
+p-spore jobs                       # loaded jobs
+p-spore run <job-id>               # run one now and wait
+p-spore runs                       # run history
 p-spore cancel <run-id>
 p-spore notifications
 ```
 
 ### Child agents
 
-Spawn bounded child agents that share read access, exchange messages with them while they
-work, and wait on or cancel them.
+A child agent works on one bounded task, with its own budget and read access shared with its
+parent. You can message it while it works, wait for it, or cancel it along with any agents it
+started.
 
 ```bash
 p-spore agent spawn "inspect the workspace API"
@@ -177,34 +235,33 @@ p-spore agent cancel <agent-id>
 
 ### MCP servers
 
-MCP servers are declared in `config.json` and reference secrets indirectly through
-`envRefs`/`headerRefs`. Only `trusted-local` servers are started, and only on demand.
+MCP servers are declared in `config.json`. Secrets are referenced indirectly through
+`envRefs`/`headerRefs`, so they never appear in the file itself. Only servers marked `trusted-local`
+are started, and only when they are first needed.
 
 ```bash
 p-spore mcp list                   # configured servers and health, without connecting
 p-spore mcp discover <server-id>   # connect and activate one trusted server
-p-spore mcp tools                  # schemas active in this daemon process
+p-spore mcp tools                  # tools active in this service process
 p-spore mcp ping <server-id>
 ```
 
 ### Skills and plugins
 
-Your own skills go in `~/.pspore/workspace/skills/`: a directory holding a `SKILL.md`
-(nested suites like `office/excel/SKILL.md` work too) is offered to every new session.
-Frontmatter `name` and `description` are recommended; without a description, the skill's
-opening heading and paragraph describe it. Only the name, description and path stay in the
-prompt — the model reads the rest on demand. When the model itself edits a file in that
-directory, it asks for approval first (under `ask_risky`), because those instructions steer
-every later session.
+Put your own skills in `~/.pspore/workspace/skills/`. Each skill is a directory with a `SKILL.md`,
+and nested suites such as `office/excel/SKILL.md` work too. Skills are available in every new
+session. Adding a `name` and `description` in the frontmatter is recommended. Only the name,
+description and path go into the prompt, and the model reads the rest when it needs to. When the
+model edits a file in this directory, it asks first, because these instructions shape every later
+session.
 
 ```bash
-p-spore skills    # installed, bundled and workspace skills, and why any one is not loaded
+p-spore skills    # every skill, and why any one of them is not loaded
 ```
 
-Host plugins, and skills you want pinned to an exact content digest, go through staging
-instead. Staged content is inspected first — schema, paths, dependencies and syntax only,
-never imported — and installing requires echoing back the exact SHA-256 you were just shown.
-An installed or bundled skill keeps its name if a workspace skill uses the same one.
+Host plugins, and skills that you want pinned to an exact content digest, go through a staging
+directory instead. Staged content is inspected without being run (schema, paths, dependencies and
+syntax only). To install it, you repeat the exact SHA-256 that the inspection showed you.
 
 ```bash
 p-spore resource inspect <staging-path>
@@ -213,41 +270,46 @@ p-spore resources
 p-spore resource disable <skill|host-plugin> <name> <sha256>
 ```
 
+## Where your data lives
+
+| Path under `~/.pspore` | Contents |
+|---|---|
+| `config.json` | All settings. The desktop Settings dialog edits this file too. |
+| `credentials/` | API keys, cookies and headers, each in a `0600` file |
+| `workspace/` | Your skills, jobs and staging area |
+| `state/` | Sessions and their transcripts, runs, approvals, notifications and audit records |
+| `run/` | The local socket that clients use to talk to the service |
+
 ## Security model
 
-- Single user, local-first. Nothing is exposed to the network; clients talk to the daemon
-  over a Unix domain socket.
-- Tools run as the user who started `p-spore`. This is **not** a sandbox.
-- `allow_all` lets the model run any tool action as that user, which can reach root if you
-  have passwordless or cached `sudo`.
-- Pi extensions, plugins and local MCP servers are loaded only after explicit trust. Skills in
-  `workspace/skills/` count as trusted because you put them there; model edits to that
-  directory require approval, but a shell command can still bypass that check.
+- **Single user, local only.** pSpore opens no network ports. Clients reach the service through a Unix
+  domain socket. If you use a remote model, your conversation is sent to that model provider.
+- **Not a sandbox.** Tools run as the user who started pSpore. With `allow_all`, the model can do
+  anything that user can do, including reaching root through passwordless or cached `sudo`.
+- **Code is trusted explicitly.** Pi extensions, host plugins and local MCP servers load only after
+  you trust them. Skills in `workspace/skills/` count as trusted because you put them there. The model
+  needs approval to edit that directory, but a shell command can still get around that check.
+- **The desktop app is locked down.** The window has no Node.js or file system access and cannot
+  navigate to other sites, open new windows, download files or make network requests. Every
+  privileged action goes through a fixed, validated channel to the main process.
 
-## Desktop client
+## Development
 
-This npm package is the CLI and does not bundle Electron. `p-spore desktop` works when
-Electron is available in a source checkout; otherwise download the desktop zip from the
-project's GitHub Releases. The full zip includes Chromium and a clickable
-`创建桌面快捷方式.sh`. Later upgrades can use the smaller overlay zip, which installs
-a verified application payload while retaining the compatible Electron/Chromium runtime. Releases are immutable:
-each user-visible update gets a new SemVer tag instead of replacing an older asset. The desktop app automatically
-registers the same systemd user service and never ties the service lifetime to a window.
+```bash
+git clone https://github.com/advnljs/pSpore.git
+cd pSpore
+npm install
+npm run check          # strict typecheck, all tests, production build
+npm run desktop        # build, then open the Electron app
+npm run test:electron  # desktop end-to-end checks on Linux (needs xvfb-run)
+```
 
-Files and directories can be dragged into the desktop composer as removable path references. Dropping never sends
-the message, reads or uploads file contents, copies files, or expands directories; sending later adds only quoted
-absolute `@"/path"` references to the prompt.
+The developer guide (in Chinese) is [docs/project-overview.md](docs/project-overview.md). It covers the
+architecture, source layout, tests and the release process. The full design is in
+[docs/detailed-design.md](docs/detailed-design.md).
 
-Local files and directories in an agent reply can be opened with a click. Absolute paths, `file://` links, and
-paths in inline code are recognized in the desktop conversation. The main process checks that the target exists
-and is a regular, non-executable file or a directory before asking the operating system to open it.
-
-## Links
-
-- [Repository](https://github.com/advnljs/pSpore)
-- [Issues](https://github.com/advnljs/pSpore/issues)
-- Project overview and development notes (Chinese): `docs/project-overview.md`
+- [Repository](https://github.com/advnljs/pSpore) · [Issues](https://github.com/advnljs/pSpore/issues) · [Releases](https://github.com/advnljs/pSpore/releases)
 
 ## License
 
-[MIT](LICENSE). Third-party dependencies retain their respective licenses.
+[MIT](LICENSE). Third-party dependencies keep their own licenses.

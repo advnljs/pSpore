@@ -1,108 +1,172 @@
-# pSpore
+# pSpore 开发者指南
 
-pSpore 是一个基于 [Pi](https://github.com/earendil-works/pi) 的 Linux 本地主动式 Agent。目标是在保留 Pi 极简 agent loop 的前提下，增加持久记忆、权限治理、计划任务、subagent、MCP，以及共享同一后端的 TUI/Electron UI。
+本文面向想了解实现、在本地开发或参与发布的读者。只想安装使用的话，请看[中文 README](../README.zh-CN.md)。
 
-## 当前状态
+| 文档 | 内容 |
+|---|---|
+| [README.zh-CN.md](../README.zh-CN.md) / [README.md](../README.md) | 安装、配置与日常使用 |
+| 本文 | 架构一览、目录结构、开发命令、测试与发布 |
+| [detailed-design.md](detailed-design.md) | 完整详细设计与 v1 验收契约 |
+| [ADR 0001](adr/0001-runtime-and-pi-baseline.md) | Node 24、Pi `v0.84.1`、Electron 43 的版本决策 |
+| [initial_design.txt](../initial_design.txt) | 最初的 11 条设计想法（不是最终契约） |
 
-功能 v1 已完成。Phase 0—4 的 Node/Pi 契约、Kernel、私有存储、权限/审批、Shell、pinned memory、exact/BM25、cron/BOOT、durable run ledger、双工 subagent tree、按需 MCP、受信资源生命周期、UDS Daemon、CLI、可重连 TUI，以及安全 Electron 43 客户端均已落地。TUI 与 Electron 同时连接同一个权威 Daemon；桌面 renderer 不拥有 Node 或文件系统权限。
+## 项目状态
 
-- 原始想法：[initial_design.txt](initial_design.txt)
-- 主设计文档：[docs/detailed-design.md](docs/detailed-design.md)
-- 项目记忆与导航：[memory-bank/nav.md](memory-bank/nav.md)
+功能 v1 已完成：Phase 0—4 的 Node/Pi 契约、Kernel、私有存储、权限与审批、Shell、长期记忆（精确搜索 + BM25）、cron/BOOT、可持久的执行记录、双工子 Agent 树、按需 MCP、受信资源生命周期、UDS Daemon、CLI、可重连 TUI，以及安全加固的 Electron 43 桌面客户端均已落地。
 
-运行时基线为 Node.js 24，Pi 精确锁定 `v0.84.1`；最终桌面客户端使用 Electron 43，核心功能先通过 TUI 验证。版本决策见 [ADR 0001](docs/adr/0001-runtime-and-pi-baseline.md)。
+- 运行时基线：Node.js 24，Pi 精确锁定 `v0.84.1`，桌面端 Electron `43.3.0`。
+- TUI 与桌面端同时连接同一个权威 Daemon；桌面 renderer 不拥有 Node 或文件系统权限。
+- v1 之后不主动扩展 sandbox 执行器、向量检索、远程传输、移动端或插件市场；这些需要先提出明确需求，再重新评估边界。
 
-## 核心边界
+## 架构一览
 
-- Linux-first、local-first、单用户；默认不提供多租户或公网服务。
-- 主进程与工具默认使用启动 pSpore 的登录用户权限，不构成沙箱。
-- `allow_all` 会允许模型以当前用户身份执行任意工具操作；当用户拥有免密或已缓存的 `sudo` 权限时，影响可能扩大到 root。
-- Pi extensions、pSpore plugins 和本地 MCP server 都可能执行任意代码，只能在显式信任后加载。用户自己放进 `workspace/skills/` 的 skill 视为用户已信任，新会话自动加载；模型用 `edit` 改写该目录需要审批（`ask_risky` 下），但 shell 命令仍可绕过这项识别。
-- 默认记忆检索为精确搜索与 BM25；向量搜索保留为可插拔扩展，不属于首版范围。
-
-## 当前可运行流程
-
-要求 Node.js 24。发布包可直接安装并启动 TUI；`p-spore tui` 会初始化缺失的 home，并在没有现有实例时自动拥有/启动 Daemon，退出时只关闭自己拥有的实例。
-
-```bash
-npm install --global p-spore
-p-spore tui
+```mermaid
+flowchart LR
+    TUI[TUI] -->|UDS| G[Gateway]
+    CLI[CLI] -->|UDS| G
+    DESK[桌面 renderer] -->|受限 IPC| MAIN[Electron 主进程] -->|UDS| G
+    G --> APP[Application 命令]
+    APP --> K[Kernel 状态循环]
+    K --> PI[PiRuntimeAdapter] --> PISDK[Pi SDK]
+    K --> POL[权限与审批] --> TOOLS[Shell / 文件 / 文档工具]
+    K --> MEM[记忆与检索]
+    K --> SCH[定时任务 / BOOT]
+    K --> SUB[子 Agent]
+    K --> EXT[Skills / 插件 / MCP]
+    K --> STORE[原子 JSON / JSONL 存储]
 ```
 
-安装后同时提供 `p-spore` 和等价的短命令 `pspore`，两者指向同一入口，可以任选其一；帮助与提示信息会回显你实际使用的那个名字。也可以用 `npx p-spore --help` 临时运行。npm CLI 包不携带 Electron；桌面端请使用 GitHub Release 中的全量 zip（含 `创建桌面快捷方式.sh`），升级可使用不含 Chromium 的 overlay zip。源码开发使用 npm lockfile；在中国大陆网络环境中可按需使用 npm/Electron 镜像，但不会写入全局 npm 配置。
+- **Daemon 是唯一的状态写入者**。它持有 Pi 会话、调度器、MCP 连接和事件序号；生产环境作为 systemd 用户服务运行，关闭任何客户端都不会停止它。
+- **客户端都是可重连的外壳**。TUI 和 CLI 直接连接 `~/.pspore/run/` 下权限为 `0600` 的 Unix domain socket；桌面端由 Electron 主进程独占这条连接，renderer 只能通过 preload 暴露的固定 API 收发消息。
+- **Pi 只有一个入口**：`src/pi/pi-runtime-adapter.ts`。其他模块只使用 pSpore 自己的领域类型，Pi 升级的影响由 contract 测试约束。
+- **依赖方向固定**：UI / adapter → application → kernel。`kernel/` 不导入子进程、Electron、DOM、TUI、MCP SDK 或具体模型 provider。
+
+## 安全边界
+
+- Linux-first、local-first、单用户；不提供多租户或公网服务。
+- 主进程与工具使用启动 pSpore 的登录用户权限，**不是沙箱**。`allow_all` 等于授权模型以当前用户身份执行任意操作；若用户有免密或已缓存的 `sudo`，影响可能扩大到 root。
+- Pi 扩展、Host 插件和本地 MCP 服务都可能执行任意代码，只有在显式信任后才加载。用户放进 `workspace/skills/` 的 Skill 视为已信任；模型用 `edit` 改写该目录需要审批（`ask_risky` 下），但 Shell 命令仍可绕过这项识别。
+- 桌面 renderer 使用严格 CSP、`contextIsolation` 与 `sandbox`，关闭 Node integration、外部导航、新窗口、下载和网络请求。拖入文件只记录路径；点击回复里的本地路径时，由主进程检查路径存在且不是可执行文件后，再交给系统打开。
+- 密钥与代理 Cookie 只保存在 `~/.pspore/credentials/` 下的 `0600` 文件中，不写入 `config.json`、会话或日志。
+
+## 目录结构
+
+| 路径 | 用途 |
+|---|---|
+| `src/cli/` | `p-spore` / `pspore` 命令入口（`main.ts`） |
+| `src/daemon/` | Daemon 组装、启停与资源清理；`supervisor.ts` 供测试管理隔离 Daemon |
+| `src/service/` | systemd 用户服务的安装、状态、重启和启动规格 |
+| `src/application/` | UDS 命令用例，按会话串行执行 |
+| `src/kernel/` | 纯 reducer、权威状态与串行 effect 循环 |
+| `src/pi/` | Pi SDK 适配边界、上下文预算与工具输出摘录 |
+| `src/protocol/`、`src/gateway/` | v1 消息信封、严格解码、UDS 客户端/服务端、幂等与重放 |
+| `src/policy/`、`src/shell/` | 权限与审批、Shell/PTY 执行与密钥脱敏 |
+| `src/tools/`、`src/documents/` | 内置 read/document/edit/search/shell 工具；Office、PDF 与文本抽取 |
+| `src/memory/`、`src/indexing/` | 固定记忆、精确搜索、BM25；可选的本机索引服务 |
+| `src/automation/`、`src/agents/` | cron、BOOT 与执行记录；子 Agent 树、邮箱与预算 |
+| `src/mcp/`、`src/plugins/` | 按需 MCP；Skills、Host 插件与受信资源生命周期 |
+| `src/articles/` | 长文文稿：版本、段落 diff、预览节流与导出转换 |
+| `src/settings/`、`src/storage/`、`src/sessions/` | 模型设置；home 初始化与原子写入；会话目录与 JSONL 路径 |
+| `src/ui/shared/`、`src/ui/tui/` | GUI/TUI 共用的协议归并与 Markdown；TUI 客户端 |
+| `src/desktop/` | Electron 主进程、preload、renderer（`renderer/`）与视觉 smoke |
+| `src/desktop/native/` | Electron 之前显示 loading 的 GTK3 原生启动器 |
+| `bundled-skills/` | 随发行版附带的 Skills |
+| `test/unit/`、`test/contract/`、`test/integration/` | 单元测试、Pi 契约测试、跨进程集成测试 |
+| `scripts/` | 构建、打包、发布、Electron smoke 与 README 截图脚本 |
+| `dist/` | 构建产物，**纳入 Git**：改动源码后必须 `npm run build` 并一起提交 |
+
+## 开发环境
+
+需要 Node.js 24、npm，以及 Linux（Daemon、Shell 和桌面验收都依赖 Linux）。依赖版本由 `package-lock.json` 锁定。中国大陆网络可以临时使用镜像，但不要写入全局 npm 配置：
 
 ```bash
 npm install
-npm run check
-npm run test:electron
-npm run build
+# Electron 二进制下载慢时：
+ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js
+```
 
+常用命令：
+
+| 命令 | 作用 |
+|---|---|
+| `npm run typecheck` | 严格类型检查 |
+| `npm test` | 单元、契约与集成测试 |
+| `npm run build` | 清理并重新生成 `dist/`，同步桌面静态资源 |
+| `npm run check` | 以上三项，提交前必跑 |
+| `npm run dev -- <命令>` | 直接从源码运行 CLI，例如 `npm run dev -- doctor` |
+| `npm run desktop` | 构建并启动桌面客户端 |
+| `node dist/cli/main.js <命令>` | 运行已构建的 CLI |
+
+从源码运行时，`init` 创建数据目录，`daemon` 在前台启动服务（用于诊断），其余命令与 README 中的用法相同：
+
+```bash
 node dist/cli/main.js init
-node dist/cli/main.js daemon
-```
-
-桌面客户端无需预先手动启动 Daemon；它会初始化缺失的 pSpore home，在没有现有实例时拥有并启动一个 Daemon，已有实例时安全复用。
-
-另开终端后可运行：
-
-```bash
+node dist/cli/main.js daemon      # 另开一个终端执行下面的命令
 node dist/cli/main.js status
-node dist/cli/main.js doctor
 node dist/cli/main.js tui
-node dist/cli/main.js desktop
-node dist/cli/main.js jobs
-node dist/cli/main.js runs
-node dist/cli/main.js notifications
-node dist/cli/main.js agents
-node dist/cli/main.js agent spawn "inspect the workspace API"
-node dist/cli/main.js agent send <agent-id> "focus on error handling"
-node dist/cli/main.js agent join <agent-id>
-node dist/cli/main.js agent cancel <agent-id>
-node dist/cli/main.js mcp list
-node dist/cli/main.js mcp discover <server-id>
-node dist/cli/main.js mcp tools
-node dist/cli/main.js mcp ping <server-id>
-node dist/cli/main.js resources
-node dist/cli/main.js resource inspect <staging-path>
-node dist/cli/main.js resource install <staging-path> <sha256>
-node dist/cli/main.js resource disable <skill|host-plugin> <name> <sha256>
-node dist/cli/main.js schedule put examples/jobs/heartbeat.json
-node dist/cli/main.js run <job-id>
-node dist/cli/main.js cancel <run-id>
 ```
 
-Daemon 在没有模型配置时仍会 ready，便于检查健康状态；首次 prompt 会明确返回 `model_not_configured`。GUI、TUI 与 CLI 共享同一设置 decoder/service，只提供 `deepseek`、`openai`、`custom-openai`（界面显示“自定义 OpenAI”）三类 Provider。TUI 同时支持 `/config wizard` 引导配置和 `/config …` 命令配置；CLI 使用相同命令语义：
+Daemon 在未配置模型时也会 ready，方便检查健康状态；第一次提交任务时会明确返回 `model_not_configured`。开发时可以用 `--home 路径` 或 `PSPORE_HOME` 指向临时目录，避免影响自己的 `~/.pspore`。
+
+## 测试与验收
+
+### 自动化测试
+
+- **单元测试**（`test/unit/`）：纯逻辑，包括 Markdown 解析、虚拟列表、会话搜索、渲染器模块图（禁止 renderer 触达 Node 内置模块）等。
+- **契约测试**（`test/contract/`）：使用 Pi 官方 `fauxProvider`，不调用付费模型，覆盖流式事件、会话替换、JSONL 恢复、工具权限闸门、中止和上下文压缩。
+- **集成测试**（`test/integration/`）：真实 HTTP/SSE → Pi → Daemon → UDS → DesktopStore 的完整链路，例如长工具循环中的自动压缩与重启恢复。
+
+### 桌面端验收
+
+PC 桌面的主视觉基准是 **1920 × 1080**，另外补测 `1440 × 900` 与 `1180 × 720`。
 
 ```bash
-pspore config show
-pspore config set deepseek deepseek-v4-flash off
-pspore config set openai gpt-5.6-terra low
-pspore config set custom-openai my-model https://gateway.example.com/v1 responses off
-pspore config compact on 16384 20000 100000  # 上限预留 / 压缩后保留 / 直接触发 tokens
-pspore config key                 # TTY 中隐藏输入，也可从 stdin 安全读取
-pspore config cookie              # LLM 代理可选 Cookie 头，隐藏输入
-pspore config clear-key
-pspore config clear-cookie
+npm run test:electron          # 需要 xvfb-run
+npm run test:article-stream    # 文稿面板在慢机条件下的流式验收
 ```
 
-`deepseek/deepseek-v4-flash` 已通过真实 API 端到端验证。设置可配置 provider、model、Base URL、OpenAI Chat/Responses 兼容类型、thinking、自动 compact 开关/直接触发 tokens/模型上限预留 tokens/压缩后保留 tokens、API Key 与代理 Cookie；直接阈值默认 `100000`，与模型上限预留保护中先到者触发。Key 和 Cookie 独立保存到 `~/.pspore/credentials/<provider>.api-key` 与 `<provider>.cookie`（`0600`），`models.json` 只保存对该私有文件的引用（Cookie 写入 `headers.Cookie`），不写入 `config.json`、会话或日志。旧版 v1 config 未包含 compact 或 `triggerTokens` 字段时会读取为安全默认值，无需手动迁移。也可继续通过 Daemon 进程环境变量或 Pi 私有 auth store 提供 credential。
+`test:electron` 会构建最新代码、创建临时 home，验证外部 Daemon 与桌面自带 Daemon 两条路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、字号下限、响应式布局、文件拖拽只形成路径引用、长内容溢出、流式输出、审批弹层，以及工具过程的展开/折叠和超长输入。长历史 fixture 有 1007 条消息，并断言实际 DOM 少于 40 条。设置 `PSPORE_KEEP_SMOKE=1` 可以保留截图和 JSON 探针。
 
-用户可在 `workspace/jobs/<job-id>.json` 定义严格的五字段 cron job，也可用 `schedule put` 基于 source hash 原子创建/更新并即时重载；示例见 `examples/jobs/heartbeat.json`。CLI/TUI 可列出、手动触发或取消 run，并读取 durable notification。交互式根会话由私有 `session-catalog.json` 映射到 Pi JSONL；服务启动会恢复全部目录会话及历史，旧安装首次迁移最近的主会话。GUI 用 `＋` 新建，TUI 用 `/new [TITLE]` 与 `/select ID` 创建/切换。普通输入发送到当前根会话或 child；根会话运行中时服务端自动按 follow-up 排队，每项显示“继续排队/直接发送消息”（TUI `/send-now N`），不再要求选择三种发送模式。还可以用 `/agent-spawn`、`/agent`、`/agent-join` 和 `/agent-cancel` 操作 child tree。输入 `/help` 打开完整命令面板，`/back` 或 Esc 返回对话。MCP server 在 `config.json` 中使用 `envRefs/headerRefs` 引用环境变量，只有 `trusted-local` server 会被按需启动；`sandboxed` 配置在 v1 中 fail closed。发现后的动态 schema 从下一 session 起生效，当前 session 可使用通用 `mcp_call`。
+需要一个持续运行的隔离预览时（不安装系统服务）：
 
-用户自己的 skill 直接放进 `workspace/skills/<name>/SKILL.md`（也支持 `office/excel/SKILL.md` 这类嵌套套件与根目录下带 frontmatter `description` 的 `.md`），新会话即可使用，服务运行中新增的也不必重启。扫描规则与 Pi 一致，但解析更宽容：frontmatter 不是合法 YAML（常见于中文描述里未加引号的 `: `）时逐行读取，缺 `description` 时用开头的标题与首段；读不了的（非 UTF-8、只有 `SKILL_*.md`、文件名大小写不对等）不会静默消失，`pspore skills`、TUI `/skills` 与 GUI 集成页都会列出来源、状态和原因。已安装或内置的同名 skill 优先。
+```bash
+npm run build
+PSPORE_SMOKE_KEEP_OPEN=1 npx electron dist/desktop/main.js \
+  --home /tmp/pspore-preview --smoke-dir /tmp/pspore-preview-shots --smoke-fixture
+```
 
-需要按精确内容摘要固定的 skill 与所有 host plugin 必须先放在 `workspace/staging/`。`resource inspect` 只执行 schema、路径、依赖、语法和内容摘要检查，不 import 代码；`resource install` 必须回传刚才看到的精确 SHA-256，随后复制到不可变私有目录并写入 trust store。Skills 从下一 session 边界进入 Pi progressive disclosure，常驻上下文只有 name/description/path。Host plugin 使用 `pspore.plugin.json`，安装后还需在 `config.plugins` 固定相同 digest 与完整 capability grant，并重启 Daemon；disable 只撤销信任，不删除内容，也不会热卸载已运行代码。
+### README 截图
 
-源码仓库中的 Electron 可用会自动构建的 `npm run desktop`，或在已有最新构建后用 `node dist/cli/main.js desktop` 启动。解压 GitHub Release 全量 zip 后运行 `创建桌面快捷方式.sh` 即可从桌面启动；脚本安装稳定 XDG launcher，应用目录带空格或 `%` 时也不再直接进入 Desktop Entry，并把启动诊断写到 `~/.local/state/pspore/desktop-launcher.log`。生产 GUI/TUI 会自动安装、启用并连接 systemd user service，同时尽力启用 linger；完整 Kernel、session、定时任务和集成能力独立常驻，关闭任一客户端都不会停止服务。main process 独占 UDS 连接，preload 仅暴露受控的固定 API；`getPathForFile` 只把用户通过操作系统拖入的 `File` 解析成路径，`openLocalPath` 则在用户点击回复中的本地文件/目录链接后由主进程验证路径和类型，再交给系统打开。renderer 不直接读取文件系统。renderer 使用轻量原生 DOM、严格 CSP、`contextIsolation + sandbox`，并关闭 Node integration、外部导航、新窗口、下载和网络请求。GUI 聊天框可接收文件与目录拖拽并显示可移除引用；拖入只记录路径，不自动发送、不读/复制/上传内容，也不展开目录，真正发送时仅附加带引号的绝对 `@"/path"` 引用。GUI 以变高虚拟列表只保留视口附近消息，TUI 从历史尾部按可见行反向格式化；正文与 thinking 使用独立流式通道，thinking 只在生成期间单独显示并在回复完成后隐藏，不进入最终 Markdown 或历史。工具调用通过活动视图展示而不再把 `[tool:*]` 混入正文。后续升级运行 overlay 内的 `覆盖升级.sh`：它校验 Electron 精确版本、平台、架构与完整应用 payload，保留回滚备份并重启匹配的 systemd 服务，因此无需重复下载 Chromium；运行时不匹配时会拒绝并提示使用全量包。每次用户可见更新使用新的 SemVer tag 和不可变 GitHub Release，历史资产不再原地覆盖。
+`docs/images/` 中的截图由脚本从真实桌面应用生成：脚本启动一个本地的、按剧本应答的 OpenAI 兼容“演示模型”，在隔离 home 中跑一次真实的工具调用，再通过 Chrome DevTools Protocol 截图。不需要任何真实凭据，也不会读取个人文件。
 
-桌面图标采用统一淡色 SVG/PNG，应用窗口、任务栏、启动小窗与应用菜单保持一致。启动时先显示无边框的小窗 loading，可用 × 或 Esc 取消；工作空间初始化后切换主界面。首次运行 `创建桌面快捷方式.sh` 会安装 XDG 图标，随后右击任务栏图标选择「固定到任务栏」或「加入收藏」即可；覆盖升级继续沿用相同入口，重复启动会恢复并聚焦已有窗口。
+```bash
+npm run build
+node scripts/readme-screenshots.mjs        # 容器或 root 环境加 PSPORE_ELECTRON_NO_SANDBOX=1
+```
 
-桌面/任务栏入口先用 GTK3 显示 loading，再启动 Electron。原生入口加载失败时自动回退 Electron；启动日志位于 `${XDG_STATE_HOME:-$HOME/.local/state}/pspore/desktop-launcher.log`，部分桌面环境不显示右键日志菜单，可直接读取该文件。原生 helper 的 x64/ARM64 构建都使用 Ubuntu 20.04 工具链，打包检查最终 ELF 的 GLIBC 符号要求不高于 2.17。现代 x64 构建机先执行 `npm run build` 和 `bash scripts/build-native-startup-container.sh /tmp/pspore-startup`（需要 Docker），再执行 `PSPORE_NATIVE_STARTUP_BINARY=/tmp/pspore-startup npm run package:desktop`；容器步骤包含旧 glibc 下的真实快捷方式/窗口测试。
+公开截图只能使用演示数据，不能包含凭据或个人内容。
 
-ARM64 包由 `Package Linux ARM64` GitHub Actions 工作流生成：它在原生 `ubuntu-24.04-arm` runner 上进入 Ubuntu 20.04 容器，以与银河麒麟 V10 SP1 相同的 `glibc 2.31` 执行依赖安装、完整测试、Electron `1920 × 1080` 主基准 smoke、Electron/SEA 架构自检和 SHA-256 校验。`main` 相关改动或手动运行时保留 14 天预览 artifact；正式 annotated `v<version>` tag 会复用同一 ARM 链，并在 x64 与 ARM64 两侧都成功后，把两种架构的 CLI、全量桌面 zip、overlay zip 及各自校验文件一次性发布到新的不可变 GitHub Release。Release 资产使用 `ARM64 / Kylin V10` 与 `x86_64` 显示标签自动分类，发行说明同步按架构分区。打包脚本只允许当前 Node 原生架构，手工 ARM 构建入口为 `bash scripts/package-desktop.sh <version> arm64`，必须在 ARM64 Node 24 环境运行。
+## 打包与发布
 
-`npm run test:electron` 需要 Linux `xvfb-run`，会构建最新代码、创建临时 pSpore home，并以 `1920 × 1080` 为主基准、补充 `1440 × 900` 与 `1180 × 720` PC 窗口，自动验证外部/桌面拥有两种 Daemon 路径、重连、IPC allowlist、renderer 权限隔离、深浅主题、设置弹层、计算后字号下限、响应式面板收纳、真实文件/目录拖拽仅形成路径引用且不提交消息、长内容 overflow、transcript scroll、streaming delta、固定 composer 与审批弹层/焦点；长历史 fixture 含 1007 条消息，并断言实际 DOM 少于 40 条。成功后清理临时数据。设置 `PSPORE_KEEP_SMOKE=1` 可保留深色、浅色、文件拖拽、设置、响应式与审批截图及 JSON 探针。
+### 桌面发行包
 
-## v1 之后
+- `npm run package:desktop` 按当前 Node 原生架构生成完整 ZIP、overlay 升级 ZIP、独立 CLI（Node SEA）以及各自的 SHA-256；产物在 `release-dist/`，不纳入 Git。ARM64 需要在原生 ARM64 + Node 24 环境中执行 `bash scripts/package-desktop.sh <version> arm64`。
+- 发行包的体积由 `electron-builder.yml` 的 `files` 排除规则统一控制。
+- 原生启动器（`src/desktop/native/startup.c`）先用 GTK3 显示 loading 再启动 Electron，加载失败时回退到 Electron 自身的 loading。为了兼容旧系统，x64/ARM64 都在 Ubuntu 20.04 工具链中构建，打包时检查 GLIBC 符号要求不高于 2.17：
 
-默认不继续扩大到 sandbox executor、vector、remote transport、mobile 或插件市场；这些能力只有在明确提出需求并重新评估边界后进入后续版本。
+  ```bash
+  npm run build
+  bash scripts/build-native-startup-container.sh /tmp/pspore-startup   # 需要 Docker
+  PSPORE_NATIVE_STARTUP_BINARY=/tmp/pspore-startup npm run package:desktop
+  ```
+
+- ARM64 包由 `Package Linux ARM64` 工作流在原生 ARM runner 的 Ubuntu 20.04 容器中构建，与银河麒麟 V10 SP1 相同的 glibc 2.31 下完成完整测试和 1920 × 1080 桌面 smoke。
+
+### 发布流程
+
+1. 同步提升 `package.json`、`package-lock.json` 根版本与 `src/version.ts`，运行 `npm run check`，并确认 `git diff --exit-code -- dist` 无差异。
+2. 推送 `main`。CI 通过且同一提交的 ARM64 预览成功后，`release` job 会创建 annotated tag `v<版本>` 并触发 `Release desktop`：x64 与 ARM64 资产先进入草稿 Release，逐项校验 SHA-256 与架构后再公开。仓库变量 `AUTO_RELEASE=false` 可以关闭自动发布。
+3. **每次更新都要同步发布 npm 包 `p-spore`**：只从已跟踪、已验证的 `dist/`、`package.json`、`README.md`、`LICENSE` 生成 tarball，在仓库外的全新 prefix 安装验证后再发布；发布后核对 registry 的版本、`latest` 和校验值，并从 registry 重新安装复验。npm 登录和 2FA 通过浏览器完成，不在命令行传递 token。
+4. 已发布的版本和 tag 不可覆盖；任何用户可见的变化都使用新的 SemVer 版本。
+
+升级用户可以直接运行 overlay 包里的 `覆盖升级.sh`：它校验 Electron 精确版本、平台、架构和完整应用 payload，保留回滚备份并重启匹配的服务；运行时不匹配时拒绝升级并提示使用完整包。

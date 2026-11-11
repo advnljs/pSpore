@@ -574,8 +574,11 @@ select {
 .conversation { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; overflow: hidden; container-type: inline-size; }
 .conversation-header { display: flex; flex-direction: column; align-items: stretch; gap: 0; padding: 17px 24px 15px; border-bottom: 1px solid var(--border-soft); }
 .conversation-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-width: 0; }
-.conversation-heading > div:first-child { min-width: 0; }
-.conversation-header h2 { max-width: min(70%, 780px); margin: 6px 0 0; overflow: hidden; color: var(--text); font: 600 clamp(21px, 1.3vw, 25px)/1.1 var(--font-mono); letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
+/* The title takes the room the status controls leave. A percentage cap on the
+   heading itself resolved against its own content width, so every title lost
+   its last third even beside an empty header. */
+.conversation-heading > div:first-child { flex: 1 1 0; min-width: 0; }
+.conversation-header h2 { max-width: 100%; margin: 6px 0 0; overflow: hidden; color: var(--text); font: 600 clamp(21px, 1.3vw, 25px)/1.1 var(--font-mono); letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
 #session-search-button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); }
 .session-search { display: flex; align-items: center; gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border-soft); }
 .session-search-field { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-input); color: var(--faint); }
@@ -662,8 +665,12 @@ select {
 .md-list li { margin: 5px 0; }
 .md-list li::marker { color: var(--faint); font-variant-numeric: tabular-nums; }
 .md-list .md-list { margin: 5px 0 0; }
-.md-list li.md-task { list-style: none; margin-left: -22px; padding-left: 0; display: flex; align-items: flex-start; gap: 9px; }
-.md-check { flex: 0 0 auto; width: 15px; height: 15px; margin-top: 4px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--live); background: var(--surface-input); font: 700 11px/1 var(--font-mono); }
+/* The item's own line height, carried to the checkbox as a length: `lh` read
+   inside the checkbox would measure the checkbox's much smaller glyph. */
+@property --md-task-line { syntax: "<length>"; inherits: true; initial-value: 24px; }
+.md-list li.md-task { --md-task-line: 1lh; list-style: none; margin-left: -22px; padding-left: 0; display: flex; align-items: flex-start; gap: 9px; }
+/* Centred on the item's first line, whatever line height the message uses. */
+.md-check { flex: 0 0 auto; width: 15px; height: 15px; margin-top: max(0px, calc((var(--md-task-line) - 15px) / 2)); display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 4px; color: var(--live); background: var(--surface-input); font: 700 11px/1 var(--font-mono); }
 .md-check.checked { border-color: color-mix(in srgb, var(--live) 55%, var(--border)); background: var(--live-soft); }
 
 .md-quote { margin: 0 0 14px; padding: 3px 0 3px 15px; border-left: 2px solid var(--border-strong); color: var(--muted); }
@@ -745,16 +752,27 @@ mark.session-find-hit.current { background: color-mix(in srgb, var(--accent) 36%
 .message .process-details { background: transparent; }
 .message .process-summary { line-height: 1.6; overflow-wrap: anywhere; }
 .process-message[data-active="true"] > .process-details { border-color: var(--border-strong); }
-.process-body { min-width: 0; padding: 8px 14px 14px; border-top: 1px solid var(--border-soft); }
-.process-body > .message { margin: 12px 0; }
+/* One even rhythm between steps, whatever mix of reasoning, words and tool
+   cards a run produced; the steps' own margins used to collapse unevenly. */
+.process-body { min-width: 0; display: flex; flex-direction: column; gap: 10px; padding: 12px 14px 14px; border-top: 1px solid var(--border-soft); }
+.process-body > .message,
+.process-body > .tool-call { margin: 0; }
 .process-body .message-meta { font-size: 11.5px; }
+/* Every step in the group is the assistant's; a label on each one repeated
+   what the group already says and crowded the reasoning above it. */
+.process-body > .message.assistant > .message-meta { display: none; }
+.process-body .message-body { font-size: 14.5px; line-height: 1.7; }
 .settled-thinking { margin: 0; }
-.tool-call { min-width: 0; margin-top: 10px; }
+.settled-thinking:not(:last-child) { margin-bottom: 10px; }
+.tool-call { min-width: 0; }
 .message .tool-call-summary { display: flex; align-items: baseline; gap: 10px; line-height: 1.5; }
-.tool-call-summary::before { content: "›"; flex: 0 0 auto; }
-.tool-call > details[open] > .tool-call-summary::before { content: "⌄"; }
+/* One glyph turned, rather than two glyphs that sit on different baselines. */
+.tool-call-summary::before { content: "›"; flex: 0 0 auto; width: 1ch; text-align: center; transition: transform 160ms ease; }
+.tool-call > details[open] > .tool-call-summary::before { transform: rotate(90deg); }
 .tool-call-summary::-webkit-details-marker { display: none; }
-.tool-call-name { flex: 0 1 auto; color: var(--text-soft); overflow-wrap: anywhere; }
+/* A long tool name ends in an ellipsis instead of folding into a one-letter
+   column beside its target when the conversation is narrow. */
+.tool-call-name { flex: 0 0 auto; max-width: 45%; overflow: hidden; color: var(--text-soft); text-overflow: ellipsis; white-space: nowrap; }
 .tool-call-target { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tool-call-status { flex: 0 0 auto; color: var(--muted); font-size: 11.5px; }
 .tool-call-status.error { color: var(--rust); }

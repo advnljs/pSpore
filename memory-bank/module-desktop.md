@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-11-11 折叠过程排版与标题修复
+
+- `renderMessage` 的顺序固定为「角色标签 → 思考 → 正文」。此前思考框插在标签之前且 `.settled-thinking` 无外边距，标签直接压在思考框下沿（用户反馈的折叠内挤压）。
+- `.process-body` 改为 `flex` 列 + `gap: 10px`，子项外边距归零，步骤间距统一；过程内助手步骤隐藏重复的「PSPORE」标签，正文 14.5px；思考框后接内容时留 10px。
+- 工具行：名称不再 `overflow-wrap: anywhere`（窄栏会折成单字竖列），改为单行省略、最多 45%，`title` 显示全名；展开箭头改为同一个 `›` 旋转 90°，不再用基线不同的 `⌄`。
+- 页头标题：`max-width: min(70%, …)` 以自身内容宽度为基准，任何标题都被截掉约三成。现在标题列 `flex: 1 1 0`、h2 `max-width: 100%`，模型名随之完整显示；`#session-title` 带完整 `title` 提示。
+- 任务列表复选框以列表项行高居中：注册 `@property --md-task-line`（`<length>`）在 `li` 上取 `1lh`，避免在复选框内用 `lh` 量到自身 11px 字形。
+- `conversation-smoke.ts` 新增断言：过程内可见步骤间距 ≥ 8px、思考框与后续内容间距 ≥ 8px；短标题 `scrollWidth <= clientWidth`。
+
 ## 2026-11-11 工具过程与 token 指标
 
 - `conversation.ts` 把连续工具调用、中间思考及过程回复组合为一组；运行时展开，完成后默认折叠，最终回复独立。手动展开状态、虚拟列表与搜索穿透保持协同；内容按需挂载。

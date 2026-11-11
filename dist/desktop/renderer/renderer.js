@@ -1367,6 +1367,8 @@ function renderConversation(snapshot) {
     elements.sessionTitle.textContent = child
         ? `${shortId(child.id)} · ${child.objective}`
         : session?.rootSession?.title ?? (snapshot.selectedSessionId === "main" ? "main" : shortId(snapshot.selectedSessionId));
+    // A long title is cut to one line; the whole of it stays a hover away.
+    elements.sessionTitle.title = elements.sessionTitle.textContent ?? "";
     const status = session?.status ?? (child?.status ?? "idle");
     elements.sessionStatus.textContent = status.toUpperCase();
     elements.sessionStatus.className = `status-chip ${status}`;
@@ -1703,6 +1705,7 @@ function renderToolCall(call, result, address, active) {
     const summary = element("summary", "tool-call-summary");
     const name = element("strong", "tool-call-name");
     name.textContent = call.name;
+    name.title = call.name;
     const target = element("span", "tool-call-target");
     target.textContent = toolCallSummary(call);
     target.title = target.textContent;
@@ -1844,8 +1847,11 @@ function renderMessage(message, address) {
     const label = element("span");
     label.textContent = role === "assistant" ? "pSpore" : role;
     meta.append(element("i", "role-dot"), label);
+    // The reasoning reads after the speaker's label and before the reply it led
+    // to; ahead of the label it pressed the label against the box's lower edge.
+    let thought;
     if (message.thinking) {
-        const thought = element("section", "thinking-stream settled-thinking");
+        thought = element("section", "thinking-stream settled-thinking");
         const heading = element("header");
         const title = element("strong");
         title.textContent = "思考";
@@ -1853,7 +1859,6 @@ function renderMessage(message, address) {
         const body = element("div", "thinking-stream-body");
         body.textContent = message.thinking;
         thought.append(heading, body);
-        article.append(thought);
     }
     if (role === "tool") {
         const receipt = parseArticleReceipt(message.text);
@@ -1887,13 +1892,18 @@ function renderMessage(message, address) {
         // A turn that only called a tool has no words of its own. The tool card
         // below already says what happened, so the empty shell is collapsed rather
         // than announced — with the article tool this is every writing turn.
-        if (!message.thinking)
+        if (thought)
+            article.append(thought);
+        else
             article.classList.add("message-silent");
     }
     else {
         const body = element("div", "message-body markdown");
         appendMarkdown(body, message.text || "（空消息）");
-        article.append(meta, body);
+        article.append(meta);
+        if (thought)
+            article.append(thought);
+        article.append(body);
     }
     const truncation = publishedTextTruncation(message.text);
     if (truncation)

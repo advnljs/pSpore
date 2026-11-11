@@ -77,6 +77,20 @@ export async function exerciseConversation(target: BrowserWindow, base: DesktopB
     return name.right <= target.left && target.right <= status.left && status.right <= summary.right
       && input.scrollWidth <= input.clientWidth && card.scrollWidth <= card.clientWidth;
   })`);
+  // Reasoning, a step's own words and tool cards keep a visible gap; the
+  // reasoning box used to sit directly on the label of the reply below it.
+  await wait(`(() => {
+    const steps = Array.from(document.querySelector('.process-body')?.children ?? []).filter((node) => node.getClientRects().length > 0);
+    const thoughts = Array.from(document.querySelectorAll('.process-body .settled-thinking'));
+    return steps.length >= 4 && thoughts.length >= 2
+      && steps.every((node, index) => index === 0 || node.getBoundingClientRect().top - steps[index - 1].getBoundingClientRect().bottom >= 8)
+      && thoughts.every((box) => !box.nextElementSibling || box.nextElementSibling.getBoundingClientRect().top - box.getBoundingClientRect().bottom >= 8);
+  })()`);
+  // A title that fits is shown whole rather than cut to a fraction of itself.
+  await wait(`(() => {
+    const title = document.querySelector('#session-title');
+    return Boolean(title?.textContent) && title.scrollWidth <= title.clientWidth;
+  })()`);
   await capture("expanded");
   await target.webContents.executeJavaScript(`(() => {
     document.querySelector('.process-summary')?.click();
@@ -92,5 +106,5 @@ export async function exerciseConversation(target: BrowserWindow, base: DesktopB
   await wait(`document.documentElement.scrollWidth <= innerWidth && document.querySelector('#transcript').scrollWidth <= document.querySelector('#transcript').clientWidth`);
   await capture("search");
   await target.webContents.executeJavaScript(`document.querySelector('#session-search-close')?.click()`);
-  await writeFile(join(output, "desktop-process.json"), JSON.stringify({ viewport: [1920, 1080], activeExpanded: true, completedCollapsed: true, lazyBody: true, disclosureRetained: true, failureVisible: true, inputSearch: true, longInputsContained: true, summaryLabelsSeparated: true, overflow: false }, null, 2));
+  await writeFile(join(output, "desktop-process.json"), JSON.stringify({ viewport: [1920, 1080], activeExpanded: true, completedCollapsed: true, lazyBody: true, disclosureRetained: true, failureVisible: true, inputSearch: true, longInputsContained: true, summaryLabelsSeparated: true, stepsSpaced: true, titleWhole: true, overflow: false }, null, 2));
 }

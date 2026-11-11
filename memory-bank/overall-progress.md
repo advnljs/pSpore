@@ -1,5 +1,13 @@
 # Overall Progress
 
+## 2026-11-11 14:50 CST — 本机 Linux VM 运行、折叠过程挤压修复与文档改版
+
+- 环境：本机（macOS arm64）无可用容器运行时；唯一现成的 Colima VM 属于 xiaomi-home-setup（启动会连带 Home Assistant），按用户要求先停下，用户选择新建独立 VM。已创建 `COLIMA_HOME=~/Library/pSporeVM` / profile `pspore`（Ubuntu 24.04 aarch64，4 CPU/6 GiB，只挂载本仓库），复用 Colima 缓存镜像；修复镜像失效的 resolv.conf；安装 Node v24.22.2（SHA256 校验）、Xvfb、Noto CJK、Electron 43.3.0（npmmirror）。未触碰 xiaomi 的 VM、容器与配置。细节见 `nav.md`。
+- 定位与修复（`src/desktop/renderer/{renderer.ts,styles.css}`）：① 过程内思考框排在「PSPORE」标签前且无外边距，标签直接压在框下沿——改为「标签 → 思考 → 正文」，过程内隐藏重复标签，`.process-body` 用 flex gap 统一 10px 步距；② 页头标题 `max-width: min(70%, …)` 以自身内容为基准导致任何标题被截掉约三成、模型名同时被挤成省略号——标题列改 `flex: 1 1 0`；③ 工具名在窄栏可折成单字竖列——改单行省略并加 `title`；展开箭头改为同一字形旋转；④ 任务列表复选框比文字高约 3px——按列表项行高居中。`conversation-smoke.ts` 新增步距与标题完整性断言。
+- 文档：英文 README 重写为 Highlights / 目录 / Quick start / 桌面版 / 模型、压缩、审批表 / 日常使用 / 自动化与扩展 / 数据位置 / 安全模型 / 开发；中文 README 同结构，保留信创 PC 定位；`docs/project-overview.md` 改为开发者指南并修复原有错误的相对链接；`docs/detailed-design.md` 加阅读指引与章节目录。新增 `scripts/readme-screenshots.mjs`，用本地演示模型驱动真实应用重新生成 `docs/images/desktop-{light,dark,process}.png`（1920×1080，演示数据，无凭据/私有路径）。
+- 验证（VM 内，Node 24.22.2）：`npm run typecheck` 通过；`npm run check` 320 项中 316 通过、0 失败、4 跳过（`aegis-search-ranking` 需私有索引程序，VM 中缺失，属既有可选跳过）；`PSPORE_ELECTRON_NO_SANDBOX=1 npm run test:electron` 通过，owned/external 两路径 `desktop-process.json` 含 `stepsSpaced: true`、`titleWhole: true`、`overflow: false`；修复前后在 1920×1080 下用压力场景（多段思考、步骤间正文、并行工具、超长命令、失败调用、检查器打开）截图对比并人工查看。VM 构建的 `dist/` 与源码同步回仓库，仅 6 个预期文件变化；文档相对链接与锚点检查通过。证据：`.cache/readme-shots/{before,after}/`、`.cache/ui-stress/{before,after}/`、`.cache/electron-smoke/`（均已忽略）。
+- 当前状态：本次改动已全部 `git add` 暂存，但本机 macOS 未配置 Git `user.name`/`user.email`，按约定不代填身份，因此**尚未提交**；`openai_key.txt` 未暂存。版本仍为 0.1.42。按项目约定，本次属代码更新，需升版 0.1.43 并发布 GitHub Release 与 npm（需用户确认及浏览器授权），已记入 todo。VM 保持运行，可随时复现；未创建系统服务。
+
 ## 2026-11-11 11:55 CST — GitHub 仓库已公开并完成匿名访问核验
 
 - `efa7166` 已提交并推送英文 README、中文 README、MIT LICENSE 和深浅主题截图；GitHub `advnljs/pSpore` 已从 PRIVATE 切换为 **PUBLIC**，许可证识别为 **MIT**。地址：<https://github.com/advnljs/pSpore>。

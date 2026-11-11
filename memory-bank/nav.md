@@ -1,5 +1,8 @@
 # Project Navigation
 
+- **2026-11-11 起的开发主机是 macOS（arm64）**，Linux 运行/截图在 pSpore 专用 Colima VM 中完成（与 xiaomi-home-setup 的 VM 完全分开，不得借用）：`COLIMA_HOME=~/Library/pSporeVM`，profile `pspore`（lima 实例 `colima-pspore`，Ubuntu 24.04 aarch64，4 CPU / 6 GiB，vz + virtiofs，只挂载本仓库）。colima/limactl 二进制借用 `~/Documents/Codex/2026-10-27/zh/work/xiaomi-home-setup/tools/bin/`；操作命令：`LIMA_HOME=~/Library/pSporeVM/_lima <tools>/limactl shell colima-pspore -- bash -c '...'`，启停 `COLIMA_HOME=~/Library/pSporeVM <tools>/colima start|stop pspore`。
+- VM 内：Node v24.22.2 在 `/opt/node`（官方 tarball，SHA256 已校验）；Xvfb、Noto CJK 字体、Electron 运行库已装；`/etc/resolv.conf` 已改为 `nameserver 192.168.5.2`（镜像自带的 stub 链接失效会卡住开机装包）。工作副本 `~/pspore` 由 rsync 从挂载的宿主仓库同步（排除 `node_modules`、`.cache`、`release-dist`、`*_key.txt` 等密钥文件），在 VM 内 `npm ci`/构建/测试，再把 `dist/` 与截图同步回宿主。npm 11.19 默认跳过未授权的 install 脚本，需手动 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js`（npmmirror 明显快于 GitHub）。Chromium 沙箱在该 VM 不可用，GUI 命令加 `PSPORE_ELECTRON_NO_SANDBOX=1`。
+- `scripts/readme-screenshots.mjs`：README 截图脚本。本地按剧本应答的 OpenAI 兼容演示模型 + `--smoke-dir` 隔离 Daemon + CDP（9337）驱动真实桌面应用，生成 `docs/images/desktop-{light,dark,process}.png`；先等 smoke 写出 `desktop-security.json` 再固定 1920×1080 视口，结束时 `window.close()` 让应用与 Daemon 正常退出。
 - `src/pi/context-budget.ts`：模型上下文中的工具输出摘录、私有全文归档及中文 token 估算；`test/unit/context-budget.test.ts` 覆盖截断与权限。`test/contract/pi-runtime-adapter.test.ts` 覆盖长循环压缩、续跑、队列和中止/失败。
 - `test/integration/context-compaction.test.ts`：真实 HTTP/SSE、Daemon、UDS、DesktopStore 的上下文压缩与历史重启恢复、中止回归；临时真实模型验收脚本/报告位于已忽略的 `.cache/backend-validation/`，不提交凭据或临时数据。
 - `src/desktop/renderer/conversation.ts`：过程分组、搜索文本、工具参数摘要；`test/unit/desktop-conversation.test.ts` 为对应回归。
@@ -14,10 +17,11 @@
 | 路径 | 用途 |
 |---|---|
 | `AGENTS.md` | 项目执行约定：每次更新同步 npm、浏览器授权与发布前后实装验证 |
-| `README.md` | npm 展示页：英文、面向 p-spore CLI 安装与用法 |
-| `README.zh-CN.md` | 中文使用说明：信创 PC 适配目标、双架构桌面下载、npm/TUI、模型配置与权限边界 |
-| `LICENSE` / `docs/images/` | MIT 许可证；从 npm 0.1.42 桌面代码实际运行捕获的 1920×1080 深浅主题演示截图，供双语 README 使用 |
-| `docs/project-overview.md` | 中文项目文档：当前状态、安全边界、开发流程与下一步（原 README） |
+| `README.md` | npm 展示页（英文）：Highlights、目录、Quick start、桌面版、模型/压缩/审批表、日常命令、自动化与扩展、数据位置、安全模型、开发入口；图片用 raw.githubusercontent 绝对地址以便 npm 页面显示 |
+| `README.zh-CN.md` | 中文使用说明：与英文同结构，含信创 PC 定位、双架构桌面下载、终端版快速开始、模型配置与权限边界 |
+| `LICENSE` / `docs/images/` | MIT 许可证；`desktop-light/dark/process.png` 由 `scripts/readme-screenshots.mjs` 从真实桌面应用以演示数据生成（1920×1080） |
+| `docs/project-overview.md` | 中文开发者指南：文档地图、架构图、安全边界、目录结构、开发命令、测试与桌面验收、README 截图、打包与发布流程 |
+| `scripts/readme-screenshots.mjs` | 重新生成 README 截图（Linux + xvfb-run，需先 `npm run build`） |
 | `initial_design.txt` | 用户原始 11 条设计思路，不作为最终契约 |
 | `docs/detailed-design.md` | 当前唯一完整详细设计与 v1 验收契约 |
 | `docs/design/desktop-style-comparison.png` | 本轮三种桌面重设计方向的 imagegen 对比稿 |
