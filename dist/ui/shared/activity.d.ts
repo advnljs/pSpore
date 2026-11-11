@@ -22,4 +22,6 @@ export declare function applyCoworkActivityEvent(current: readonly CoworkActivit
 export declare function toolLabel(toolName: string, status: CoworkActivityStatus): string;
 export declare function activityDetailLines(activity: CoworkActivity): string[];
 export declare function formatDuration(durationMs: number): string;
+/** Tool inputs shown in the transcript use the activity panel's redaction policy. */
+export declare function toolInputText(value: unknown): string;
 //# sourceMappingURL=activity.d.ts.map

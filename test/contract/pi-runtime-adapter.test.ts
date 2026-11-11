@@ -155,6 +155,15 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
 
     assert.ok(events.some((event) => event.type === "transcript.item.started"));
     assert.ok(events.some((event) => event.type === "tool.completed"));
+    const history = adapter.transcript("main", { from: 0, limit: 100 }).messages;
+    const call = history.flatMap((message) => message.toolCalls ?? [])[0];
+    assert.ok(call);
+    assert.equal(call.name, "echo_contract_tool");
+    assert.deepEqual(JSON.parse(call.input), { value: "contract" });
+    const result = history.find((message) => message.toolCallId === call.id);
+    assert.equal(result?.toolName, "echo_contract_tool");
+    assert.equal(result?.text, "contract");
+    assert.ok(events.some((event) => event.type === "transcript.item.finished" && Array.isArray((event.payload["item"] as Record<string, unknown>)["toolCalls"])));
     let seq = 0;
     for (const event of events) {
       // The same envelope the kernel broadcasts and the gateway puts on the wire.
@@ -204,6 +213,7 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal(thinking, "private chain of thought");
     assert.equal(text, "public final answer");
     assert.equal(adapter.branch("main").at(-1)?.text, "public final answer");
+    assert.equal(adapter.branch("main").at(-1)?.thinking, "private chain of thought");
     assert.doesNotMatch(adapter.branch("main").at(-1)?.text ?? "", /private chain/);
   });
 

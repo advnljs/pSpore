@@ -364,6 +364,8 @@ export async function startDesktop(options: DesktopArguments, startupWindow: Des
     window.show();
     startup.close();
     await runSmoke(window, bridge, arguments_.smokeDirectory, arguments_.smokeFixture);
+    // Explicit development preview; still uses an isolated smoke home, never systemd.
+    if (process.env["PSPORE_SMOKE_KEEP_OPEN"] === "1") return;
     await bridge.stop();
     requestShutdown(exitCode);
     return;
@@ -1246,6 +1248,10 @@ async function runSmoke(
   };
   await writeFile(join(outputDirectory, "desktop-security.json"), `${JSON.stringify(report, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   assertSmokeReport(report, fixture);
+  if (fixture) {
+    const { exerciseConversation } = await import("./conversation-smoke.js");
+    await exerciseConversation(target, daemonBridge.bootstrap(), outputDirectory);
+  }
 }
 
 /** The shell keeps a 10px gutter below the workspace; anything more is dead space. */

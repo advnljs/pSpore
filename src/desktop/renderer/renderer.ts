@@ -1,7 +1,7 @@
 /// <reference lib="DOM" />
 
 import type { JobDefinition } from "../../automation/types.js";
-import type { SessionView, RuntimeMessage } from "../../domain/runtime.js";
+import type { SessionView, RuntimeMessage, RuntimeToolCall } from "../../domain/runtime.js";
 import type { ResourceCatalogEntry, SkillCatalogEntry, StagedResourceInspection } from "../../plugins/types.js";
 import { publishedTextTruncation } from "../../protocol/limits.js";
 import type { ApprovalRequest } from "../../policy/approval-service.js";
@@ -44,6 +44,7 @@ import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
+import { conversationRows, conversationRowText, isToolMessage, toolCallSummary, type ConversationRow } from "./conversation.js";
 import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
 import { createSessionSearch } from "./session-search.js";
 import {
@@ -125,7 +126,8 @@ interface TranscriptRenderState {
   nodes: Map<string, HTMLElement>;
   measureFrame: number | undefined;
   messageSource: readonly RuntimeMessage[] | undefined;
-  items: Array<{ key: string; message: RuntimeMessage; address: MessageAddress }>;
+  items: ConversationRow[];
+  running: boolean;
   hasStreaming: boolean;
   followTail: boolean;
   /** Message kept rendered while session search is showing one of its hits. */
@@ -151,6 +153,7 @@ const transcriptState: TranscriptRenderState = {
   measureFrame: undefined,
   messageSource: undefined,
   items: [],
+  running: false,
   hasStreaming: false,
   followTail: true,
   pinnedIndex: undefined,
@@ -178,6 +181,9 @@ type MessageAddress = { id: string } | { index: number };
  */
 const fullMessageTexts = new Map<string, string>();
 const loadingFullText = new Set<string>();
+const processViews = new Map<string, { node: HTMLElement; details: HTMLDetailsElement; summary: HTMLElement; body: HTMLElement; active: boolean }>();
+/** Kept separately from the DOM cache so scrolling does not reset disclosure. */
+const disclosureStates = new Map<string, boolean>();
 
 const elements = {
   appShell: byId<HTMLElement>("app-shell"),
@@ -1478,6 +1484,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
     if (transcriptState.measureFrame !== undefined) cancelAnimationFrame(transcriptState.measureFrame);
     transcriptState.heights = new VirtualHeightIndex(180);
     transcriptState.nodes.clear();
+    processViews.clear();
     transcriptState.messageSource = undefined;
     transcriptState.items = [];
     transcriptState.hasStreaming = false;
@@ -1497,18 +1504,21 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   }
 
   const hasStreaming = Boolean(streaming || thinking);
-  const messagesChanged = transcriptState.messageSource !== messages;
+  const running = status === "running";
+  const messagesChanged = transcriptState.messageSource !== messages || transcriptState.running !== running;
   if (messagesChanged) {
     transcriptState.messageSource = messages;
+    transcriptState.running = running;
     // Keyed by absolute transcript position, so prepending older history keeps
     // the keys — and therefore the measured heights — of what is on screen.
-    transcriptState.items = messages.map((message, index) => {
+    const resolvedMessages = messages.map((message, index) => {
       const address: MessageAddress = message.id === undefined ? { index: offset + index } : { id: message.id };
       // A message restored in full replaces the cut copy the daemon published.
       const restored = fullMessageTexts.get(fullTextKey(snapshot.selectedSessionId, address));
       const resolved = restored === undefined ? message : { ...message, text: restored };
-      return { key: messageVirtualKey(resolved, offset + index), message: resolved, address };
+      return resolved;
     });
+    transcriptState.items = conversationRows(resolvedMessages, offset, running);
   }
   if (messagesChanged || transcriptState.hasStreaming !== hasStreaming) {
     transcriptState.hasStreaming = hasStreaming;
@@ -1555,8 +1565,9 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
       stream.update(streaming ?? "", thinking ?? "");
       node = stream.node;
     } else {
-      const before = transcriptState.nodes.get(key);
-      node = cachedMessage(key, item?.message ?? { role: "assistant", text: "" }, item?.address ?? { index });
+      if (!item) continue;
+      const before = item.kind === "process" ? processViews.get(key)?.node : transcriptState.nodes.get(messageVirtualKey(item.entry.message, item.entry.index));
+      node = item.kind === "process" ? renderProcess(item, transcriptState.pinnedIndex === index) : cachedEntry(item.entry);
       if (before !== node) appeared.push(node);
     }
     node.dataset["virtualKey"] = key;
@@ -1591,13 +1602,7 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
 }
 
 function currentSessionTexts(snapshot: DesktopStoreSnapshot): string[] {
-  const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
-  const messages = session?.messages ?? [];
-  const offset = session?.messageOffset ?? 0;
-  const texts = messages.map((message, index) => {
-    const address: MessageAddress = message.id === undefined ? { index: offset + index } : { id: message.id };
-    return fullMessageTexts.get(fullTextKey(snapshot.selectedSessionId, address)) ?? message.text;
-  });
+  const texts = transcriptState.items.map(conversationRowText);
   const streaming = snapshot.streamingText[snapshot.selectedSessionId] ?? "";
   const thinking = snapshot.streamingThinking[snapshot.selectedSessionId] ?? "";
   if (streaming || thinking) texts.push(`${thinking}${thinking && streaming ? "\n" : ""}${streaming}`);
@@ -1612,6 +1617,10 @@ function cachedMessage(key: string, message: RuntimeMessage, address: MessageAdd
     return cached;
   }
   const node = renderMessage(message, address);
+  return cacheMessageNode(key, node);
+}
+
+function cacheMessageNode(key: string, node: HTMLElement): HTMLElement {
   transcriptState.nodes.set(key, node);
   while (transcriptState.nodes.size > 128) {
     const oldest = transcriptState.nodes.keys().next().value as string | undefined;
@@ -1682,7 +1691,135 @@ function selectedTranscriptNode(): HTMLElement | undefined {
 }
 
 function messageVirtualKey(message: RuntimeMessage, index: number): string {
-  return `${index}:${message.role}:${message.text.length}:${textFingerprint(message.text)}`;
+  return `${index}:${textFingerprint(JSON.stringify(message))}`;
+}
+
+function cachedEntry(entry: { message: RuntimeMessage; index: number }): HTMLElement {
+  const { message, index } = entry;
+  return cachedMessage(messageVirtualKey(message, index), message, message.id === undefined ? { index } : { id: message.id });
+}
+
+function rememberDisclosure(key: string, open: boolean): void {
+  disclosureStates.delete(key);
+  disclosureStates.set(key, open);
+  while (disclosureStates.size > 512) {
+    const oldest = disclosureStates.keys().next().value;
+    if (oldest === undefined) break;
+    disclosureStates.delete(oldest);
+  }
+}
+
+function renderProcess(row: Extract<ConversationRow, { kind: "process" }>, searchHit: boolean): HTMLElement {
+  const stateKey = `${transcriptState.sessionId}:${row.key}`;
+  let view = processViews.get(row.key);
+  if (!view) {
+    const node = element("article", "message process-message");
+    const details = document.createElement("details");
+    details.className = "process-details";
+    const summary = element("summary", "process-summary");
+    const body = element("div", "process-body");
+    details.open = disclosureStates.get(`${stateKey}:${row.active}`) ?? row.active;
+    details.append(summary, body);
+    node.append(details);
+    view = { node, details, summary, body, active: row.active };
+    const current = view;
+    details.addEventListener("toggle", () => {
+      rememberDisclosure(`${stateKey}:${current.active}`, details.open);
+      scheduleTranscriptMeasurement();
+      scheduleTranscriptRender();
+    });
+    processViews.set(row.key, view);
+    if (processViews.size > 128) {
+      const oldest = processViews.keys().next().value;
+      if (oldest !== undefined) processViews.delete(oldest);
+    }
+  }
+  if (view.active !== row.active) {
+    view.active = row.active;
+    view.details.open = disclosureStates.get(`${stateKey}:${row.active}`) ?? row.active;
+  }
+  const calls = row.entries.flatMap(({ message }) => message.toolCalls ?? []);
+  const ids = new Set(calls.map((call) => call.id));
+  const results = new Map(row.entries.flatMap((entry) => entry.message.toolCallId ? [[entry.message.toolCallId, entry] as const] : []));
+  const orphanResults = row.entries.filter(({ message }) => isToolMessage(message) && (!message.toolCallId || !ids.has(message.toolCallId)));
+  const count = calls.length + orphanResults.length;
+  const names = [...new Set([...calls.map((call) => call.name), ...orphanResults.map(({ message }) => message.toolName ?? "工具")])];
+  const failed = row.entries.some(({ message }) => message.isError);
+  const label = `${row.active ? "思考与执行中" : "思考与执行过程"}${count ? ` · ${count} 次工具调用` : ""}${names.length ? ` · ${names.join("、")}` : ""}${failed ? " · 含失败调用" : ""}`;
+  if (view.summary.textContent !== label) view.summary.textContent = label;
+  view.summary.title = label;
+  view.node.dataset["active"] = String(row.active);
+  if (searchHit) view.details.open = true;
+  // A completed run can contain hundreds of steps; mount them only on demand.
+  if (!view.details.open) {
+    reconcileChildren(view.body, []);
+    return view.node;
+  }
+  const children: HTMLElement[] = [];
+  for (const entry of row.entries) {
+    const message = entry.message;
+    if (isToolMessage(message)) {
+      if (!message.toolCallId || !ids.has(message.toolCallId)) children.push(cachedEntry(entry));
+      continue;
+    }
+    if (message.thinking || message.text.trim()) children.push(cachedEntry({ ...entry, message: { ...message, toolCalls: [] } }));
+    for (const call of message.toolCalls ?? []) {
+      const result = results.get(call.id);
+      const key = `call:${call.id}:${textFingerprint(call.input)}:${result ? messageVirtualKey(result.message, result.index) : row.active}`;
+      let card = transcriptState.nodes.get(key);
+      if (!card) {
+        card = renderToolCall(call, result?.message, result ? (result.message.id ? { id: result.message.id } : { index: result.index }) : undefined, row.active);
+        cacheMessageNode(key, card);
+      }
+      children.push(card);
+    }
+  }
+  for (const child of children) {
+    delete child.dataset["virtualKey"];
+    delete child.dataset["virtualIndex"];
+    child.removeAttribute("aria-posinset");
+    child.removeAttribute("aria-setsize");
+  }
+  reconcileChildren(view.body, children);
+  return view.node;
+}
+
+function renderToolCall(call: RuntimeToolCall, result: RuntimeMessage | undefined, address: MessageAddress | undefined, active: boolean): HTMLElement {
+  const card = element("section", "tool-call");
+  const details = document.createElement("details");
+  const stateKey = `${transcriptState.sessionId}:tool:${call.id}`;
+  details.open = disclosureStates.get(stateKey) ?? !result;
+  const summary = element("summary", "tool-call-summary");
+  const name = element("strong", "tool-call-name");
+  name.textContent = call.name;
+  const target = element("span", "tool-call-target");
+  target.textContent = toolCallSummary(call);
+  target.title = target.textContent;
+  const status = element("span", `tool-call-status${result?.isError ? " error" : ""}`);
+  status.textContent = result ? (result.isError ? "失败" : "完成") : active ? "执行中" : "未完成";
+  summary.append(name, target, status);
+  const inputLabel = element("div", "tool-section-label");
+  inputLabel.textContent = "输入";
+  const input = element("pre", "tool-call-input");
+  input.textContent = call.input;
+  details.append(summary, inputLabel, input);
+  if (result) {
+    const label = element("div", "tool-section-label");
+    label.textContent = "输出";
+    const output = element("pre", "tool-call-output");
+    output.textContent = result.text || "（无输出）";
+    details.append(label, output);
+    const truncation = publishedTextTruncation(result.text);
+    if (truncation && address) details.append(truncationNotice(address, truncation));
+  }
+  details.addEventListener("toggle", () => {
+    rememberDisclosure(stateKey, details.open);
+    scheduleTranscriptMeasurement();
+  });
+  card.append(details);
+  // Preserve the document action even when the raw tool input/output is closed.
+  if (result && parseArticleReceipt(result.text)) card.append(renderMessage(result, address ?? { index: 0 }));
+  return card;
 }
 
 function textFingerprint(value: string): string {
@@ -1798,6 +1935,17 @@ function renderMessage(message: RuntimeMessage, address: MessageAddress): HTMLEl
   const label = element("span");
   label.textContent = role === "assistant" ? "pSpore" : role;
   meta.append(element("i", "role-dot"), label);
+  if (message.thinking) {
+    const thought = element("section", "thinking-stream settled-thinking");
+    const heading = element("header");
+    const title = element("strong");
+    title.textContent = "思考";
+    heading.append(title);
+    const body = element("div", "thinking-stream-body");
+    body.textContent = message.thinking;
+    thought.append(heading, body);
+    article.append(thought);
+  }
   if (role === "tool") {
     const receipt = parseArticleReceipt(message.text);
     if (receipt) {
@@ -1819,17 +1967,17 @@ function renderMessage(message: RuntimeMessage, address: MessageAddress): HTMLEl
     }
     const details = element("details");
     const summary = element("summary");
-    summary.textContent = `工具输出 · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · 点击展开`;
+    summary.textContent = `${message.toolName ?? "工具输出"}${message.isError ? " · 失败" : ""} · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · 点击展开`;
     const pre = element("pre");
     pre.textContent = message.text || "（无输出）";
     details.append(summary, pre);
+    details.addEventListener("toggle", scheduleTranscriptMeasurement);
     article.append(meta, details);
   } else if (role === "assistant" && message.text.trim() === "") {
     // A turn that only called a tool has no words of its own. The tool card
     // below already says what happened, so the empty shell is collapsed rather
     // than announced — with the article tool this is every writing turn.
-    article.classList.add("message-silent");
-    article.append(meta);
+    if (!message.thinking) article.classList.add("message-silent");
   } else {
     const body = element("div", "message-body markdown");
     appendMarkdown(body, message.text || "（空消息）");
@@ -1986,7 +2134,7 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
     const title = element("b");
     const state = element("span", `state-dot ${activity.status}`);
     state.setAttribute("aria-label", activity.status);
-    title.append(state, text(activity.label));
+    title.append(state, text(activity.type.startsWith("tool.") && activity.toolName ? `${activity.toolName} · ${activity.label}` : activity.label));
     const time = element("time") as HTMLTimeElement;
     time.textContent = clockTime(activity.ts);
     time.dateTime = activity.ts;

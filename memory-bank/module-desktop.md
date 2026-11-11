@@ -84,7 +84,9 @@ preload 仅暴露：
 - 流式气泡建一次、就地更新（`createStreamingView`）。思考正文写进同一个 Text 节点；正文走 `createMarkdownSurface`，按 `src/ui/shared/markdown-stream.ts` 的块 key 公共前缀只重建解析结果真正变了的块，所以已经写出来的段落连同其中的选区都留在原地。思考区与正文区用 `hidden` 开关而不是增删——smoke 探针因此要用 `:not([hidden])` 选择它们。
 - 读者按住选区时，贴底跟随让位，虚拟窗口也会保住那条消息（`VirtualHeightIndex.range(..., keep)`）；超出 40 条的旧滚动历史仍然放手，否则要把中间几千条一起渲染。
 - transcript 使用显式 `followTail` 状态：首次进入/切换 session 默认贴底，滚离底部 24px 以上即暂停；浏览历史期间普通 render、异步高度测量与 streaming delta 都不得修改用户滚动位置，重新到达底部后才恢复自动跟随。高度测量回调必须读取最新状态，不能捕获上一帧的贴底布尔值。
-- reasoning 使用独立的“思考中”临时面板，正文仍走 Markdown renderer；两者可同时可见但不混排，`message.completed` 或 run 结束后面板自动移除，且不进入历史消息 DOM 缓存。
+- reasoning 流式时使用独立面板，完成后通过 `RuntimeMessage.thinking` 保留在过程组，仍不混入最终正文。`conversation.ts` 按连续工具步骤分组，结束后默认折叠，最终回复独立显示；展开状态有界缓存。已折叠组按需挂载内部节点，搜索会展开所有祖先 details。
+- 工具调用通过 `toolCalls` / `toolCallId` 配对，标题显示工具名与命令/路径等参数，展开显示输入和输出；输入沿用活动面板脱敏及长度限制，article 继续使用正文发布裁剪。结果缺少调用历史时保留旧格式工具输出卡。
+- `conversation-smoke.ts` 在真实 Electron 中验证执行、结束折叠、展开状态保留、失败标记、输入搜索与横向溢出。`PSPORE_SMOKE_KEEP_OPEN=1` 可在显式 smoke 模式验收后保留隔离预览窗口；关闭窗口仍会清理自有 Daemon。
 - snapshot 是权威恢复点；renderer event gap 不猜状态，main bridge 断开并重新获取 snapshot。
 - 桌面启动先以 create-only 方式初始化 home，再安装/更新 systemd user unit 并 `enable --now`；renderer 只连接 UDS。退出只关闭 bridge，不停止服务。smoke 路径显式绕过 systemd，防止测试污染真实用户服务。
 - systemd directive 必须按各自语法生成：`ExecStart`/`Environment` 可逐参数加引号，`WorkingDirectory` 不得用同一个整值 quoting helper；systemd 245 会把该引号当成路径字节并报“path is not absolute”。路径保留合法空格，只对 `%` specifier 做 `%%` 转义。

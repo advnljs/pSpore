@@ -201,7 +201,14 @@ export function applyProtocolEvent(current, event) {
                     ...kernel.sessions,
                     [streamSessionId]: {
                         ...existing,
-                        messages: [...existing.messages, { role: item["role"], text: item["text"] }],
+                        messages: [...existing.messages, {
+                                role: item["role"], text: item["text"],
+                                ...(typeof item["thinking"] === "string" ? { thinking: item["thinking"] } : {}),
+                                ...(Array.isArray(item["toolCalls"]) ? { toolCalls: item["toolCalls"].filter(isRuntimeToolCall) } : {}),
+                                ...(typeof item["toolCallId"] === "string" ? { toolCallId: item["toolCallId"] } : {}),
+                                ...(typeof item["toolName"] === "string" ? { toolName: item["toolName"] } : {}),
+                                ...(typeof item["isError"] === "boolean" ? { isError: item["isError"] } : {}),
+                            }],
                         messageCount: existing.messageCount + 1,
                     },
                 },
@@ -298,6 +305,9 @@ function selectAvailable(selected, kernel) {
 }
 function asRecord(value) {
     return isRecord(value) ? value : {};
+}
+function isRuntimeToolCall(value) {
+    return isRecord(value) && typeof value["id"] === "string" && typeof value["name"] === "string" && typeof value["input"] === "string";
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);

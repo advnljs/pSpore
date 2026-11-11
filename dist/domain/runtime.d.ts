@@ -50,6 +50,18 @@ export interface RuntimeMessage {
     id?: string;
     role: string;
     text: string;
+    /** Model-provided reasoning kept separate from the final answer. */
+    thinking?: string;
+    toolCalls?: readonly RuntimeToolCall[];
+    toolCallId?: string;
+    toolName?: string;
+    isError?: boolean;
+}
+export interface RuntimeToolCall {
+    id: string;
+    name: string;
+    /** Display-only JSON; article bodies retain their existing publication policy. */
+    input: string;
 }
 export interface RuntimeQueueSnapshot {
     steering: readonly string[];
@@ -124,12 +136,10 @@ export interface TranscriptMessageSlice {
  * around it. Pi's own client/server protocol, Codex and OpenClaw all address
  * conversation state this way.
  */
-export interface TranscriptItem {
+export interface TranscriptItem extends RuntimeMessage {
     id: string;
     role: string;
     text: string;
-    /** Hidden reasoning, shown only while the item is still streaming. */
-    thinking?: string;
     status: "streaming" | "complete" | "error" | "aborted";
     ts: string;
 }

@@ -1,5 +1,10 @@
 # Architecture
 
+## 2026-11-11 变更：对话过程分组
+
+- RuntimeMessage 增加可选思考、工具调用输入/名称/关联 ID 和失败状态；Pi 历史与完成事件统一映射，旧消息仍兼容。工具输入展示复用已有脱敏，未改变模型上下文或持久化格式。
+- 桌面以 ConversationRow 作为虚拟列表单位：连续执行过程一个可折叠行，最终回复单独一行。原始消息地址继续用于分页取全文；搜索改以显示行定位，穿透嵌套折叠。
+
 ## 2026-10-12 变更：原生首帧先于 Electron
 
 - 已安装的桌面/任务栏稳定 launcher 优先执行 `resources/native/pspore-startup`。独立 GTK3 进程绘制 loading，在 GDK `after-paint` 完成并同步显示连接后才启动 Electron；不再依赖 Chromium 初始化才能反馈。

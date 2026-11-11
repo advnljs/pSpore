@@ -1,4 +1,4 @@
-import type { RuntimeMessage, SessionMetadata, SessionView } from "../../domain/runtime.js";
+import type { RuntimeMessage, RuntimeToolCall, SessionMetadata, SessionView } from "../../domain/runtime.js";
 import { initialKernelState, type KernelState } from "../../kernel/state.js";
 import type { EventEnvelope } from "../../protocol/schema.js";
 
@@ -235,7 +235,14 @@ export function applyProtocolEvent(current: ProtocolUiState, event: EventEnvelop
           ...kernel.sessions,
           [streamSessionId]: {
             ...existing,
-            messages: [...existing.messages, { role: item["role"], text: item["text"] }],
+            messages: [...existing.messages, {
+              role: item["role"], text: item["text"],
+              ...(typeof item["thinking"] === "string" ? { thinking: item["thinking"] } : {}),
+              ...(Array.isArray(item["toolCalls"]) ? { toolCalls: item["toolCalls"].filter(isRuntimeToolCall) } : {}),
+              ...(typeof item["toolCallId"] === "string" ? { toolCallId: item["toolCallId"] } : {}),
+              ...(typeof item["toolName"] === "string" ? { toolName: item["toolName"] } : {}),
+              ...(typeof item["isError"] === "boolean" ? { isError: item["isError"] } : {}),
+            }],
             messageCount: existing.messageCount + 1,
           },
         },
@@ -336,6 +343,10 @@ function selectAvailable(selected: string, kernel: KernelState): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
+}
+
+function isRuntimeToolCall(value: unknown): value is RuntimeToolCall {
+  return isRecord(value) && typeof value["id"] === "string" && typeof value["name"] === "string" && typeof value["input"] === "string";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

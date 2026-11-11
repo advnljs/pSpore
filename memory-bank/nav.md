@@ -1,5 +1,9 @@
 # Project Navigation
 
+- `src/desktop/renderer/conversation.ts`：过程分组、搜索文本、工具参数摘要；`test/unit/desktop-conversation.test.ts` 为对应回归。
+- `src/desktop/conversation-smoke.ts`：由既有 Electron smoke 调用的 1920×1080 工具过程交互验收。
+- 隔离持续预览：构建后以 `PSPORE_SMOKE_KEEP_OPEN=1 electron dist/desktop/main.js --home <隔离目录> --smoke-dir <截图目录> --smoke-fixture` 启动；沿用 smoke 的独立 Daemon，不安装系统服务。
+
 ## 当前重要文件
 
 | 路径 | 用途 |

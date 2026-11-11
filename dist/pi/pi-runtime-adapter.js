@@ -6,6 +6,7 @@ import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../articles/
 import { ArticlePreviewBus } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
+import { toolInputText } from "../ui/shared/activity.js";
 export class PiRuntimeAdapter {
     #agentDir;
     #sessionRoot;
@@ -584,9 +585,8 @@ export class PiRuntimeAdapter {
         const streaming = record.streaming ?? this.#beginItem(record, message);
         record.streaming = undefined;
         return {
+            ...toRuntimeMessage(message),
             id: streaming.id,
-            role: typeof asRecord(message)["role"] === "string" ? asRecord(message)["role"] : streaming.role,
-            text: messageText(message),
             status: "complete",
             ts: streaming.startedAt,
         };
@@ -704,9 +704,22 @@ function toBranchMessage(entry) {
 }
 function toRuntimeMessage(message) {
     const candidate = asRecord(message);
+    const content = Array.isArray(candidate["content"]) ? candidate["content"].map(asRecord) : [];
+    const thinking = content.filter((block) => block["type"] === "thinking" && typeof block["thinking"] === "string")
+        .map((block) => block["thinking"]).join("\n");
+    const toolCalls = content.flatMap((block) => {
+        if (block["type"] !== "toolCall" || typeof block["id"] !== "string" || typeof block["name"] !== "string")
+            return [];
+        return [{ id: block["id"], name: block["name"], input: toolInputText(publishedArticleValue(block["name"], block["arguments"] ?? {})) }];
+    });
     return {
         role: typeof candidate["role"] === "string" ? candidate["role"] : "unknown",
         text: messageText(message),
+        ...(thinking ? { thinking } : {}),
+        ...(toolCalls.length ? { toolCalls } : {}),
+        ...(typeof candidate["toolCallId"] === "string" ? { toolCallId: candidate["toolCallId"] } : {}),
+        ...(typeof candidate["toolName"] === "string" ? { toolName: candidate["toolName"] } : {}),
+        ...(typeof candidate["isError"] === "boolean" ? { isError: candidate["isError"] } : {}),
     };
 }
 function isNodeError(error) {

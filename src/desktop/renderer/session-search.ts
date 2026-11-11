@@ -26,7 +26,7 @@ export interface SessionSearchController {
   paint(): void;
 }
 
-const FIND_ROOT = ".message-body, .thinking-stream-body, details pre, .article-receipt";
+const FIND_ROOT = ".message-body, .thinking-stream-body, details pre, .tool-call-name, .article-receipt";
 
 /**
  * Find bar for the open session. Matches come from the transcript texts, not
@@ -232,8 +232,11 @@ export function createSessionSearch(options: SessionSearchOptions): SessionSearc
       requestAnimationFrame(() => {
         const mark = options.transcript.querySelector("mark.session-find-hit.current");
         if (!(mark instanceof HTMLElement)) return;
-        const details = mark.closest("details");
-        if (details instanceof HTMLDetailsElement && !details.open) details.open = true;
+        let ancestor: HTMLElement | null = mark.parentElement;
+        while (ancestor && ancestor !== options.transcript) {
+          if (ancestor instanceof HTMLDetailsElement && !ancestor.open) ancestor.open = true;
+          ancestor = ancestor.parentElement;
+        }
         const box = options.transcript.getBoundingClientRect();
         const rect = mark.getBoundingClientRect();
         if (rect.top < box.top + 12 || rect.bottom > box.bottom - 12) {

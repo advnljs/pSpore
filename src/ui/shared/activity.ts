@@ -326,6 +326,11 @@ function activityDetail(value: unknown, previous: string | undefined): string | 
   }
 }
 
+/** Tool inputs shown in the transcript use the activity panel's redaction policy. */
+export function toolInputText(value: unknown): string {
+  return JSON.stringify(redactValue(value, 0), null, 2) ?? "{}";
+}
+
 function redactValue(value: unknown, depth: number): unknown {
   if (depth > 8) return "[depth limited]";
   if (typeof value === "string") return redactText(value.length > 4_000 ? `${value.slice(0, 4_000)}…` : value);

@@ -273,7 +273,7 @@ function validateTranscriptItem(value: unknown, path: string): void {
   identifier(item["id"], `${path}.id`);
   boundedString(item["role"], `${path}.role`, 128);
   boundedString(item["text"], `${path}.text`, MAX_STRING_LENGTH, true);
-  if (item["thinking"] !== undefined) boundedString(item["thinking"], `${path}.thinking`, MAX_STRING_LENGTH, true);
+  validateMessageDetails(item, path);
   const status = item["status"];
   if (status !== "streaming" && status !== "complete" && status !== "error" && status !== "aborted") {
     throw new Error(`${path}.status is invalid`);
@@ -287,6 +287,23 @@ function validateMessageArray(value: unknown, path: string): void {
     const message = record(item, `${path}[${index}]`);
     boundedString(message["role"], `${path}[${index}].role`, 128);
     boundedString(message["text"], `${path}[${index}].text`, MAX_STRING_LENGTH, true);
+    validateMessageDetails(message, `${path}[${index}]`);
+  }
+}
+
+function validateMessageDetails(message: Record<string, unknown>, path: string): void {
+  if (message["thinking"] !== undefined) boundedString(message["thinking"], `${path}.thinking`, MAX_STRING_LENGTH, true);
+  optionalBoundedString(message["toolCallId"], `${path}.toolCallId`, MAX_STRING_LENGTH);
+  optionalBoundedString(message["toolName"], `${path}.toolName`, MAX_STRING_LENGTH);
+  if (message["isError"] !== undefined && typeof message["isError"] !== "boolean") throw new Error(`${path}.isError is invalid`);
+  if (message["toolCalls"] === undefined) return;
+  const calls = message["toolCalls"];
+  if (!Array.isArray(calls) || calls.length > MAX_COLLECTION_ENTRIES) throw new Error(`${path}.toolCalls is invalid`);
+  for (const [index, call] of calls.entries()) {
+    const value = record(call, `${path}.toolCalls[${index}]`);
+    boundedString(value["id"], `${path}.toolCalls[${index}].id`, MAX_STRING_LENGTH);
+    boundedString(value["name"], `${path}.toolCalls[${index}].name`, MAX_STRING_LENGTH);
+    boundedString(value["input"], `${path}.toolCalls[${index}].input`, MAX_STRING_LENGTH, true);
   }
 }
 

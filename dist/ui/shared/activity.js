@@ -309,6 +309,10 @@ function activityDetail(value, previous) {
         return previous;
     }
 }
+/** Tool inputs shown in the transcript use the activity panel's redaction policy. */
+export function toolInputText(value) {
+    return JSON.stringify(redactValue(value, 0), null, 2) ?? "{}";
+}
 function redactValue(value, depth) {
     if (depth > 8)
         return "[depth limited]";

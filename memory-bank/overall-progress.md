@@ -1,5 +1,13 @@
 # Overall Progress
 
+## 2026-11-11 09:24 CST — 工具输入、摘要与整轮过程折叠
+
+- 完成：Pi 历史与完成事件保留独立思考、工具名称、已脱敏输入及结果关联；桌面连续工具过程完成后自动折叠，最终回复独立显示。标题展示工具名和关键参数、失败状态；重新展开、按需挂载内容与折叠内搜索已接入。
+- 修改：`domain/runtime.ts`、`pi/pi-runtime-adapter.ts`、共享 protocol-state/activity、desktop validation、renderer/conversation/search/styles、Electron smoke 与对应测试；同步已跟踪 dist。
+- 验证：`npm run check` 307/307 测试、typecheck/build 通过；真实 Electron 43 owned/external 两条路径通过。新增 1920×1080 测试覆盖运行中展开、完成折叠、输入/输出、失败标记、手动状态保留、搜索穿透与无横向溢出；截图已人工查看。最终轻量标题调整随构建同步。
+- 状态：阶段实现已完成；本地临时 smoke 窗口已正常退出，Xvfb 验收环境保留。完成第二阶段后启动最新隔离预览。未修改原有未跟踪 refer/，未新增生产依赖或发布版本。
+- 遗留：上下文累计指标误标与长工具循环中不检查压缩，下一阶段处理。
+
 ## 2026-10-30 18:12 CST — v0.1.41 已公开
 
 - 源码 `4708b4daf7fe70dffcc9013f2fc802e06a7d7be2` 已在 `main`。CI `41037757307`、ARM64 preview `41037757406`、Release `41038360513` 全部成功。annotated `v0.1.41` 解引用到该提交，`2026-10-30T10:12:24Z` 公开，非 draft，共 12 项 x64/ARM64 资产：<https://github.com/advnljs/pSpore/releases/tag/v0.1.41>。
