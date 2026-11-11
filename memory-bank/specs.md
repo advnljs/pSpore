@@ -1,5 +1,12 @@
 # Specifications
 
+## 2026-11-11 npm 同步发布要求（长期有效）
+
+- 用户要求根据最新代码更新 npm 包 `p-spore`，并明确以后每次更新 p-spore 都要同步更新 npm；npm 发布及 registry 实装验证纳入每次代码更新的完成条件。
+- 如 npm 发布需要授权，必须弹出浏览器让用户完成 npm web 登录/2FA，不索取、读取或记录 token/OTP。
+- 沿用已发布版本不可变规则。补齐当前未发布到 npm 的代码版本时不无故另升版；已有 npm 版本不能覆盖。仅同步文档或发布记录不触发重复发布。
+- 每次发布前完成 `npm run check`、tarball 范围及全新 prefix 安装验证，发布后核对 registry `latest`、版本、校验值并从 registry 实装复验；不能仅凭 GitHub Release 判定 npm 已更新。
+
 ## 2026-11-11 发布前详细验收
 
 - 用户要求先详细完成后端验证，通过后进行真实 GUI 验收，最后发布新版本。

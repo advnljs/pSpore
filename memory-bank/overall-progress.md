@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-11 11:33 CST — npm 0.1.42 候选验证与长期发布约定
+
+- 目标：把最新代码补发到 npm，并落实用户“以后每次更新 p-spore 都更新 npm；需要授权时弹出浏览器”的长期要求。
+- 现状核对：本地与 origin/main 均为 `95b76a9`，运行代码、README、依赖及构建脚本与已公开的 0.1.42 源码提交 `0ed203e` 一致；npm `latest` 仍为 0.1.4。未覆盖历史版本、未调整依赖或应用源码。
+- 完成：新增根 `AGENTS.md`，同步 `memory-bank/specs.md`、`nav.md`、`todo.md`，把 npm 发布、浏览器认证和发布后实装验证纳入更新完成条件。
+- 验证：Node 24.19.0/npm 11.17.0 下 `npm run check` 严格类型检查、320/320 测试（0 跳过）、生产 build 均通过；`git diff --exit-code -- dist` 通过。完整日志在已忽略的 `.cache/npm-release/0.1.42/check.log`。
+- 候选：只从已跟踪且经过上述验证的 `package.json`、README 和 dist 生成 tarball，排除本地桌面打包下载的原生二进制；共 524 文件、697080 bytes，SHA-1 `5a9c5849b4af7112d4b402141e3e461a3ce8822d`。包清单、双 bin、无 Electron 生产依赖与 `npm publish --dry-run` 检查通过。`--ignore-scripts` 仅用于已经完成完整检查后的干净 staging 打包与 tarball 发布预演。
+- 实装：全新 prefix/cache 从候选 tgz 安装成功；在仓库外验证两个命令的版本/帮助、init/doctor/status/jobs/skills/sessions，全部 524 文件逐字匹配候选，隔离 Daemon ready 并干净退出（0）。证据 `.cache/npm-release/0.1.42/local-verification.json`；未安装或重启用户生产服务。本轮无 UI 改动，无新增 viewport 验收。
+- 当前状态：候选可发布；浏览器 npm 登录已调起，等待用户授权后正式上传及 registry 复验。未修改原有未跟踪 `refer/`。
+
 ## 2026-11-11 10:52 CST — v0.1.42 双架构发布与公开升级包核验完成
 
 - 发布：源码/版本提交 `0ed203e030221d6461451f2e4bce23c5a4416f03` 已推送 `main`。CI `42947498658`、ARM64 preview `42947498669`、Release `42948011474` 全部成功；annotated `v0.1.42` 解引用到该提交。Release 于 `2026-11-11T02:49:49Z` 公开，非 draft/prerelease，共 12 项 x64/ARM64 全量包、overlay、CLI 及校验文件：<https://github.com/advnljs/pSpore/releases/tag/v0.1.42>。

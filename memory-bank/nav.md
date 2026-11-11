@@ -12,6 +12,7 @@
 
 | 路径 | 用途 |
 |---|---|
+| `AGENTS.md` | 项目执行约定：每次更新同步 npm、浏览器授权与发布前后实装验证 |
 | `README.md` | npm 展示页：英文、面向 p-spore CLI 安装与用法 |
 | `docs/project-overview.md` | 中文项目文档：当前状态、安全边界、开发流程与下一步（原 README） |
 | `initial_design.txt` | 用户原始 11 条设计思路，不作为最终契约 |
@@ -142,6 +143,7 @@
 - 前台服务进程：`npm run dev -- daemon`；仅用于 systemd/诊断，SIGINT/SIGTERM graceful shutdown。
 - 状态/诊断：`npm run dev -- status`、`npm run dev -- doctor`。
 - npm 安装：`npm install --global p-spore`；运行：`pspore tui` 或 `npx p-spore --help`。npm 包名为 `p-spore`，全局 CLI 命令为 `pspore`，包中不含 Electron。
+- npm 发布（每次更新必做）：先 `npm run check` 并确认 `git diff --exit-code -- dist`，将已跟踪的 `package.json`、`README.md`、`dist/` 复制到干净临时目录，再 `npm pack <临时目录> --ignore-scripts --pack-destination <产物目录>`；仅在已完成完整检查和 build 后跳过重复脚本。这样不会把本地桌面打包下载的原生二进制缓存混入 npm。检查 tarball 并在全新 prefix 实装，再以交互终端执行 `npm publish <已验证的tgz> --access public --tag latest --registry=https://registry.npmjs.org`。需要登录时使用 `npm login --auth-type=web` 并打开浏览器，发布 2FA 同样由用户在浏览器完成。发布后查询 registry 版本/摘要并从 registry 新安装验证双 CLI 与隔离 Daemon；预发行使用对应 dist-tag，不覆盖稳定 `latest`。仅上传已检查的 tarball，避免授权前重复构建导致链接过期。
 - TUI：`npm run dev -- tui`（要求真实 TTY；自动安装/连接 systemd user service；主基准 `160×45`，响应式补测 `96×30`；`/work [STEP_ID]` 查看工作历史/脱敏详情）。
 - 会话：GUI 左栏 `＋` 新建、会话行右侧 `✕`→`确认删除` 两步删除；TUI `/new [TITLE]`、`/select ID`、`/send-now N`、`/delete [ID]`；CLI `sessions`、`session new [TITLE]`、`session delete ID`、`prompt --session ID TEXT`。删除会同时移除 session-catalog 记录与 `state/sessions/` 下的 Pi JSONL。
 - 模型配置：TUI 使用 `/config wizard` 或 `/config ...`；CLI 使用 `config show|set|provider|model|endpoint|thinking|permissions|compact|key|clear-key|cookie|clear-cookie`。

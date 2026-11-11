@@ -2,6 +2,7 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 将最新 0.1.42 同步发布到 npm，并落实每次更新同步 npm 的约定 | In progress | npm 当前 latest 为 0.1.4，浏览器登录已调起，等待用户授权 | `npm run check` 320/320、typecheck/build、tarball 范围、dry-run、全新 prefix 双 CLI 与隔离 Daemon 均通过；授权后上传已验证的 0.1.42 tarball，核对 registry 与全新实装；长期要求已写入 AGENTS.md/specs.md/nav.md |
 | P0 | 上下文与工具过程改动的发布前详细验收及新版本 | Done | 无 | 320/320、真实模型、1920×1080 GUI 与慢机文稿均通过；`0ed203e` 已推送，CI `42947498658`、ARM64 `42947498669`、Release `42948011474` 成功。0.1.42 公开 12 项资产，两份 overlay 下载/摘要及各 14 项代码一致性核验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.42 |
 | P1 | 工具输入、摘要标题与整轮过程折叠 | Done | 无 | 307 项测试与真实 Electron 交互通过，支持按需展开及过程内搜索 |
 | P1 | 控制上下文增长并修复压缩触发 | Done | 无 | 当前上下文与累计用量分开；工具结果最多 24000 字符进入历史，全文私有归档；工具批次后按阈值压缩续跑，队列/中止/失败 contract 验证通过 |
