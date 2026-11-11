@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-11-11 10:52 CST — v0.1.42 双架构发布与公开升级包核验完成
+
+- 发布：源码/版本提交 `0ed203e030221d6461451f2e4bce23c5a4416f03` 已推送 `main`。CI `42947498658`、ARM64 preview `42947498669`、Release `42948011474` 全部成功；annotated `v0.1.42` 解引用到该提交。Release 于 `2026-11-11T02:49:49Z` 公开，非 draft/prerelease，共 12 项 x64/ARM64 全量包、overlay、CLI 及校验文件：<https://github.com/advnljs/pSpore/releases/tag/v0.1.42>。
+- 独立下载核验：两份公开 overlay ZIP 的 SHA-256、四个下载文件的 GitHub asset digest/size、manifest `0.1.42 / Electron 43.3.0 / 对应架构`、完整 payload digest、外置图标、快捷方式安装器与升级脚本全部通过；两架构每包的 **14 个本次变更运行文件**逐字匹配已提交 `dist/`，包内版本为 0.1.42。证据位于已忽略的 `.cache/release-0.1.42/`。
+- 原生兼容：公开 ELF 架构与 0755 模式正确；x64 最高 GLIBC 要求 2.10，ARM64 2.17。ARM64 的正式原生启动/GUI 验收由原生 runner 通过，本机不执行异架构二进制。
+- 完成范围：工具输入/标题与整轮过程折叠、当前上下文和累计用量区分、长工具输出摘录/私有全文、工具批次后自动压缩续跑，以及队列/中止/压缩证据边界修复，均已随 0.1.42 发出。后端 320/320、真实模型、1920×1080 GUI（长输入无挤压/遮挡/溢出）、慢机文稿与本地最终包验证详见前两条。
+- 当前运行：保留最新 0.1.42 已打包 Electron 的隔离预览及 owned Daemon，DISPLAY `:112`，home `/tmp/pspore-electron-owned-smoke-OSfNBa`；窗口 ready、版本、基准 viewport 与无横向溢出已复核。截图在 `.cache/gui-preview/0.1.42/`；源码入口仍为 `npm run desktop`。没有创建用户生产服务。
+- 本阶段仅同步 `memory-bank/overall-progress.md`、`todo.md` 与 `nav.md` 的发布/运行事实。原有未跟踪 `refer/` 未改动。目标麒麟机器未直接连接；发布包安装后的目标桌面效果仍需实机复验，artifact 保留策略仍按既有 todo 后续处理。
+
 ## 2026-11-11 10:37 CST — 0.1.42 真实 GUI 验收与候选打包完成
 
 - 后端基线：本轮前阶段 `npm run check` 320/320、真实 deepseek-v4-flash 压缩续跑通过；功能提交 `df6baa9` 的主 CI `42946217645` 与 ARM64 `42946217514` 均成功。

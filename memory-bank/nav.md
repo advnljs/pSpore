@@ -5,6 +5,7 @@
 - `src/desktop/renderer/conversation.ts`：过程分组、搜索文本、工具参数摘要；`test/unit/desktop-conversation.test.ts` 为对应回归。
 - `src/desktop/conversation-smoke.ts`：由既有 Electron smoke 调用的 1920×1080 工具过程交互验收，含超长路径/命令、标题与状态不重叠。
 - 当前容器的 GUI 测试应串行执行；本地 `xvfb-run` shim 复用 `DISPLAY=:112`，并发窗口会触发遮挡/后台节流，影响动画计时。CI 的原生 `xvfb-run -a` 会分配独立显示。
+- 2026-11-11 当前隔离预览：`release-dist/pspore-desktop-0.1.42-linux-x64/pspore-desktop`，DISPLAY `:112`，home `/tmp/pspore-electron-owned-smoke-OSfNBa`；最终包截图 `.cache/gui-preview/0.1.42/`，公开资产下载核验 `.cache/release-0.1.42/`，两目录均已忽略。
 - 隔离持续预览：构建后以 `PSPORE_SMOKE_KEEP_OPEN=1 electron dist/desktop/main.js --home <隔离目录> --smoke-dir <截图目录> --smoke-fixture` 启动；沿用 smoke 的独立 Daemon，不安装系统服务。
 
 ## 当前重要文件
