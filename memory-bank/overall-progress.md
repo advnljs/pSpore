@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-11-11 11:53 CST — npm 0.1.42 发布、下载后 TUI/GUI 验收与开源资料
+
+- npm：浏览器登录及发布确认后成功发布 `p-spore@0.1.42`，`latest` 同步到 0.1.42。确认时间 `2026-11-11T03:37:04Z`；依用户要求等待约 **140 秒**后才用全新 npm cache/prefix 安装 `p-spore@latest`。registry SHA-1 `5a9c5849b4af7112d4b402141e3e461a3ce8822d`、SHA-512、双 bin 与候选一致；已安装的全部 **524 文件**与候选逐字一致。
+- CLI：仓库外实跑两个命令的 version/help、init/doctor/status/jobs/skills/sessions；真实隔离 Daemon ready，正常停止返回 0。发布前 `npm run check` 的 320/320 测试与 typecheck/build 已通过；本轮未修改应用代码。
+- TUI：对 registry 安装的包使用 **160×45** 真终端，验证首次设置提示、跳过向导、help/back、任务、Skills、模型设置、向导取消、未配置模型提示与 quit。当前 WSL 的 PID 1 不是 systemd，标准 `p-spore tui` 确实返回用户总线不可用；因此交互测试直接使用该 npm 包的 `PsporeTuiApp` 连接真实隔离 `PsporeDaemon`。未配置真实模型，未测试外部模型推理；未修改生产服务。
+- GUI：标准 `p-spore desktop` 正确提示 npm 不包含 Electron。使用本机已有 Electron 43.3.0 和系统库运行 **registry 安装目录中的** `dist/desktop/main.js`，既有完整 smoke 通过：**1920×1080** 双主题、设置、文件引用/打开、搜索、审批拒绝边界、文稿分屏/版本对比、重连、工具过程展开/折叠等；既有脚本自带的其他 PC 尺寸也通过，未新增设备矩阵。首次虚拟显示过小导致 viewport 1919×1079、且缺少 workspace skill fixture；按项目既有 2048×1200 X 屏幕和完整 fixture 重跑通过，未修改测试断言或应用代码。
+- 证据：`.cache/npm-release/0.1.42/` 保存 registry/安装/TUI 报告、终端捕获、`gui-smoke-final/desktop-security.json` 与 GUI 截图；所有临时证据和安装目录均未提交。npm 安装保留在 `/tmp/pspore-npm-registry-9pn_wbjm`。GUI 在 DISPLAY `:113`、隔离 home `/tmp/psnpm-gui-9ih4y3x_` 持续运行；只监听本机的 CDP 9337 用于本次验收。
+- 开源资料：用户选择 MIT；新增 `LICENSE`、`README.zh-CN.md`、`docs/images/desktop-{light,dark}.png`；英文 README 保持默认，顶部链接中文。中文版包含“非常适合用于信创 PC”，说明 Linux x64/ARM64 与麒麟/飞腾适配目标及 systemd/Electron 运行条件。截图是在上述 npm GUI 中载入公开演示数据后直接捕获，两套均为 1920×1080、无横向溢出，已人工复核，不含私有文件或凭据。
+- 公开前检查：从官方 Release 下载并校验的 gitleaks 8.30.1 对完整远端分支/tag 历史扫描 **152 个提交**、约 14.34 MB，未检出凭据。原有未跟踪 `refer/` 和本地缓存保持不动。
+- 当前状态：npm 发布和下载后验收完成；开源文档/许可证/截图已就绪，待提交推送并将 GitHub 仓库公开。本阶段仅新增文档与截图，不重复发布同一 npm 版本。
+
 ## 2026-11-11 11:33 CST — npm 0.1.42 候选验证与长期发布约定
 
 - 目标：把最新代码补发到 npm，并落实用户“以后每次更新 p-spore 都更新 npm；需要授权时弹出浏览器”的长期要求。

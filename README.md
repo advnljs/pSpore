@@ -1,11 +1,25 @@
 # p-spore
 
+[English](README.md) · [简体中文](https://github.com/advnljs/pSpore/blob/main/README.zh-CN.md)
+
 A Linux-first, local-first AI agent you run from your own terminal. `p-spore` keeps a
 long-running local daemon that holds your sessions, memory, scheduled jobs and child
 agents, and gives you a reconnecting TUI on top of it. Everything lives on your machine
 under `~/.pspore` — there is no hosted backend and no account.
 
 Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`).
+
+## Screenshots
+
+The Linux desktop client shares the same local daemon as the terminal client. These
+screenshots show the application at 1920 × 1080 with demonstration data.
+
+![pSpore desktop workspace in the light theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-light.png)
+
+![pSpore desktop workspace in the dark theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-dark.png)
+
+[Download the Linux desktop app](https://github.com/advnljs/pSpore/releases/latest)
+for x86_64 or ARM64, or install the terminal client from npm below.
 
 ## Requirements
 
@@ -233,3 +247,7 @@ and is a regular, non-executable file or a directory before asking the operating
 - [Repository](https://github.com/advnljs/pSpore)
 - [Issues](https://github.com/advnljs/pSpore/issues)
 - Project overview and development notes (Chinese): `docs/project-overview.md`
+
+## License
+
+[MIT](LICENSE). Third-party dependencies retain their respective licenses.

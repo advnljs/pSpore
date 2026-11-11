@@ -1,11 +1,19 @@
 # Specifications
 
+## 2026-11-11 开源、双语说明与 npm GUI 验收
+
+- 用户要求将 GitHub 仓库公开开源，明确选择 MIT 许可证。
+- 仓库 README 加入实际运行截图，默认英文，并提供中文 README 链接。
+- 中文 README 明确说明“非常适合用于信创 PC”，结合实际 Linux x86_64、ARM64 / 飞腾 / 麒麟适配目标介绍，不扩展为未经验证的架构支持声明。
+- 用户追加测试从 npm 下载的 GUI：分别验证 npm `desktop` 命令的发行边界和现有 Electron 运行 npm 包内桌面代码；主基准为 1920×1080。
+
 ## 2026-11-11 npm 同步发布要求（长期有效）
 
 - 用户要求根据最新代码更新 npm 包 `p-spore`，并明确以后每次更新 p-spore 都要同步更新 npm；npm 发布及 registry 实装验证纳入每次代码更新的完成条件。
 - 如 npm 发布需要授权，必须弹出浏览器让用户完成 npm web 登录/2FA，不索取、读取或记录 token/OTP。
 - 沿用已发布版本不可变规则。补齐当前未发布到 npm 的代码版本时不无故另升版；已有 npm 版本不能覆盖。仅同步文档或发布记录不触发重复发布。
 - 每次发布前完成 `npm run check`、tarball 范围及全新 prefix 安装验证，发布后核对 registry `latest`、版本、校验值并从 registry 实装复验；不能仅凭 GitHub Release 判定 npm 已更新。
+- 本次用户追加验收：npm 发布成功后等待至少两分钟，再从 npm 下载 `p-spore@latest` 到本地，实际启动并测试 TUI；不能只用发布前本地 tgz 代替。
 
 ## 2026-11-11 发布前详细验收
 
