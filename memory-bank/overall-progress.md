@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-11 10:27 CST — 发布前后端深度验证与边界修复
+
+- 用户要求：后端详细验证通过后，真实 GUI 验收并发布新版本；GUI 必须无元素挤压、遮挡或溢出。三张上一轮截图已放在项目 `.cache/gui-preview/` 供查看，未纳入 Git。
+- 复现并修复：最终答复后的压缩期间收到 follow-up 会滞留；恢复长会话的 pre-prompt 压缩会阻塞 prompt 受理和后续串行 abort。现在异步任务先取得所有权，压缩期间可受理/中止，压缩后继续处理新队列；run.started/settled 覆盖完整逻辑任务。用 Pi 公共 cut-point 规则避免“没有可压缩的新内容”误报任务失败。
+- 真实模型发现并修复：Pi 摘要仅保留工具结果前 2000 字符，中间的归档路径及尾部证据会丢失。长输出现在把全文引用和 512 字符尾部预览前置；新到的中文工具内容也按保守估算计入未测量尾部，不再按四字符一 token 推迟触发。补充 UTF-16 边界保护；归档 I/O 失败明确写入摘录，不把已经成功的工具误报为失败、诱使重复副作用。
+- 修改：`src/pi/{pi-runtime-adapter,context-budget}.ts`、对应 contract/unit 测试；新增 `test/integration/context-compaction.test.ts`，用真实 HTTP/SSE → Pi → Daemon → UDS → DesktopStore 检查摘录、压缩、队列提升、完整历史重启恢复与中止。同步 dist。
+- 验证：`npm run check` **320/320** 通过、0 跳过，严格 typecheck/build 通过。回归修复前的两个时序用例及中文、emoji 用例确实失败，修复后通过。日志 `.cache/backend-validation/full-check.log`。
+- 真实模型：`deepseek-v4-flash` / high，在隔离 home 中用已有本地凭据，读取约 7 万字符中文文件，12k 阈值、1k recent；read 后立即压缩再 shell，两个工具各执行一次，最终准确保留 BEGIN/END 标记。耗时 8656 ms，最终当前上下文 4855、累计用量 15885 tokens，报告成本约 $0.00128。证据 `.cache/backend-validation/real-report.json`，测试 home `/tmp/pspore-release-real-aRkDxy`。
+- 运行：后端验证实例均正常停止，旧 Electron 隔离预览已停止以避免展示旧代码；最新 dist 已构建，下一阶段启动真实 GUI。版本仍 0.1.41，发布候选拟用未占用的 0.1.42，尚未发版。
+
 ## 2026-11-11 09:44 CST — 当前上下文预算与长工具循环自动压缩
 
 - 根因：GUI/TUI 把累计 `usage.total` 标成当前上下文；直接阈值只在 `prompt()` 前后检查，整段工具循环中从不检查；read/MCP 等大文本结果可一次占用大量上下文。

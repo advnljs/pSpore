@@ -1,7 +1,7 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, estimateTokens, } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, estimateTokens, findCutPoint, getLatestCompactionEntry, sessionEntryToContextMessages, } from "@earendil-works/pi-coding-agent";
 import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../articles/draft.js";
 import { ArticlePreviewBus } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
@@ -77,13 +77,8 @@ export class PiRuntimeAdapter {
         if (!input.trim()) {
             throw new Error("Prompt cannot be empty");
         }
-        // A restored session may already be above the configured direct threshold.
-        // Compact before sending another full context, then check again after the turn.
         record.abortRequested = false;
         record.lastError = undefined;
-        await this.#compactAtConfiguredThreshold(record);
-        if (record.abortRequested)
-            throw new Error("Prompt cancelled during context compaction");
         const commandId = this.#idFactory();
         let resolveAccepted;
         let rejectAccepted;
@@ -91,48 +86,71 @@ export class PiRuntimeAdapter {
             resolveAccepted = resolve;
             rejectAccepted = reject;
         });
-        const task = record.runtime.session
-            .prompt(input, {
-            source: "rpc",
-            preflightResult: (success) => {
-                if (success) {
-                    resolveAccepted({ accepted: true, commandId, acceptedAt: this.#clock().toISOString() });
-                }
-                else {
-                    rejectAccepted(new Error("Pi rejected the prompt during preflight"));
-                }
-            },
-        })
+        // Own the logical task before any asynchronous compaction. Otherwise a
+        // restored session blocks prompt acceptance (and the serialized abort
+        // command behind it) for the entire summarization request.
+        const task = Promise.resolve()
             .then(async () => {
-            while (record.compactionPending && !record.abortRequested) {
+            if (this.#needsThresholdCompaction(record)) {
+                this.#startRun(record);
+                resolveAccepted({ accepted: true, commandId, acceptedAt: this.#clock().toISOString() });
+            }
+            await this.#compactAtConfiguredThreshold(record);
+            if (record.abortRequested) {
+                rejectAccepted(new Error("Prompt cancelled during context compaction"));
+                return;
+            }
+            await record.runtime.session.prompt(input, {
+                source: "rpc",
+                preflightResult: (success) => {
+                    if (success)
+                        resolveAccepted({ accepted: true, commandId, acceptedAt: this.#clock().toISOString() });
+                    else
+                        rejectAccepted(new Error("Pi rejected the prompt during preflight"));
+                },
+            });
+            while (!record.abortRequested) {
+                const resumeTask = record.compactionPending;
                 await this.#compactAtConfiguredThreshold(record);
                 if (record.abortRequested)
                     break;
                 await this.#restoreHeldQueue(record);
                 record.compactionPending = false;
-                record.resumingAfterCompaction = true;
-                try {
+                if (resumeTask) {
                     await record.runtime.session.sendCustomMessage({
                         customType: CONTEXT_RESUME_MESSAGE,
                         content: "Continue the original user task after context compaction. Use the summary and retained tool results; do not repeat completed actions.",
                         display: false,
                     }, { triggerTurn: true });
                 }
-                finally {
-                    record.resumingAfterCompaction = false;
+                else {
+                    // A message can arrive while the *final answer* is compacting too.
+                    // Start with that queued user input, rather than replying to the
+                    // already-completed original request again.
+                    const session = record.runtime.session;
+                    if (!session.pendingMessageCount)
+                        break;
+                    const queue = session.clearQueue();
+                    const nextInput = queue.steering.shift() ?? queue.followUp.shift();
+                    if (nextInput === undefined)
+                        break;
+                    for (const message of queue.steering)
+                        await session.steer(message);
+                    for (const message of queue.followUp)
+                        await session.followUp(message);
+                    await session.prompt(nextInput, { source: "rpc", expandPromptTemplates: false });
                 }
             }
             if (record.compactionPending) {
                 await this.#restoreHeldQueue(record);
                 record.compactionPending = false;
             }
-            if (!record.abortRequested)
-                await this.#compactAtConfiguredThreshold(record);
         })
             .catch(async (error) => {
             await this.#restoreHeldQueue(record);
             if (record.abortRequested) {
                 record.compactionPending = false;
+                rejectAccepted(new Error("Prompt cancelled during context compaction"));
                 return;
             }
             record.compactionPending = false;
@@ -145,6 +163,7 @@ export class PiRuntimeAdapter {
             .finally(() => {
             if (record.activeTask === task) {
                 record.activeTask = undefined;
+                record.runStarted = false;
                 if (!record.lastError)
                     this.#emit(record, "run.settled", {}, false);
             }
@@ -383,7 +402,7 @@ export class PiRuntimeAdapter {
             queue: { steering: [], followUp: [] },
             thresholdCompaction: false,
             compactionPending: false,
-            resumingAfterCompaction: false,
+            runStarted: false,
             abortRequested: false,
             heldQueue: { steering: [], followUp: [] },
             lastError: undefined,
@@ -558,8 +577,7 @@ export class PiRuntimeAdapter {
     #onPiEvent(record, event) {
         switch (event.type) {
             case "agent_start":
-                if (!record.resumingAfterCompaction)
-                    this.#emit(record, "run.started", {}, false);
+                this.#startRun(record);
                 break;
             case "agent_settled":
                 this.#articlePreviews.clearSession(record.spec.sessionId);
@@ -747,18 +765,28 @@ export class PiRuntimeAdapter {
     #accepted() {
         return { accepted: true, commandId: this.#idFactory(), acceptedAt: this.#clock().toISOString() };
     }
-    async #compactAtConfiguredThreshold(record) {
+    #startRun(record) {
+        if (record.runStarted)
+            return;
+        record.runStarted = true;
+        this.#emit(record, "run.started", {}, false);
+    }
+    #needsThresholdCompaction(record) {
         const settings = this.#autoCompaction;
         if (!settings?.enabled)
-            return;
+            return false;
         const session = record.runtime.session;
         if (record.abortRequested || session.messages.length === 0)
-            return;
-        if (this.#contextUsage(record).tokens < this.#compactionThreshold(record))
-            return;
+            return false;
         // A just-compacted leaf cannot be compacted again without new work.
         if (session.sessionManager.getBranch().at(-1)?.type === "compaction")
+            return false;
+        return this.#contextUsage(record).tokens >= this.#compactionThreshold(record);
+    }
+    async #compactAtConfiguredThreshold(record) {
+        if (!this.#needsThresholdCompaction(record))
             return;
+        const session = record.runtime.session;
         if (session.messages.at(-1)?.role === "toolResult") {
             // Pi never cuts at a tool result. Add an invisible, user-like boundary
             // after the completed batch so even the first long task can be compacted.
@@ -768,6 +796,16 @@ export class PiRuntimeAdapter {
                 display: false,
             });
         }
+        // Pi deliberately keeps whole recent messages. A single large retained
+        // answer can still exceed our threshold, yet leave nothing new to summarize.
+        // Use its public cut-point rules to avoid reporting that normal no-op as a
+        // failed task ("Nothing to compact").
+        const entries = session.sessionManager.getBranch();
+        const previous = getLatestCompactionEntry(entries);
+        const start = previous ? Math.max(0, entries.findIndex((entry) => entry.id === previous.firstKeptEntryId)) : 0;
+        const cut = findCutPoint(entries, start, entries.length, session.settingsManager.getCompactionSettings().keepRecentTokens);
+        if (!entries.slice(start, cut.firstKeptEntryIndex).some((entry) => entry.type !== "compaction" && sessionEntryToContextMessages(entry).length > 0))
+            return;
         record.thresholdCompaction = true;
         try {
             await record.runtime.session.compact();
@@ -804,15 +842,21 @@ export class PiRuntimeAdapter {
         const session = record.runtime.session;
         const usage = session.getContextUsage();
         let tokens = usage?.tokens;
-        const hasUsage = session.messages.some((message) => message.role === "assistant"
+        const lastUsageIndex = session.messages.findLastIndex((message) => message.role === "assistant"
             && message.stopReason !== "error" && message.stopReason !== "aborted"
             && (message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite) > 0);
-        if (tokens === undefined || tokens === null || !hasUsage) {
+        if (tokens === undefined || tokens === null || lastUsageIndex < 0) {
             tokens = estimateTextTokens(session.systemPrompt)
                 + estimateTextTokens(JSON.stringify(session.agent.state.tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))));
             for (const message of session.messages) {
-                const prose = messageText(message);
-                tokens += Math.max(estimateTokens(message), estimateTextTokens(prose));
+                tokens += estimateMessageTokens(message);
+            }
+        }
+        else {
+            // Pi estimates messages after the latest measured usage as chars / 4.
+            // Correct only that unmeasured tail; never add the entire history again.
+            for (const message of session.messages.slice(lastUsageIndex + 1)) {
+                tokens += estimateMessageTokens(message) - estimateTokens(message);
             }
         }
         return {
@@ -882,6 +926,22 @@ function toRuntimeMessage(message) {
 }
 function isNodeError(error) {
     return error instanceof Error && "code" in error;
+}
+function estimateMessageTokens(message) {
+    let prose = messageText(message);
+    if (message.role === "compactionSummary" || message.role === "branchSummary")
+        prose += message.summary;
+    if (message.role === "bashExecution")
+        prose += message.output;
+    if (message.role === "assistant") {
+        for (const block of message.content) {
+            if (block.type === "thinking")
+                prose += block.thinking;
+            if (block.type === "toolCall")
+                prose += block.name + JSON.stringify(block.arguments);
+        }
+    }
+    return Math.max(estimateTokens(message), estimateTextTokens(prose));
 }
 function messageText(message) {
     const candidate = asRecord(message);

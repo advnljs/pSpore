@@ -66,7 +66,7 @@ async function fixture(
     await adapter.disposeAll();
     await rm(root, { recursive: true, force: true });
   });
-  return { adapter, faux, root };
+  return { adapter, faux, root, modelRuntime };
 }
 
 const spec = (cwd: string) => ({
@@ -608,6 +608,141 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.equal(adapter.snapshot("main").status, "failed");
     assert.ok(events.some((event) => event.type === "compaction.completed" && String(event.payload["errorMessage"]).includes("fixture summary rejected")));
     assert.equal(adapter.branch("main").filter((message) => message.role === "toolResult").length, 1);
+    faux.setResponses(Array.from({ length: 8 }, () => (context) => fauxAssistantMessage(context.systemPrompt?.includes("summar") ? "Recovered summary: tool already completed." : "recovered after failed summary")));
+    await adapter.prompt("main", "retry after summary service recovers");
+    await adapter.waitForIdle("main");
+    assert.equal(adapter.snapshot("main").status, "idle");
+    assert.equal(adapter.branch("main").at(-1)?.text, "recovered after failed summary");
+    assert.equal(adapter.branch("main").filter((message) => message.role === "toolResult").length, 1);
+  });
+
+  test("can compact repeatedly in one logical task and honors the disabled setting", { timeout: 8_000 }, async () => {
+    for (const enabled of [true, false]) {
+      let executions = 0;
+      const tool = defineTool({ name: "repeat_context_tool", label: "Repeated fixture", description: "Return evidence for the next step", parameters: Type.Object({}), execute: async () => {
+        executions += 1;
+        return { content: [{ type: "text" as const, text: `step ${executions}: ` + "evidence ".repeat(3_000) }], details: undefined };
+      } });
+      const { adapter, faux, root } = await fixture({ createTools: () => [tool], autoCompaction: { enabled, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+      let summaries = 0;
+      const response: Parameters<typeof faux.setResponses>[0][number] = (context) => {
+        if (context.systemPrompt?.includes("summar")) {
+          summaries += 1;
+          return fauxAssistantMessage(`Summary: ${executions} tool steps have completed. Finish after three.`);
+        }
+        return executions < 3 ? fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" }) : fauxAssistantMessage("all three steps completed");
+      };
+      faux.setResponses(Array.from({ length: 24 }, () => response));
+      await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+      const events: RuntimeEvent[] = [];
+      adapter.subscribe("main", (event) => events.push(event));
+      await adapter.prompt("main", "Complete three independent steps, exactly once each.");
+      await adapter.waitForIdle("main");
+      assert.equal(executions, 3);
+      assert.equal(adapter.branch("main").at(-1)?.text, "all three steps completed");
+      if (enabled) assert.ok(summaries >= 3);
+      else assert.equal(summaries, 0);
+      assert.equal(events.filter((event) => event.type === "run.started").length, 1);
+      assert.equal(events.filter((event) => event.type === "run.settled").length, 1);
+    }
+  });
+
+  test("counts newly returned Chinese evidence before issuing the next model request", async () => {
+    const tool = defineTool({ name: "chinese_context_tool", label: "Chinese evidence", description: "Return Chinese text", parameters: Type.Object({}),
+      execute: async () => ({ content: [{ type: "text" as const, text: "中文证据".repeat(3_500) }], details: undefined }) });
+    const { adapter, faux, root } = await fixture({ createTools: () => [tool], autoCompaction: { enabled: true, triggerTokens: 8_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    let requests = 0;
+    let summarized = false;
+    const response: Parameters<typeof faux.setResponses>[0][number] = (context) => {
+      if (context.systemPrompt?.includes("summar")) { summarized = true; return fauxAssistantMessage("Summary: Chinese evidence read and preserved."); }
+      if (requests++ === 0) return fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" });
+      assert.ok(summarized, "14k Chinese characters must not be treated as only 3.5k tokens");
+      return fauxAssistantMessage("Chinese evidence processed");
+    };
+    faux.setResponses(Array.from({ length: 8 }, () => response));
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    await adapter.prompt("main", "Read and summarize Chinese evidence.");
+    await adapter.waitForIdle("main");
+    assert.equal(adapter.branch("main").at(-1)?.text, "Chinese evidence processed");
+  });
+
+  test("processes a follow-up queued during post-answer compaction before settling", { timeout: 8_000 }, async () => {
+    const { adapter, faux, root } = await fixture({ autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    let releaseSummary!: () => void;
+    let summaryStarted!: () => void;
+    const summaryGate = new Promise<void>((resolve) => { releaseSummary = resolve; });
+    const summarizing = new Promise<void>((resolve) => { summaryStarted = resolve; });
+    let workRequests = 0;
+    const response: Parameters<typeof faux.setResponses>[0][number] = async (context) => {
+      if (context.systemPrompt?.includes("summar")) {
+        summaryStarted();
+        await summaryGate;
+        return fauxAssistantMessage("Summary: the first request is complete.");
+      }
+      workRequests += 1;
+      return fauxAssistantMessage(workRequests === 1 ? "completed evidence ".repeat(2_000) : "follow-up processed");
+    };
+    faux.setResponses(Array.from({ length: 10 }, () => response));
+    await adapter.create(spec(root));
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+    try {
+      await adapter.prompt("main", "complete first request");
+      await summarizing;
+      await adapter.followUp("main", "queued while final answer is being compacted");
+    } finally { releaseSummary(); }
+    await adapter.waitForIdle("main");
+    assert.equal(workRequests, 2);
+    assert.equal(adapter.branch("main").at(-1)?.text, "follow-up processed");
+    assert.deepEqual(adapter.snapshot("main").queue, { steering: [], followUp: [] });
+    assert.equal(events.filter((event) => event.type === "run.started").length, 1);
+    assert.equal(events.filter((event) => event.type === "run.settled").length, 1);
+  });
+
+  test("acknowledges and can abort pre-prompt compaction of a restored session", { timeout: 8_000 }, async () => {
+    const { adapter: original, faux, root, modelRuntime } = await fixture({ autoCompaction: { enabled: false, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    faux.setResponses([fauxAssistantMessage("persisted evidence ".repeat(2_000))]);
+    const handle = await original.create(spec(root));
+    await original.prompt("main", "create long history");
+    await original.waitForIdle("main");
+    await original.dispose("main");
+    const restored = await PiRuntimeAdapter.create({
+      agentDir: join(root, "agent"), sessionRoot: join(root, "sessions"), modelRuntime,
+      resolveModel: () => faux.getModel(),
+      autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 },
+    });
+    cleanups.push(async () => restored.disposeAll());
+    await restored.resume({ ...spec(root), sessionFile: handle.sessionFile! });
+    let releaseSummary!: () => void;
+    let summaryStarted!: () => void;
+    const summaryGate = new Promise<void>((resolve) => { releaseSummary = resolve; });
+    const summarizing = new Promise<void>((resolve) => { summaryStarted = resolve; });
+    faux.setResponses([async (_context, options) => {
+      summaryStarted();
+      options?.signal?.addEventListener("abort", releaseSummary, { once: true });
+      await summaryGate;
+      return fauxAssistantMessage("", { stopReason: "aborted" });
+    }]);
+    const events: RuntimeEvent[] = [];
+    restored.subscribe("main", (event) => events.push(event));
+    const accepted = restored.prompt("main", "this request must be cancellable");
+    void accepted.catch(() => undefined);
+    try {
+      await summarizing;
+      assert.equal(await Promise.race([accepted.then(() => "accepted"), new Promise<string>((resolve) => setTimeout(() => resolve("blocked"), 200))]), "accepted");
+      assert.equal(restored.snapshot("main").status, "running");
+      await assert.rejects(restored.prompt("main", "overlapping prompt"), /busy/);
+      await restored.abort("main", "stop before sending another model request");
+      await restored.waitForIdle("main");
+      assert.equal(restored.snapshot("main").status, "idle");
+      assert.equal(events.filter((event) => event.type === "run.started").length, 1);
+      assert.equal(events.filter((event) => event.type === "run.settled").length, 1);
+      assert.equal(events.filter((event) => event.type === "runtime.error").length, 0);
+      assert.equal(restored.branch("main").filter((message) => message.role === "user").length, 1);
+    } finally {
+      releaseSummary();
+      await restored.abort("main", "test cleanup");
+    }
   });
 
   test("reloads trusted skill paths only at a session boundary and keeps full instructions out of the prompt", async () => {
