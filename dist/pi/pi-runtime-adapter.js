@@ -1,12 +1,14 @@
 import { mkdir, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, } from "@earendil-works/pi-coding-agent";
+import { createAgentSessionFromServices, createAgentSessionRuntime, createAgentSessionServices, createSyntheticSourceInfo, ModelRuntime, SessionManager, SettingsManager, estimateTokens, } from "@earendil-works/pi-coding-agent";
 import { articleDraftFromToolUpdate, articleDraftFromUpdate } from "../articles/draft.js";
 import { ArticlePreviewBus } from "../articles/preview.js";
 import { publishedArticleValue } from "../articles/publish.js";
 import { resolveSessionFile } from "../sessions/session-file.js";
 import { toolInputText } from "../ui/shared/activity.js";
+import { boundToolResult, estimateTextTokens } from "./context-budget.js";
+const CONTEXT_RESUME_MESSAGE = "pspore-context-resume";
 export class PiRuntimeAdapter {
     #agentDir;
     #sessionRoot;
@@ -69,7 +71,7 @@ export class PiRuntimeAdapter {
     }
     async prompt(sessionId, input) {
         const record = this.#record(sessionId);
-        if (record.runtime.session.isStreaming) {
+        if (record.runtime.session.isStreaming || record.activeTask) {
             throw new Error(`Session ${sessionId} is busy; use steer or followUp`);
         }
         if (!input.trim()) {
@@ -77,7 +79,11 @@ export class PiRuntimeAdapter {
         }
         // A restored session may already be above the configured direct threshold.
         // Compact before sending another full context, then check again after the turn.
+        record.abortRequested = false;
+        record.lastError = undefined;
         await this.#compactAtConfiguredThreshold(record);
+        if (record.abortRequested)
+            throw new Error("Prompt cancelled during context compaction");
         const commandId = this.#idFactory();
         let resolveAccepted;
         let rejectAccepted;
@@ -97,8 +103,39 @@ export class PiRuntimeAdapter {
                 }
             },
         })
-            .then(async () => this.#compactAtConfiguredThreshold(record))
-            .catch((error) => {
+            .then(async () => {
+            while (record.compactionPending && !record.abortRequested) {
+                await this.#compactAtConfiguredThreshold(record);
+                if (record.abortRequested)
+                    break;
+                await this.#restoreHeldQueue(record);
+                record.compactionPending = false;
+                record.resumingAfterCompaction = true;
+                try {
+                    await record.runtime.session.sendCustomMessage({
+                        customType: CONTEXT_RESUME_MESSAGE,
+                        content: "Continue the original user task after context compaction. Use the summary and retained tool results; do not repeat completed actions.",
+                        display: false,
+                    }, { triggerTurn: true });
+                }
+                finally {
+                    record.resumingAfterCompaction = false;
+                }
+            }
+            if (record.compactionPending) {
+                await this.#restoreHeldQueue(record);
+                record.compactionPending = false;
+            }
+            if (!record.abortRequested)
+                await this.#compactAtConfiguredThreshold(record);
+        })
+            .catch(async (error) => {
+            await this.#restoreHeldQueue(record);
+            if (record.abortRequested) {
+                record.compactionPending = false;
+                return;
+            }
+            record.compactionPending = false;
             const normalizedError = toError(error);
             record.lastError = normalizedError.message;
             this.#emit(record, "runtime.error", { message: normalizedError.message }, false);
@@ -108,6 +145,8 @@ export class PiRuntimeAdapter {
             .finally(() => {
             if (record.activeTask === task) {
                 record.activeTask = undefined;
+                if (!record.lastError)
+                    this.#emit(record, "run.settled", {}, false);
             }
         });
         record.activeTask = task;
@@ -116,11 +155,21 @@ export class PiRuntimeAdapter {
     }
     async steer(sessionId, input) {
         const record = this.#record(sessionId);
+        if (record.compactionPending) {
+            record.heldQueue.steering.push(input);
+            this.#publishQueue(record);
+            return this.#accepted();
+        }
         await record.runtime.session.steer(input);
         return this.#accepted();
     }
     async followUp(sessionId, input) {
         const record = this.#record(sessionId);
+        if (record.compactionPending) {
+            record.heldQueue.followUp.push(input);
+            this.#publishQueue(record);
+            return this.#accepted();
+        }
         await record.runtime.session.followUp(input);
         return this.#accepted();
     }
@@ -132,6 +181,12 @@ export class PiRuntimeAdapter {
         const selected = record.queue.followUp[index];
         if (selected === undefined)
             throw new Error(`Follow-up queue entry is unavailable: ${index}`);
+        if (record.compactionPending) {
+            record.heldQueue.followUp.splice(index, 1);
+            record.heldQueue.steering.push(selected);
+            this.#publishQueue(record);
+            return this.#accepted();
+        }
         const queued = record.runtime.session.clearQueue();
         for (const message of queued.steering)
             await record.runtime.session.steer(message);
@@ -143,9 +198,14 @@ export class PiRuntimeAdapter {
         return this.#accepted();
     }
     async abort(sessionId, _reason) {
-        await this.#record(sessionId).runtime.session.abort();
+        const record = this.#record(sessionId);
+        record.abortRequested = true;
+        record.runtime.session.abortCompaction();
+        await record.runtime.session.abort();
+        await record.activeTask?.catch(() => undefined);
     }
     async compact(sessionId, instructions) {
+        await this.abort(sessionId, "manual compaction");
         const session = this.#record(sessionId).runtime.session;
         if (instructions === undefined) {
             await session.compact();
@@ -170,9 +230,10 @@ export class PiRuntimeAdapter {
             upstreamSessionId: session.sessionId,
             ...(sessionFile ? { sessionFile } : {}),
             cwd: record.runtime.cwd,
-            status: lastError ? "failed" : session.isStreaming ? "running" : "idle",
+            status: lastError ? "failed" : session.isStreaming || record.activeTask || record.thresholdCompaction ? "running" : "idle",
             ...(model ? { model: { provider: model.provider, model: model.id } } : {}),
             thinking: session.thinkingLevel,
+            ...(session.model ? { context: this.#contextUsage(record) } : {}),
             messageCount: entries.length,
             ...(firstUserText === undefined ? {} : { firstUserText }),
             queue: {
@@ -295,6 +356,7 @@ export class PiRuntimeAdapter {
     }
     async dispose(sessionId) {
         const record = this.#record(sessionId);
+        await this.abort(sessionId, "session disposed");
         this.#articlePreviews.clearSession(sessionId);
         record.unsubscribe?.();
         record.listeners.clear();
@@ -320,6 +382,10 @@ export class PiRuntimeAdapter {
             activeTask: undefined,
             queue: { steering: [], followUp: [] },
             thresholdCompaction: false,
+            compactionPending: false,
+            resumingAfterCompaction: false,
+            abortRequested: false,
+            heldQueue: { steering: [], followUp: [] },
             lastError: undefined,
             streaming: undefined,
             itemSequence: 0,
@@ -396,7 +462,13 @@ export class PiRuntimeAdapter {
             if (spec.model && !model) {
                 throw new Error(`Configured model is unavailable: ${spec.model.provider}/${spec.model.model}`);
             }
-            const customTools = [...this.#createTools(spec.sessionId, this.#modelRuntime)];
+            const customTools = this.#createTools(spec.sessionId, this.#modelRuntime).map((tool) => ({
+                ...tool,
+                execute: async (...args) => {
+                    const result = await tool.execute(...args);
+                    return { ...result, content: await boundToolResult(result.content, join(this.#sessionRoot, "artifacts", "tool-results")) };
+                },
+            }));
             const enabledTools = spec.enabledTools ? [...spec.enabledTools] : customTools.map((tool) => tool.name);
             const result = await createAgentSessionFromServices({
                 services,
@@ -461,6 +533,23 @@ export class PiRuntimeAdapter {
         record.queue = { steering: [], followUp: [] };
         record.streaming = undefined;
         record.firstUserText = undefined;
+        const previousStop = session.agent.shouldStopAfterTurn;
+        session.agent.shouldStopAfterTurn = async (turn, signal) => {
+            if (await previousStop?.(turn, signal))
+                return true;
+            if (signal?.aborted || record.abortRequested || !this.#autoCompaction?.enabled)
+                return false;
+            if (turn.toolResults.length === 0 && session.pendingMessageCount === 0)
+                return false;
+            if (this.#contextUsage(record).tokens < this.#compactionThreshold(record))
+                return false;
+            record.compactionPending = true;
+            // Pi drains queues at agent_end, so hold them outside the SDK until the
+            // context has been compacted. New user messages join this same queue.
+            record.heldQueue = { steering: [...session.getSteeringMessages()], followUp: [...session.getFollowUpMessages()] };
+            session.clearQueue();
+            return true;
+        };
         record.unsubscribe = session.subscribe((event) => this.#onPiEvent(record, event));
         if (replacement) {
             this.#emit(record, "session.replaced", { previousUpstreamSessionId, upstreamSessionId: session.sessionId }, false);
@@ -469,13 +558,19 @@ export class PiRuntimeAdapter {
     #onPiEvent(record, event) {
         switch (event.type) {
             case "agent_start":
-                this.#emit(record, "run.started", {}, false);
+                if (!record.resumingAfterCompaction)
+                    this.#emit(record, "run.started", {}, false);
                 break;
             case "agent_settled":
                 this.#articlePreviews.clearSession(record.spec.sessionId);
-                this.#emit(record, "run.settled", {}, false);
+                // The adapter's logical task also includes automatic compaction and
+                // continuation. Publish settled only when that entire task finishes.
+                if (!record.activeTask)
+                    this.#emit(record, "run.settled", {}, false);
                 break;
             case "message_start": {
+                if (asRecord(event.message)["customType"] === CONTEXT_RESUME_MESSAGE)
+                    break;
                 const streaming = this.#beginItem(record, event.message);
                 this.#emit(record, "transcript.item.started", { item: this.#startedItem(streaming) }, false);
                 break;
@@ -499,6 +594,8 @@ export class PiRuntimeAdapter {
                 break;
             }
             case "message_end": {
+                if (asRecord(event.message)["customType"] === CONTEXT_RESUME_MESSAGE)
+                    break;
                 const item = this.#finishItem(record, event.message);
                 this.#emit(record, "transcript.item.finished", { item }, false);
                 break;
@@ -531,8 +628,7 @@ export class PiRuntimeAdapter {
                 }, false);
                 break;
             case "queue_update":
-                record.queue = { steering: [...event.steering], followUp: [...event.followUp] };
-                this.#emit(record, "queue.updated", record.queue, false);
+                this.#publishQueue(record);
                 break;
             case "compaction_start":
                 this.#emit(record, "compaction.started", { reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason }, false);
@@ -542,6 +638,8 @@ export class PiRuntimeAdapter {
                     reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
                     aborted: event.aborted,
                     willRetry: event.willRetry,
+                    ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                    ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
                 }, false);
                 break;
             case "auto_retry_start":
@@ -653,9 +751,23 @@ export class PiRuntimeAdapter {
         const settings = this.#autoCompaction;
         if (!settings?.enabled)
             return;
-        const usage = record.runtime.session.getContextUsage();
-        if (usage?.tokens === null || usage?.tokens === undefined || usage.tokens < settings.triggerTokens)
+        const session = record.runtime.session;
+        if (record.abortRequested || session.messages.length === 0)
             return;
+        if (this.#contextUsage(record).tokens < this.#compactionThreshold(record))
+            return;
+        // A just-compacted leaf cannot be compacted again without new work.
+        if (session.sessionManager.getBranch().at(-1)?.type === "compaction")
+            return;
+        if (session.messages.at(-1)?.role === "toolResult") {
+            // Pi never cuts at a tool result. Add an invisible, user-like boundary
+            // after the completed batch so even the first long task can be compacted.
+            await session.sendCustomMessage({
+                customType: CONTEXT_RESUME_MESSAGE,
+                content: "The tool batch above has finished. Preserve the original user request, completed actions, evidence and remaining work in the context summary.",
+                display: false,
+            });
+        }
         record.thresholdCompaction = true;
         try {
             await record.runtime.session.compact();
@@ -663,6 +775,52 @@ export class PiRuntimeAdapter {
         finally {
             record.thresholdCompaction = false;
         }
+    }
+    #compactionThreshold(record) {
+        const settings = this.#autoCompaction;
+        if (!settings)
+            return Number.POSITIVE_INFINITY;
+        const limit = record.runtime.session.model?.contextWindow ?? Number.POSITIVE_INFINITY;
+        return Math.max(1, Math.min(settings.triggerTokens, limit - settings.reserveTokens));
+    }
+    #publishQueue(record) {
+        record.queue = {
+            steering: [...record.runtime.session.getSteeringMessages(), ...record.heldQueue.steering],
+            followUp: [...record.runtime.session.getFollowUpMessages(), ...record.heldQueue.followUp],
+        };
+        this.#emit(record, "queue.updated", record.queue, false);
+    }
+    async #restoreHeldQueue(record) {
+        while (record.heldQueue.steering.length || record.heldQueue.followUp.length) {
+            const queue = record.heldQueue;
+            record.heldQueue = { steering: [], followUp: [] };
+            for (const message of queue.steering)
+                await record.runtime.session.steer(message);
+            for (const message of queue.followUp)
+                await record.runtime.session.followUp(message);
+        }
+    }
+    #contextUsage(record) {
+        const session = record.runtime.session;
+        const usage = session.getContextUsage();
+        let tokens = usage?.tokens;
+        const hasUsage = session.messages.some((message) => message.role === "assistant"
+            && message.stopReason !== "error" && message.stopReason !== "aborted"
+            && (message.usage.input + message.usage.output + message.usage.cacheRead + message.usage.cacheWrite) > 0);
+        if (tokens === undefined || tokens === null || !hasUsage) {
+            tokens = estimateTextTokens(session.systemPrompt)
+                + estimateTextTokens(JSON.stringify(session.agent.state.tools.map((tool) => ({ name: tool.name, description: tool.description, parameters: tool.parameters }))));
+            for (const message of session.messages) {
+                const prose = messageText(message);
+                tokens += Math.max(estimateTokens(message), estimateTextTokens(prose));
+            }
+        }
+        return {
+            tokens,
+            window: usage?.contextWindow ?? session.model?.contextWindow ?? 0,
+            estimated: true,
+            ...(this.#autoCompaction?.enabled ? { triggerTokens: this.#compactionThreshold(record) } : {}),
+        };
     }
     #handle(record) {
         const sessionFile = record.runtime.session.sessionFile;

@@ -200,6 +200,7 @@ const elements = {
   daemonInstance: byId<HTMLSpanElement>("daemon-instance"),
   revision: byId<HTMLElement>("revision-value"),
   usage: byId<HTMLElement>("usage-value"),
+  totalUsage: byId<HTMLElement>("total-usage-value"),
   cache: byId<HTMLElement>("cache-value"),
   themeToggle: byId<HTMLButtonElement>("theme-toggle"),
   themeColor: byId<HTMLMetaElement>("theme-color"),
@@ -1303,7 +1304,14 @@ function renderHeader(snapshot: DesktopStoreSnapshot): void {
   elements.connectionMessage.textContent = friendlyConnectionMessage(connection.message, connection.phase);
   const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
   tweenMetric(elements.revision, snapshot.kernel.revision, String);
-  tweenMetric(elements.usage, session?.usage.total ?? 0, formatTokens);
+  if (session?.context) {
+    tweenMetric(elements.usage, session.context.tokens, (value) => `≈${formatTokens(value)}`);
+    elements.usage.title = `当前上下文估算 ${session.context.tokens.toLocaleString()} / ${session.context.window.toLocaleString()} tokens${session.context.triggerTokens ? `；自动压缩阈值 ${session.context.triggerTokens.toLocaleString()}` : ""}；累计用量 ${session.usage.total.toLocaleString()} tokens`;
+  } else {
+    elements.usage.textContent = "—";
+    elements.usage.title = `当前上下文暂不可用；累计用量 ${(session?.usage.total ?? 0).toLocaleString()} tokens`;
+  }
+  tweenMetric(elements.totalUsage, session?.usage.total ?? 0, formatTokens);
   tweenMetric(elements.cache, (session?.usage.cacheRead ?? 0) + (session?.usage.cacheWrite ?? 0), formatTokens);
   crossfadeText(elements.notice, snapshot.notice);
   elements.refresh.disabled = connection.phase !== "connected";
@@ -2219,7 +2227,7 @@ function currentRunPhase(snapshot: DesktopStoreSnapshot): RunPhase | undefined {
     .filter((activity) => activity.status === "running" && (activity.sessionId ?? sessionId) === sessionId)
     .at(-1);
   if (tool) {
-    const label = tool.toolName === "article" ? "撰写文稿" : `执行 ${tool.toolName ?? tool.label}`;
+    const label = tool.toolName === "article" ? "撰写文稿" : tool.toolName === "compaction" ? "正在压缩上下文，完成后继续" : `执行 ${tool.toolName ?? tool.label}`;
     return { key: `tool:${tool.id}`, kind: "tool", label };
   }
   if (articles.isWriting()) return { key: `article:${articles.writingKey()}`, kind: "tool", label: "撰写文稿" };

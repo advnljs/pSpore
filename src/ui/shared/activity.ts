@@ -160,12 +160,12 @@ function genericPresentation(
     return { kind: "compaction", status: "running", label: "Compacting context", summary: compactionReason(payload) };
   }
   if (type === "compaction.completed") {
-    const aborted = payload["aborted"] === true;
+    const aborted = payload["aborted"] === true || typeof payload["errorMessage"] === "string";
     return {
       kind: "compaction",
       status: aborted ? "failed" : "succeeded",
       label: aborted ? "Context compaction stopped" : "Context compacted",
-      summary: compactionReason(payload),
+      summary: typeof payload["errorMessage"] === "string" ? compactText(redactText(payload["errorMessage"]), 140) : compactionReason(payload),
     };
   }
   if (type === "retry.started") {

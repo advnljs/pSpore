@@ -21,7 +21,7 @@ export async function exerciseConversation(target, base, output) {
         const main = state.sessions["main"];
         if (!main)
             throw new Error("Missing smoke session");
-        state.sessions = { ...state.sessions, main: { ...main, messages: [...messages], messageOffset: 0, messageCount: messages.length, status: running ? "running" : "idle", queue: { steering: [], followUp: [] } } };
+        state.sessions = { ...state.sessions, main: { ...main, context: { tokens: 16_000, window: 200_000, estimated: true, triggerTokens: 100_000 }, usage: { ...main.usage, total: 280_000 }, messages: [...messages], messageOffset: 0, messageCount: messages.length, status: running ? "running" : "idle", queue: { steering: [], followUp: [] } } };
         state.approvals = {};
         target.webContents.send(DESKTOP_FRAME_CHANNEL, { version: 1, kind: "snapshot", snapshot: state, cursors: base.cursors });
     };
@@ -54,6 +54,7 @@ export async function exerciseConversation(target, base, output) {
     await wait(`document.querySelector('.process-details')?.open === false && document.querySelector('#transcript')?.textContent.includes('检查结束')`);
     await wait(`document.querySelectorAll('.process-body .tool-call').length === 0`);
     await capture("collapsed");
+    await wait(`document.querySelector('#usage-value')?.textContent === '≈16k' && document.querySelector('#total-usage-value')?.textContent === '280k'`);
     await target.webContents.executeJavaScript(`document.querySelector('.process-summary')?.click()`);
     await wait(`document.querySelectorAll('.tool-call').length === 2`);
     await target.webContents.executeJavaScript(`document.querySelector('.tool-call summary')?.click()`);

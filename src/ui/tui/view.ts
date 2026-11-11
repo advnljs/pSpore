@@ -208,7 +208,7 @@ export function renderTuiSnapshot(
   const activeState = activeWorkLabel(state, animationFrame);
   const context = fullRow(sideBySide(
     ` ${paint("session", "faint", color)} ${paint(shortId(state.selectedSessionId), "lichen", color)}   ${paint(activeState, selected?.status === "running" ? "honey" : "muted", color)}`,
-    `${stat("context", formatTokens(selected?.usage.total ?? 0), color)}   ${stat("rev", String(state.kernel.revision), color)}   ${stat("approvals", String(metrics.pendingApprovals), color)} `,
+    `${stat("context", selected?.context ? `~${formatTokens(selected.context.tokens)}` : "—", color)}   ${stat("total", formatTokens(selected?.usage.total ?? 0), color)}   ${stat("rev", String(state.kernel.revision), color)}   ${stat("approvals", String(metrics.pendingApprovals), color)} `,
     innerWidth,
   ), innerWidth);
   const offset = options.scrollOffset ?? 0;

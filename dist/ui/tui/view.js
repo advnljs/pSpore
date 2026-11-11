@@ -153,7 +153,7 @@ export function renderTuiSnapshot(state, width = 160, height = 45, input = "", o
     const top = paint(`┌${"─".repeat(innerWidth)}┐`, "border", color);
     const header = fullRow(sideBySide(` ${paint("∴", "brand", color)} ${paint("pSpore", "brand", color)}  ${paint("LOCAL COWORK AGENT", "faint", color)}`, `${paint(state.connected ? "● ONLINE" : "○ OFFLINE", state.connected ? "live" : "muted", color)}   ${paint(model, "model", color)} `, innerWidth), innerWidth);
     const activeState = activeWorkLabel(state, animationFrame);
-    const context = fullRow(sideBySide(` ${paint("session", "faint", color)} ${paint(shortId(state.selectedSessionId), "lichen", color)}   ${paint(activeState, selected?.status === "running" ? "honey" : "muted", color)}`, `${stat("context", formatTokens(selected?.usage.total ?? 0), color)}   ${stat("rev", String(state.kernel.revision), color)}   ${stat("approvals", String(metrics.pendingApprovals), color)} `, innerWidth), innerWidth);
+    const context = fullRow(sideBySide(` ${paint("session", "faint", color)} ${paint(shortId(state.selectedSessionId), "lichen", color)}   ${paint(activeState, selected?.status === "running" ? "honey" : "muted", color)}`, `${stat("context", selected?.context ? `~${formatTokens(selected.context.tokens)}` : "—", color)}   ${stat("total", formatTokens(selected?.usage.total ?? 0), color)}   ${stat("rev", String(state.kernel.revision), color)}   ${stat("approvals", String(metrics.pendingApprovals), color)} `, innerWidth), innerWidth);
     const offset = options.scrollOffset ?? 0;
     const mainWidth = wide ? contentWidth(innerWidth) : innerWidth - 2;
     let main;

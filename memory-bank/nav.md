@@ -1,5 +1,6 @@
 # Project Navigation
 
+- `src/pi/context-budget.ts`：模型上下文中的工具输出摘录、私有全文归档及中文 token 估算；`test/unit/context-budget.test.ts` 覆盖截断与权限。`test/contract/pi-runtime-adapter.test.ts` 覆盖长循环压缩、续跑、队列和中止/失败。
 - `src/desktop/renderer/conversation.ts`：过程分组、搜索文本、工具参数摘要；`test/unit/desktop-conversation.test.ts` 为对应回归。
 - `src/desktop/conversation-smoke.ts`：由既有 Electron smoke 调用的 1920×1080 工具过程交互验收。
 - 隔离持续预览：构建后以 `PSPORE_SMOKE_KEEP_OPEN=1 electron dist/desktop/main.js --home <隔离目录> --smoke-dir <截图目录> --smoke-fixture` 启动；沿用 smoke 的独立 Daemon，不安装系统服务。

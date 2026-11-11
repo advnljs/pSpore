@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-11-11 09:44 CST — 当前上下文预算与长工具循环自动压缩
+
+- 根因：GUI/TUI 把累计 `usage.total` 标成当前上下文；直接阈值只在 `prompt()` 前后检查，整段工具循环中从不检查；read/MCP 等大文本结果可一次占用大量上下文。
+- 完成：新增可选当前 `context` 指标，和累计用量分别展示；在工具批次完成后达到有效阈值即暂停、调用 Pi 原生压缩、恢复队列并继续原任务。整个逻辑任务保持运行状态，最终才 settled；中止取消压缩且不续跑，失败明确上报。压缩后暂无真实 usage 时使用包含系统提示、工具 schema 与中文文本的估算。
+- 完成：统一工具返回边界，超过 24000 字符的文本仅头尾摘录进入模型历史；完整结果私有保存并提供按需读取路径，不丢弃原始证据，图片保留。
+- 修改：`src/pi/context-budget.ts`、`pi-runtime-adapter.ts`、`domain/runtime.ts`、desktop renderer/validation/conversation-smoke、共享 activity、TUI view；对应单元与 contract 测试、已跟踪 dist、memory-bank。
+- 验证：`npm run check` **313/313 通过**，0 跳过，typecheck/build 通过。新增用例覆盖超大多块工具输出及 0600 全文、中文估算、工具不重复执行的压缩续跑、排队/提前发送、中止、失败，现有压缩用例额外验证全过程状态。日志 `/tmp/pspore-conversation-preview/context-check-final.log`。
+- 桌面：最新构建的真实 Electron 在 **1920×1080** 下通过过程展开/自动折叠/重新展开/失败/输入搜索/无溢出及上下文与累计用量区分；截图已查看。最终报告与截图 `/tmp/pspore-context-verified-preview/`。既有 smoke 自带的其他尺寸检查一并执行，未新增设备矩阵。
+- 运行：最新隔离 Electron 与其 owned Daemon 保持运行，DISPLAY `:112`，home `/tmp/pspore-electron-owned-smoke-4SHZSx`；可复现入口见 `nav.md`。未安装或修改系统服务。
+- 状态：实现及验收完成，版本仍为 0.1.41，本轮未请求新 Release；无新生产依赖，原有未跟踪 `refer/` 未改动。后续关注全文 artifact 的保留策略，已记入 todo；自动压缩生命周期使用确定性 Pi provider 验证，未另做真实付费模型长任务压测。
+
 ## 2026-11-11 09:24 CST — 工具输入、摘要与整轮过程折叠
 
 - 完成：Pi 历史与完成事件保留独立思考、工具名称、已脱敏输入及结果关联；桌面连续工具过程完成后自动折叠，最终回复独立显示。标题展示工具名和关键参数、失败状态；重新展开、按需挂载内容与折叠内搜索已接入。

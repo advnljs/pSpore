@@ -99,6 +99,8 @@ export interface SessionMetadata {
   status: "idle" | "running" | "failed";
   model?: ModelRef;
   thinking: ThinkingLevel;
+  /** Active model context, distinct from cumulative billing/usage totals. */
+  context?: { tokens: number; window: number; estimated: boolean; triggerTokens?: number };
   /** Total transcript messages the daemon holds, independent of what is sent. */
   messageCount: number;
   /** First user text, so a session can be titled without its transcript. */

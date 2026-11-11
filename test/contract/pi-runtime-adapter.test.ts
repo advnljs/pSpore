@@ -449,7 +449,10 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     });
     faux.setResponses([
       fauxAssistantMessage("response above the direct threshold"),
-      fauxAssistantMessage("automatic compact summary"),
+      () => {
+        assert.equal(adapter.snapshot("main").status, "running", "post-turn compaction is still part of the active task");
+        return fauxAssistantMessage("automatic compact summary");
+      },
     ]);
     await adapter.create(spec(root));
     const events: RuntimeEvent[] = [];
@@ -465,6 +468,146 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
       (event) => event.type === "compaction.completed" && event.payload["reason"] === "token_threshold",
     ));
     assert.ok(faux.state.callCount >= 2);
+  });
+
+  test("pauses a tool loop for compaction before the next request, then resumes without repeating tools", async () => {
+    let executions = 0;
+    const tool = defineTool({
+      name: "large_context_tool", label: "Large result", description: "Return a large fixture result",
+      parameters: Type.Object({}),
+      execute: async () => {
+        executions += 1;
+        return { content: [{ type: "text" as const, text: "context evidence ".repeat(20_000) }], details: undefined };
+      },
+    });
+    const { adapter, faux, root } = await fixture({
+      createTools: () => [tool],
+      autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 },
+    });
+    const events: RuntimeEvent[] = [];
+    let workRequests = 0;
+    const response: Parameters<typeof faux.setResponses>[0][number] = (context) => {
+      if (context.systemPrompt?.includes("summar")) return fauxAssistantMessage("Summary: original task remains; large_context_tool completed once. Continue with the final answer.");
+      workRequests += 1;
+      if (workRequests === 1) return fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" });
+      assert.ok(events.some((event) => event.type === "compaction.completed"), "must compact before continuing the tool loop");
+      assert.ok(JSON.stringify(context.messages).length < 50_000, "the next model request must not contain the full oversized result");
+      return fauxAssistantMessage("task complete after compaction");
+    };
+    faux.setResponses(Array.from({ length: 12 }, () => response));
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    adapter.subscribe("main", (event) => events.push(event));
+    await adapter.prompt("main", "run the tool once then summarize");
+    await adapter.waitForIdle("main");
+    assert.equal(executions, 1);
+    assert.equal(workRequests, 2);
+    assert.equal(adapter.branch("main").at(-1)?.text, "task complete after compaction");
+    assert.equal(events.filter((event) => event.type === "run.started").length, 1);
+    assert.equal(events.filter((event) => event.type === "run.settled").length, 1);
+    assert.equal(adapter.snapshot("main").status, "idle");
+    assert.ok(adapter.snapshot("main").context!.tokens < adapter.snapshot("main").usage.total);
+    assert.ok(adapter.branch("main").every((message) => message.role !== "custom"));
+    const result = adapter.branch("main").find((message) => message.role === "toolResult");
+    assert.ok(result && result.text.length <= 24_000);
+    assert.match(result.text, /Full output:/);
+  });
+
+  test("preserves queued and promoted messages while a tool loop is compacting", { timeout: 8_000 }, async () => {
+    let releaseTool!: () => void;
+    let toolStarted!: () => void;
+    const toolGate = new Promise<void>((resolve) => { releaseTool = resolve; });
+    const started = new Promise<void>((resolve) => { toolStarted = resolve; });
+    let releaseSummary!: () => void;
+    let summaryStarted!: () => void;
+    const summaryGate = new Promise<void>((resolve) => { releaseSummary = resolve; });
+    const summarizing = new Promise<void>((resolve) => { summaryStarted = resolve; });
+    const tool = defineTool({
+      name: "queue_context_tool", label: "Queue fixture", description: "Return context after a gate", parameters: Type.Object({}),
+      execute: async () => {
+        toolStarted();
+        await toolGate;
+        return { content: [{ type: "text" as const, text: "evidence ".repeat(3_000) }], details: undefined };
+      },
+    });
+    const { adapter, faux, root } = await fixture({ createTools: () => [tool], autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    let workRequests = 0;
+    const response: Parameters<typeof faux.setResponses>[0][number] = async (context) => {
+      if (context.systemPrompt?.includes("summar")) {
+        summaryStarted();
+        await summaryGate;
+        return fauxAssistantMessage("Summary: task and completed tool evidence retained.");
+      }
+      workRequests += 1;
+      return workRequests === 1 ? fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" }) : fauxAssistantMessage("queued response complete");
+    };
+    faux.setResponses(Array.from({ length: 16 }, () => response));
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    await adapter.prompt("main", "start queued task");
+    await started;
+    await adapter.followUp("main", "queued before compaction");
+    releaseTool();
+    await summarizing;
+    assert.equal(adapter.snapshot("main").status, "running");
+    await adapter.followUp("main", "promote during compaction");
+    await adapter.promoteFollowUp("main", 1);
+    assert.deepEqual(adapter.snapshot("main").queue, { steering: ["promote during compaction"], followUp: ["queued before compaction"] });
+    releaseSummary();
+    await adapter.waitForIdle("main");
+    assert.deepEqual(adapter.branch("main").filter((message) => message.role === "user").map((message) => message.text), ["start queued task", "promote during compaction", "queued before compaction"]);
+    assert.deepEqual(adapter.snapshot("main").queue, { steering: [], followUp: [] });
+  });
+
+  test("aborting an in-flight automatic compaction never resumes the original task", { timeout: 8_000 }, async () => {
+    let started!: () => void;
+    const summarizing = new Promise<void>((resolve) => { started = resolve; });
+    const tool = defineTool({ name: "abort_context_tool", label: "Abort fixture", description: "Return context", parameters: Type.Object({}), execute: async () => ({ content: [{ type: "text" as const, text: "evidence ".repeat(3_000) }], details: undefined }) });
+    const { adapter, faux, root } = await fixture({ createTools: () => [tool], autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    let workRequests = 0;
+    const response: Parameters<typeof faux.setResponses>[0][number] = async (context, options) => {
+      if (context.systemPrompt?.includes("summar")) {
+        started();
+        await new Promise<void>((resolve) => {
+          if (options?.signal?.aborted) resolve();
+          else options?.signal?.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return fauxAssistantMessage("", { stopReason: "aborted" });
+      }
+      workRequests += 1;
+      return fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" });
+    };
+    faux.setResponses(Array.from({ length: 8 }, () => response));
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+    await adapter.prompt("main", "stop during automatic summary");
+    await summarizing;
+    await adapter.abort("main", "user cancelled");
+    await adapter.waitForIdle("main");
+    assert.equal(workRequests, 1);
+    assert.equal(adapter.snapshot("main").status, "idle");
+    assert.equal(events.filter((event) => event.type === "runtime.error").length, 0);
+    assert.equal(events.filter((event) => event.type === "run.settled").length, 1);
+  });
+
+  test("failed automatic compaction is reported and does not silently continue", { timeout: 8_000 }, async () => {
+    const tool = defineTool({ name: "failed_context_tool", label: "Failure fixture", description: "Return context", parameters: Type.Object({}), execute: async () => ({ content: [{ type: "text" as const, text: "evidence ".repeat(3_000) }], details: undefined }) });
+    const { adapter, faux, root } = await fixture({ createTools: () => [tool], autoCompaction: { enabled: true, triggerTokens: 4_000, reserveTokens: 1_024, keepRecentTokens: 100 } });
+    let workRequests = 0;
+    const response: Parameters<typeof faux.setResponses>[0][number] = (context) => {
+      if (context.systemPrompt?.includes("summar")) return fauxAssistantMessage("", { stopReason: "error", errorMessage: "fixture summary rejected" });
+      workRequests += 1;
+      return fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" });
+    };
+    faux.setResponses(Array.from({ length: 8 }, () => response));
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    const events: RuntimeEvent[] = [];
+    adapter.subscribe("main", (event) => events.push(event));
+    await adapter.prompt("main", "report failed summary");
+    await assert.rejects(adapter.waitForIdle("main"), /fixture summary rejected/);
+    assert.equal(workRequests, 1);
+    assert.equal(adapter.snapshot("main").status, "failed");
+    assert.ok(events.some((event) => event.type === "compaction.completed" && String(event.payload["errorMessage"]).includes("fixture summary rejected")));
+    assert.equal(adapter.branch("main").filter((message) => message.role === "toolResult").length, 1);
   });
 
   test("reloads trusted skill paths only at a session boundary and keeps full instructions out of the prompt", async () => {

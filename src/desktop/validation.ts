@@ -246,6 +246,13 @@ function validateSessionMetadata(value: unknown, path: string): string {
   const status = snapshot["status"];
   if (status !== "idle" && status !== "running" && status !== "failed") throw new Error(`${path}.status is invalid`);
   nonNegativeInteger(snapshot["messageCount"], `${path}.messageCount`);
+  if (snapshot["context"] !== undefined) {
+    const context = record(snapshot["context"], `${path}.context`);
+    nonNegativeInteger(context["tokens"], `${path}.context.tokens`);
+    nonNegativeInteger(context["window"], `${path}.context.window`);
+    if (typeof context["estimated"] !== "boolean") throw new Error(`${path}.context.estimated is invalid`);
+    if (context["triggerTokens"] !== undefined) nonNegativeInteger(context["triggerTokens"], `${path}.context.triggerTokens`);
+  }
   optionalBoundedString(snapshot["firstUserText"], `${path}.firstUserText`, MAX_STRING_LENGTH);
   const queue = record(snapshot["queue"], `${path}.queue`);
   validateStringArray(queue["steering"], `${path}.queue.steering`);

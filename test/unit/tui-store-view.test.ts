@@ -319,7 +319,8 @@ describe("TUI 160x45 snapshot", () => {
     assert.match(plain, /\/help commands/);
     assert.match(plain, /\/config setup/);
     assert.match(plain, /to child-1 › inspect workspace/);
-    assert.equal(createHash("sha256").update(screen).digest("hex"), "7c4bc9506252d79a0f42c37751291df9185b2d5a1afb7b605576b67458bdd1a5");
+    assert.match(plain, /context\s+—\s+total/);
+    assert.equal(createHash("sha256").update(screen).digest("hex"), "f01e161cc0bf9c3227b018176e8a23929627367bc86232883969c3b9376e0444");
   });
 
   test("labels every follow-up with the requested queue and direct-send wording", () => {
