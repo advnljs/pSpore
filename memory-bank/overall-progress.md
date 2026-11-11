@@ -1,5 +1,13 @@
 # Overall Progress
 
+## 2026-11-11 11:55 CST — GitHub 仓库已公开并完成匿名访问核验
+
+- `efa7166` 已提交并推送英文 README、中文 README、MIT LICENSE 和深浅主题截图；GitHub `advnljs/pSpore` 已从 PRIVATE 切换为 **PUBLIC**，许可证识别为 **MIT**。地址：<https://github.com/advnljs/pSpore>。
+- 未登录 HTTP 验证：仓库 API、两份 README、LICENSE 和两张原始截图均返回 200；五个文件的远端字节与本地逐字一致。证据 `.cache/open-source/public-verification.json`。
+- 验证：README 本地链接、语言入口、信创 PC 表述、MIT 文本和两张 1920×1080 PNG 尺寸通过；`git diff --check` 通过。完整历史扫描和本轮 staged 变更扫描均未检出凭据；源码、dist、依赖与 npm 0.1.42 发布时保持一致。
+- 当前状态：npm 0.1.42 发布及等待两分钟后的实装/TUI/GUI 验收、MIT 开源、双语 README 与截图均完成。npm GUI 的隔离实例在 DISPLAY `:113` 保持运行，`p-spore --home /tmp/psnpm-gui-9ih4y3x_ status` 返回 `Daemon: ready`；TUI 测试已正常退出。npm 不携带 Electron，标准 TUI 需 systemd；本环境的替代验收路径见前条。
+- Git：本次资料提交 `efa7166` 的 CI `42955785010` 全部通过（含原生启动器检查），已有 0.1.42 tag 因而没有重复发行；较早的约定提交 `e9caa7c` 的 CI `42953558555` 也已通过。原有未跟踪 `refer/` 未改动，发布缓存未提交。
+
 ## 2026-11-11 11:53 CST — npm 0.1.42 发布、下载后 TUI/GUI 验收与开源资料
 
 - npm：浏览器登录及发布确认后成功发布 `p-spore@0.1.42`，`latest` 同步到 0.1.42。确认时间 `2026-11-11T03:37:04Z`；依用户要求等待约 **140 秒**后才用全新 npm cache/prefix 安装 `p-spore@latest`。registry SHA-1 `5a9c5849b4af7112d4b402141e3e461a3ce8822d`、SHA-512、双 bin 与候选一致；已安装的全部 **524 文件**与候选逐字一致。
