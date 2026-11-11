@@ -118,7 +118,7 @@ export class PsporeTuiView implements Component, Focusable {
       this.#options.requestRender();
       return;
     }
-    this.#input.handleInput(data);
+    this.#input.handleInput(modifyOtherKeysPrintable(data) ?? data);
     this.#options.requestRender();
   }
 
@@ -155,7 +155,7 @@ export class PsporeTuiView implements Component, Focusable {
       return;
     }
     const pasted = bracketedPaste(data);
-    const printable = pasted ?? decodeKittyPrintable(data) ?? (/^[\x20-\x7e]+$/.test(data) ? data : undefined);
+    const printable = pasted ?? decodeKittyPrintable(data) ?? modifyOtherKeysPrintable(data) ?? (/^[\x20-\x7e]+$/.test(data) ? data : undefined);
     if (printable && this.#secretValue.length + printable.length <= 16_384) this.#secretValue += printable;
   }
 
@@ -460,6 +460,30 @@ function sideBySide(left: string, right: string, width: number): string {
 
 function stat(label: string, value: string, color: boolean): string {
   return `${paint(label, "faint", color)} ${paint(value, "muted", color)}`;
+}
+
+/**
+ * The character an xterm-style `CSI 27 ; modifiers ; codepoint ~` key carries.
+ * Pi's TUI falls back to this modifyOtherKeys mode on terminals without the
+ * Kitty keyboard protocol (xterm among them), where Shift+letter arrives in
+ * this form; its Input only decodes the Kitty form, so every capital letter
+ * typed in xterm was dropped. Only Shift and the lock keys may be held, as in
+ * Pi's own decoder: anything with Ctrl or Alt stays a shortcut.
+ */
+export function modifyOtherKeysPrintable(data: string): string | undefined {
+  const match = /^\u001b\[27;(\d+);(\d+)~$/.exec(data);
+  if (!match) return undefined;
+  const modifier = Number(match[1]) - 1;
+  const codepoint = Number(match[2]);
+  const SHIFT = 1;
+  const LOCKS = 64 + 128;
+  if ((modifier & ~(SHIFT | LOCKS)) !== 0 || !Number.isInteger(codepoint) || codepoint < 32 || codepoint === 127) return undefined;
+  try {
+    return String.fromCodePoint(codepoint);
+  } catch {
+    // Out of the Unicode range: not a character to insert.
+    return undefined;
+  }
 }
 
 function bracketedPaste(data: string): string | undefined {

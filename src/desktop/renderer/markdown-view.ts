@@ -17,6 +17,7 @@ import {
 } from "../../ui/shared/markdown.js";
 import { blockKeysOf, commonBlockPrefix } from "../../ui/shared/markdown-stream.js";
 import { localTextParts } from "../../ui/shared/local-links.js";
+import { t } from "./i18n.js";
 
 const ALIGNMENT_CLASS: Record<Exclude<MarkdownAlignment, undefined>, string> = {
   left: "md-align-left",
@@ -136,12 +137,12 @@ function renderCode(block: Extract<MarkdownBlock, { kind: "code" }>): HTMLElemen
 function copyButton(value: string): HTMLButtonElement {
   const button = element("button", "md-copy") as HTMLButtonElement;
   button.type = "button";
-  button.textContent = "复制";
+  button.textContent = t("复制");
   button.addEventListener("click", () => {
     void copyText(value).then((copied) => {
-      button.textContent = copied ? "已复制" : "复制失败";
+      button.textContent = copied ? t("已复制") : t("复制失败");
       globalThis.setTimeout(() => {
-        button.textContent = "复制";
+        button.textContent = t("复制");
       }, 1_600);
     });
   });
@@ -184,7 +185,7 @@ function renderListItem(item: MarkdownListItem): HTMLElement {
     entry.classList.add("md-task");
     const box = element("span", `md-check${item.checked ? " checked" : ""}`);
     box.setAttribute("role", "img");
-    box.setAttribute("aria-label", item.checked ? "已完成" : "未完成");
+    box.setAttribute("aria-label", item.checked ? t("已完成") : t("未完成"));
     box.textContent = item.checked ? "✓" : "";
     entry.append(box);
   }
@@ -281,7 +282,7 @@ function appendInline(container: HTMLElement, nodes: readonly MarkdownInline[], 
           mountLocalPath(container, node.href, (button) => {
             button.title = node.href;
             appendInline(button, node.children, false);
-            button.setAttribute("aria-label", `打开 ${button.textContent || node.href}`);
+            button.setAttribute("aria-label", t("打开 {value}", { value: button.textContent || node.href }));
           });
           break;
         }
@@ -310,7 +311,7 @@ function localPathButton(href: string): HTMLButtonElement {
   const button = element("button", "md-link md-local-link") as HTMLButtonElement;
   button.type = "button";
   button.title = href;
-  button.setAttribute("aria-label", `打开 ${href}`);
+  button.setAttribute("aria-label", t("打开 {href}", { href }));
   button.addEventListener("click", () => {
     void openLinkedPath(button, href, "open");
   });
@@ -326,8 +327,8 @@ function localPathButton(href: string): HTMLButtonElement {
 function revealButton(link: HTMLButtonElement, href: string): HTMLButtonElement {
   const button = element("button", "md-local-reveal") as HTMLButtonElement;
   button.type = "button";
-  button.title = "打开所在目录";
-  button.setAttribute("aria-label", "打开所在目录");
+  button.title = t("打开所在目录");
+  button.setAttribute("aria-label", t("打开所在目录"));
   button.append(folderIcon());
   button.addEventListener("click", (event) => {
     event.preventDefault();
@@ -381,7 +382,7 @@ function localOpenError(error: unknown): string {
   const marker = "Error: ";
   const index = message.lastIndexOf(marker);
   const text = (index >= 0 ? message.slice(index + marker.length) : message).trim();
-  return text || "无法打开文件或目录";
+  return text || t("无法打开文件或目录");
 }
 
 let localLinkMenu: HTMLDivElement | undefined;
@@ -393,8 +394,8 @@ function showLocalLinkMenu(button: HTMLButtonElement, href: string, x: number, y
   menu.className = "local-link-menu";
   menu.setAttribute("role", "menu");
   menu.append(
-    localLinkMenuItem("打开", "open", () => openLinkedPath(button, href, "open")),
-    localLinkMenuItem("打开所在目录", "reveal", () => openLinkedPath(button, href, "reveal")),
+    localLinkMenuItem(t("打开"), "open", () => openLinkedPath(button, href, "open")),
+    localLinkMenuItem(t("打开所在目录"), "reveal", () => openLinkedPath(button, href, "reveal")),
   );
   document.body.append(menu);
   localLinkMenu = menu;

@@ -2,6 +2,7 @@ import type { KernelState } from "../kernel/state.js";
 import type { EventEnvelope } from "../protocol/schema.js";
 import { type IndexingSettings, type IndexingSettingsUpdate } from "../settings/indexing-settings.js";
 import { type LlmSettings, type LlmSettingsUpdate, type ModelApi, type ThinkingLevel } from "../settings/llm-settings.js";
+import type { DesktopLocale } from "./i18n.js";
 export declare const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
 export declare const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
 export declare const DESKTOP_FRAME_CHANNEL = "pspore:desktop:frame";
@@ -222,7 +223,8 @@ export interface DesktopProtocolInvocation {
     sessionId?: string;
 }
 export interface DesktopApi {
-    bootstrap(): Promise<DesktopBootstrap>;
+    /** Reports the window's interface language, which main-process dialogs follow. */
+    bootstrap(locale?: DesktopLocale): Promise<DesktopBootstrap>;
     dispatch(command: DesktopCommand): Promise<unknown>;
     getSettings(): Promise<DesktopLlmSettings>;
     saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;

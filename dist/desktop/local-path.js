@@ -1,21 +1,22 @@
 import { stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
+import { mt } from "./main-i18n.js";
 /** A string is the original click payload: open the path. */
 export function decodeLocalPathRequest(value) {
     if (typeof value === "string")
         return { path: value, action: "open" };
     if (typeof value !== "object" || value === null || Array.isArray(value))
-        throw new Error("无效的本地路径");
+        throw new Error(mt("无效的本地路径"));
     const record = value;
     for (const key of Object.keys(record)) {
         if (key !== "path" && key !== "action")
-            throw new Error("无效的本地路径");
+            throw new Error(mt("无效的本地路径"));
     }
     if (record["action"] !== "open" && record["action"] !== "reveal")
-        throw new Error("无效的打开方式");
+        throw new Error(mt("无效的打开方式"));
     if (typeof record["path"] !== "string")
-        throw new Error("无效的本地路径");
+        throw new Error(mt("无效的本地路径"));
     return { path: record["path"], action: record["action"] };
 }
 /**
@@ -25,7 +26,7 @@ export function decodeLocalPathRequest(value) {
  */
 export async function resolveLocalPath(value, action) {
     if (typeof value !== "string" || value.length === 0 || value.length > 4_096 || /[\x00-\x1f\x7f]/.test(value)) {
-        throw new Error("无效的本地路径");
+        throw new Error(mt("无效的本地路径"));
     }
     let path = value;
     if (value.startsWith("file:")) {
@@ -33,22 +34,22 @@ export async function resolveLocalPath(value, action) {
             path = fileURLToPath(value);
         }
         catch {
-            throw new Error("只支持本机 file:// 链接");
+            throw new Error(mt("只支持本机 file:// 链接"));
         }
     }
     if (!isAbsolute(path))
-        throw new Error("只支持绝对本地路径");
+        throw new Error(mt("只支持绝对本地路径"));
     let details;
     try {
         details = await stat(path);
     }
     catch {
-        throw new Error("文件或目录不存在，或无法访问");
+        throw new Error(mt("文件或目录不存在，或无法访问"));
     }
     if (!details.isFile() && !details.isDirectory())
-        throw new Error("只支持普通文件和目录");
+        throw new Error(mt("只支持普通文件和目录"));
     if (action === "open" && details.isFile() && ((details.mode & 0o111) !== 0 || path.toLowerCase().endsWith(".desktop"))) {
-        throw new Error("可执行文件不能通过对话链接直接打开");
+        throw new Error(mt("可执行文件不能通过对话链接直接打开"));
     }
     return path;
 }

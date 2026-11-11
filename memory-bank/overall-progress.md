@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-11-11 16:10 CST — 桌面中英双语、英文/TUI 截图与 README TUI 章节（0.1.44 候选）
+
+- 用户要求英文 README 截图为英文、README 加入 TUI 说明，并选择为桌面端实现英文界面。
+- 双语：中文为源语言，渲染层 `t()` / 主进程 `mt()` 以中文原文查英文词典（约 370 + 40 条），`index.html` 静态文字自动翻译，`data-i18n` 处理一词多义；默认跟随系统语言，顶栏 EN/中 切换并重新载入，窗口把语言报告给主进程以切换对话框与提示，并记住给下次 Electron 启动小窗。原生 GTK 启动窗保持中文（todo）。smoke 模式隔离 userData，现有 Electron/文稿 smoke 固定 `--lang=zh-CN`。
+- 截图与 TUI：`scripts/readme-demo.mjs` 抽出中英两套演示；`readme-screenshots.mjs --lang en|zh-CN` 生成 `desktop-*.png`（英文，README.md）与 `desktop-*.zh-CN.png`（中文，README.zh-CN.md），英文模式截图前扫描界面不得残留中文；新增 `readme-tui-screenshot.mjs`（Xvfb + 160×45 xterm + 隔离 Daemon）生成 `tui.png`。两份 README 新增 TUI 章节（布局、发送与排队、按键、常用命令表）与语言说明；开发者指南补充截图命令与界面语言约定。
+- 截图过程中发现并修复：① xterm 中 TUI 丢失全部大写字母（pi-tui `Input` 不解码 modifyOtherKeys 的 Shift+字母，`view.ts` 先行还原，隐藏输入同修）；② TUI 每条普通消息都误报「继续排队」（改为按发送前状态判断）；③ 运行中自动展开的工具卡片完成后不收起；④ 运行状态行显示「执行 run」。TUI 帮助中两行中文改为英文。
+- 验证（VM，Node 24.22.2）：`npm run check` 330 项中 326 通过、0 失败、4 项私有索引器跳过；新增 `test/unit/desktop-i18n.test.ts` 与 TUI 按键用例。`npm run test:electron`（owned/external、早期启动检查）与 `npm run test:article-stream` 通过；真实应用中语言切换往返（zh→en→zh，窗口与主进程记录一致）通过；真实 xterm 输入 "Hello World ABC xyz Q" 完整。1920×1080 中英文截图与 TUI 截图已人工查看，页脚为 0.1.44。
+- 版本：`package.json`、lockfile 根版本、`src/version.ts` 与 `dist/version.*` 同步为 0.1.44，待提交、推送触发双架构 Release 并发布 npm。
+
 ## 2026-11-11 15:15 CST — v0.1.43 双架构 Release 与 npm 发布完成
 
 - 用户确认发布 0.1.43，并选择沿用仓库既有提交身份（`ljdavns`，仅在提交命令里临时指定，未修改任何 Git 配置）。提交：`185a4a1` 修复思考/工具折叠挤压、标题截断与文档改版；`f76cb52` 同步提升 `package.json`、lockfile 根版本、`src/version.ts` 及 `dist/version.*` 至 0.1.43。推送使用 `gh` 凭据（命令内临时 helper）。

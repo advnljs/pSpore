@@ -15,8 +15,8 @@ const ARTICLE_EXPORT_CHANNEL = "pspore:desktop:article:export";
 const OPEN_LOCAL_PATH_CHANNEL = "pspore:desktop:open-local-path";
 
 const api = Object.freeze({
-  bootstrap() {
-    return ipcRenderer.invoke(BOOTSTRAP_CHANNEL);
+  bootstrap(locale) {
+    return ipcRenderer.invoke(BOOTSTRAP_CHANNEL, locale === "en" || locale === "zh-CN" ? locale : undefined);
   },
   dispatch(command) {
     return ipcRenderer.invoke(DISPATCH_CHANNEL, command);

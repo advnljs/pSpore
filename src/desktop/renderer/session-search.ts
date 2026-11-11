@@ -1,4 +1,5 @@
 import { findTextHits, type TextHit } from "./session-find.js";
+import { t } from "./i18n.js";
 
 export interface SessionSearchOptions {
   bar: HTMLElement;
@@ -79,7 +80,7 @@ export function createSessionSearch(options: SessionSearchOptions): SessionSearc
       return;
     }
     if (hits.length === 0) {
-      options.count.textContent = "无匹配";
+      options.count.textContent = t("无匹配");
       return;
     }
     options.count.textContent = `${active + 1} / ${hits.length}${capped ? "+" : ""}`;

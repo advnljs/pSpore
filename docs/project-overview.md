@@ -137,14 +137,25 @@ PSPORE_SMOKE_KEEP_OPEN=1 npx electron dist/desktop/main.js \
 
 ### README 截图
 
-`docs/images/` 中的截图由脚本从真实桌面应用生成：脚本启动一个本地的、按剧本应答的 OpenAI 兼容“演示模型”，在隔离 home 中跑一次真实的工具调用，再通过 Chrome DevTools Protocol 截图。不需要任何真实凭据，也不会读取个人文件。
+`docs/images/` 中的截图都由脚本从真实应用生成。脚本先启动一个本地的、按剧本应答的 OpenAI 兼容“演示模型”（`scripts/readme-demo.mjs`），再在隔离 home 中跑一次真实的工具调用。整个过程不需要真实凭据，也不会读取个人文件。
 
 ```bash
 npm run build
-node scripts/readme-screenshots.mjs        # 容器或 root 环境加 PSPORE_ELECTRON_NO_SANDBOX=1
+node scripts/readme-screenshots.mjs --lang en      # desktop-*.png，英文 README 使用
+node scripts/readme-screenshots.mjs --lang zh-CN   # desktop-*.zh-CN.png，中文 README 使用
+node scripts/readme-tui-screenshot.mjs             # tui.png，160×45 的 xterm（需要 xterm、xdotool、ImageMagick）
 ```
 
-公开截图只能使用演示数据，不能包含凭据或个人内容。
+容器或 root 环境运行桌面截图时加 `PSPORE_ELECTRON_NO_SANDBOX=1`。英文截图会额外检查：除语言切换按钮外，界面里不能残留中文。公开截图只能使用演示数据，不能包含凭据或个人内容。
+
+## 界面语言
+
+桌面端支持简体中文和英文：默认跟随系统语言，顶栏的 **EN / 中** 按钮可以切换，选择保存在窗口本地，切换时界面重新载入。TUI 的界面文字是英文。
+
+- 代码里的界面文字直接写中文，并通过 `t("…")`（渲染层，`src/desktop/renderer/i18n.ts`）或 `mt("…")`（主进程，`src/desktop/main-i18n.ts`）输出；英文写在 `src/desktop/renderer/messages-en.ts` 和 `MAIN_EN_MESSAGES` 里，以中文原文为键，用 `{name}` 表示参数。
+- `index.html` 中的静态文字按原文自动翻译；同一中文需要不同英文时，用 `data-i18n="原文#上下文"` 区分。
+- 窗口每次启动都会把当前语言报告给主进程，对话框标题和主进程返回的提示随之切换；Electron 启动小窗沿用上一次的语言。原生 GTK 启动窗暂时只有中文。
+- `test/unit/desktop-i18n.test.ts` 会检查：每条界面中文都有英文翻译，英文里没有残留中文，占位符一致，渲染层没有绕过 `t()` 的中文。Electron smoke 固定以 `--lang=zh-CN` 运行，因为其中的断言读的是中文界面。
 
 ## 打包与发布
 

@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-11-11 中英双语界面（0.1.44）
+
+- 共享核心 `src/desktop/i18n.ts`（无 DOM/Node）：`DesktopLocale = "zh-CN" | "en"`、`localeFromLanguageTag`（仅 `zh*` 为中文）、`formatMessage`（`{name}` 占位）、`translateMessage`（缺词回落中文）。
+- 渲染层 `src/desktop/renderer/i18n.ts`：`locale` 在模块加载时确定（localStorage `pspore.desktop.locale` > `navigator.language`；非浏览器环境即单元测试固定中文）；`t("中文原文", params)`；`translateStaticDocument` 按原文翻译 `index.html` 文本与 title/aria-label/placeholder，`data-i18n="原文#上下文"` 处理一词多义（文稿视图的「修订」→ Changes，顶栏「修订」→ Revision）；`LANGUAGE_SWITCH` 定义顶栏 EN/中 按钮（以目标语言书写）。切换语言 = 保存偏好 + `location.reload()`。
+- 英文词典 `src/desktop/renderer/messages-en.ts`（以中文原文为键，约 370 条）；主进程 `src/desktop/main-i18n.ts` 的 `mt()` 与 `MAIN_EN_MESSAGES`：对话框标题、设置/索引保存提示、本地路径与系统打开错误、导出提示。窗口每次 `bootstrap(locale)` 上报语言，主进程据此切换并写入 `<userData>/interface-locale`，下次 Electron 启动小窗（`splash.ts` 读 `?lang=`）沿用。原生 GTK 启动窗（C）未翻译。
+- smoke 模式下 `--home` 存在时 userData 改为 `<home>/electron`，开发者自己的主题/语言偏好不再影响验收。`electron-smoke.mjs` 与 `article-stream-smoke.mjs` 固定 `--lang=zh-CN`。
+- 同期修复：运行中自动展开的工具卡片在完成后不再保持展开（只记住用户点击，不记住程序打开触发的 toggle）；运行状态行不再把整轮 `run.*` 事件当工具显示成「执行 run」。
+- 测试：`test/unit/desktop-i18n.test.ts`（词典覆盖 index.html 与全部 `t()`/`mt()` 键、英文无中文、占位符一致、渲染层无绕过 `t()` 的中文、主进程语言跟随）。README 截图脚本英文模式会在截图前扫描整个界面不得残留中文（语言按钮除外）。
+
 ## 2026-11-11 折叠过程排版与标题修复
 
 - `renderMessage` 的顺序固定为「角色标签 → 思考 → 正文」。此前思考框插在标签之前且 `.settled-thinking` 无外边距，标签直接压在思考框下沿（用户反馈的折叠内挤压）。

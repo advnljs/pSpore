@@ -10,11 +10,13 @@
  * dependency and `xvfb-run`. Set PSPORE_ELECTRON_NO_SANDBOX=1 where Chromium's
  * sandbox is unavailable (containers, root).
  *
- *   node scripts/readme-screenshots.mjs [output-directory]   # default: docs/images
+ *   node scripts/readme-screenshots.mjs [--lang en|zh-CN] [output-directory]
+ *
+ * English (the default) writes desktop-*.png for README.md; zh-CN writes
+ * desktop-*.zh-CN.png for README.zh-CN.md. Output defaults to docs/images.
  */
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { createServer } from "node:http";
 import { access, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -22,59 +24,21 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const output = resolve(process.argv[2] ?? join(root, "docs/images"));
+const args = process.argv.slice(2);
+const languageIndex = args.indexOf("--lang");
+const language = languageIndex >= 0 ? args.splice(languageIndex, 2)[1] : "en";
+if (language !== "en" && language !== "zh-CN") throw new Error("--lang must be en or zh-CN");
+const output = resolve(args[0] ?? join(root, "docs/images"));
+/** English pictures keep the plain names the default (English) README uses. */
+const imageName = (name) => language === "en" ? `${name}.png` : `${name}.${language}.png`;
 const viewport = { width: 1920, height: 1080 };
 const debugPort = Number(process.env.PSPORE_SCREENSHOT_CDP_PORT ?? 9337);
 
 const { initializePsporeHome } = await import("../dist/storage/home.js");
 const { LlmSettingsService } = await import("../dist/settings/llm-settings-service.js");
+const { DEMOS, configureDemoHome, deferred, demoModel, sleep } = await import("./readme-demo.mjs");
 
-const PROMPT = "请阅读 notes 里本周的工作记录，整理下周的重点任务和行动计划。";
-
-const NOTES = {
-  "本周工作记录.md": [
-    "# 本周工作记录",
-    "",
-    "- [x] 完成新版方案初稿",
-    "- [x] 召开两次需求评审会",
-    "- [ ] 汇总用户反馈，完成方案评审",
-    "- [ ] 整理会议纪要与项目资料",
-    "- [ ] 编写周报并确认下周计划",
-    "",
-  ].join("\n"),
-  "会议纪要-周二.md": "# 需求评审（周二）\n\n- 反馈集中在导入流程\n- 下周一前给出修改方案\n",
-  "会议纪要-周四.md": "# 需求评审（周四）\n\n- 确认交付节奏\n- 资料统一归档到共享目录\n",
-};
-
-/** The demonstration model's three turns, chosen by how many assistant replies it has already given. */
-const TURNS = [
-  {
-    reasoning: "先读本周的工作记录，弄清楚哪些事项还没有完成。",
-    tool: { name: "read", arguments: { path: "notes/本周工作记录.md" } },
-  },
-  {
-    reasoning: "记录里提到两次评审会，再确认会议纪要是否都已经整理出来。",
-    tool: { name: "shell", arguments: { command: "wc -l notes/*.md" } },
-  },
-  {
-    reasoning: "三项未完成的任务里，方案评审依赖反馈汇总，应该排在最前面。",
-    text: [
-      "## 下周行动计划\n\n",
-      "本周记录里还有 **3 项**未完成事项。建议先完成方案评审，再推进资料归档。\n\n",
-      "| 优先级 | 任务 | 时间安排 |\n| --- | --- | --- |\n",
-      "| 高 | 汇总用户反馈并完成方案评审 | 周一至周二 |\n",
-      "| 中 | 整理两次评审的会议纪要与项目资料 | 周三 |\n",
-      "| 中 | 编写周报并确认下周计划 | 周五 |\n\n",
-      "### 建议的下一步\n\n",
-      "- [ ] 核对每项任务的负责人和交付时间\n",
-      "- [ ] 把方案评审拆成可执行的步骤\n",
-      "- [ ] 设置每周五自动汇总进度的定时任务\n\n",
-      "需要的话，我可以继续帮你起草周报。",
-    ],
-    // The dark screenshot is taken while this answer is still streaming.
-    pauseAfter: 5,
-  },
-];
+const { prompt: PROMPT, turns: TURNS, streamingText } = DEMOS[language];
 
 const home = await mkdtemp(join(tmpdir(), "pspore-readme-"));
 let app;
@@ -83,15 +47,8 @@ let devtools;
 try {
   await mkdir(output, { recursive: true });
   const releaseAnswer = deferred();
-  model = await demoModel(releaseAnswer.promise);
-  const { paths } = await initializePsporeHome(home);
-  await new LlmSettingsService(home, paths).save({
-    provider: "custom-openai", model: "demo", customModel: true, api: "openai-completions",
-    baseUrl: `http://127.0.0.1:${model.port}/v1`, thinking: "off", permissionMode: "ask_risky",
-    apiKey: "local-demo-placeholder", clearApiKey: false, clearCookie: false,
-  });
-  await mkdir(join(paths.workspace, "notes"), { recursive: true });
-  for (const [name, text] of Object.entries(NOTES)) await writeFile(join(paths.workspace, "notes", name), text);
+  model = await demoModel(TURNS, releaseAnswer.promise);
+  await configureDemoHome(home, DEMOS[language], model.port, { initializePsporeHome, LlmSettingsService });
 
   app = launchDesktop(home);
   devtools = await connectRenderer(debugPort, app);
@@ -116,13 +73,13 @@ try {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     document.querySelector('#composer-form').requestSubmit();
   })()`);
-  await page.waitFor("document.querySelector('#transcript')?.textContent.includes('整理两次评审')", 60_000);
+  await page.waitFor(`document.querySelector('#transcript')?.textContent.includes(${JSON.stringify(streamingText)})`, 60_000);
   await page.waitFor("document.querySelectorAll('.process-body .tool-call').length === 2", 10_000);
   await settle(page);
   // Following the stream leaves the group's own heading half under the header.
   await page.evaluate("document.querySelector('.process-message').scrollIntoView({ block: 'start' })");
   await settle(page);
-  await capture(page, "desktop-dark.png");
+  await capture(page, imageName("desktop-dark"));
 
   // Light: the finished answer, with its steps folded into one line.
   releaseAnswer.resolve();
@@ -131,7 +88,7 @@ try {
   await setTheme(page, "light");
   await page.evaluate("document.querySelector('#transcript').scrollTop = 0");
   await settle(page);
-  await capture(page, "desktop-light.png");
+  await capture(page, imageName("desktop-light"));
 
   // Process: the folded steps reopened, with the shell call's input and output.
   await page.evaluate("document.querySelector('.process-summary').click()");
@@ -144,7 +101,7 @@ try {
   })()`, 10_000);
   await page.evaluate("document.querySelector('#transcript').scrollTop = 0");
   await settle(page);
-  await capture(page, "desktop-process.png");
+  await capture(page, imageName("desktop-process"));
   if (model.errors.length) throw model.errors[0];
   process.stdout.write(`Screenshots written to ${output}\n`);
 } finally {
@@ -177,9 +134,14 @@ function launchDesktop(pspHome) {
   const electron = createRequire(import.meta.url)("electron");
   const flags = process.env.PSPORE_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : [];
   const child = spawn("xvfb-run", [
-    "-a", "-s", "-screen 0 2048x1200x24", electron, ...flags, `--remote-debugging-port=${debugPort}`,
+    "-a", "-s", "-screen 0 2048x1200x24", electron, ...flags, `--lang=${language === "en" ? "en-US" : "zh-CN"}`,
+    `--remote-debugging-port=${debugPort}`,
     join(root, "dist/desktop/main.js"), "--home", pspHome, "--smoke-dir", join(pspHome, "smoke"),
-  ], { cwd: root, env: { ...process.env, PSPORE_SMOKE_KEEP_OPEN: "1", LANG: "zh_CN.UTF-8" }, stdio: ["ignore", "inherit", "inherit"] });
+  ], {
+    cwd: root,
+    env: { ...process.env, PSPORE_SMOKE_KEEP_OPEN: "1", LANG: language === "en" ? "en_US.UTF-8" : "zh_CN.UTF-8" },
+    stdio: ["ignore", "inherit", "inherit"],
+  });
   child.once("error", (error) => process.stderr.write(`${error.message}\n`));
   return child;
 }
@@ -259,77 +221,29 @@ async function settle(page) {
 async function capture(page, name) {
   const overflow = await page.evaluate("document.documentElement.scrollWidth > innerWidth");
   if (overflow) throw new Error(`Horizontal overflow before ${name}`);
+  if (language === "en") {
+    // Every label, hidden dialogs included, must be English; only the switch
+    // back to Chinese is written in Chinese on purpose.
+    const leftover = await page.evaluate(`(() => {
+      const han = /[\\u4e00-\\u9fff]/;
+      const toggle = document.querySelector('#language-toggle');
+      const found = new Set();
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+        if (!toggle?.contains(node) && han.test(node.nodeValue)) found.add(node.nodeValue.trim());
+      }
+      for (const element of document.querySelectorAll('[title], [aria-label], [placeholder]')) {
+        if (element === toggle) continue;
+        for (const name of ['title', 'aria-label', 'placeholder']) {
+          const value = element.getAttribute(name);
+          if (value && han.test(value)) found.add(name + ': ' + value);
+        }
+      }
+      return [...found];
+    })()`);
+    if (leftover.length) throw new Error(`Chinese left in the English interface before ${name}: ${leftover.join(" | ")}`);
+  }
   const { data } = await page.send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
   await writeFile(join(output, name), Buffer.from(data, "base64"));
   process.stdout.write(`captured ${name}\n`);
-}
-
-/** OpenAI-compatible streaming endpoint that plays TURNS in order. */
-async function demoModel(answerGate) {
-  const errors = [];
-  const server = createServer((request, response) => {
-    void (async () => {
-      let body = "";
-      for await (const chunk of request) body += String(chunk);
-      const messages = JSON.parse(body).messages ?? [];
-      const turn = TURNS[Math.min(messages.filter((message) => message.role === "assistant").length, TURNS.length - 1)];
-      response.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" });
-      for (const piece of chunked(turn.reasoning, 6)) {
-        send(response, { reasoning_content: piece });
-        await sleep(40);
-      }
-      if (turn.tool) {
-        send(response, { tool_calls: [{ index: 0, id: `call-${turn.tool.name}`, type: "function",
-          function: { name: turn.tool.name, arguments: JSON.stringify(turn.tool.arguments) } }] });
-        finish(response, "tool_calls");
-        return;
-      }
-      for (const [index, piece] of turn.text.entries()) {
-        if (index === turn.pauseAfter) await answerGate;
-        send(response, { content: piece });
-        await sleep(60);
-      }
-      finish(response, "stop");
-    })().catch((error) => {
-      errors.push(error);
-      response.destroy();
-    });
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  return {
-    port: server.address().port,
-    errors,
-    close: () => new Promise((resolve) => {
-      server.closeAllConnections();
-      server.close(() => resolve());
-    }),
-  };
-}
-
-function send(response, delta, finishReason = null) {
-  response.write(`data: ${JSON.stringify({ id: "chatcmpl-demo", object: "chat.completion.chunk", created: 0, model: "demo",
-    choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`);
-}
-
-function finish(response, reason) {
-  send(response, {}, reason);
-  response.write(`data: ${JSON.stringify({ id: "chatcmpl-demo", object: "chat.completion.chunk", created: 0, model: "demo",
-    choices: [], usage: { prompt_tokens: 3_180, completion_tokens: 420, total_tokens: 3_600 } })}\n\n`);
-  response.end("data: [DONE]\n\n");
-}
-
-function chunked(text, size) {
-  const characters = [...text];
-  return Array.from({ length: Math.ceil(characters.length / size) }, (_, index) => characters.slice(index * size, (index + 1) * size).join(""));
-}
-
-function deferred() {
-  let resolve;
-  const promise = new Promise((done) => { resolve = done; });
-  return { promise, resolve };
-}
-
-function sleep(ms) {
-  return new Promise((done) => setTimeout(done, ms));
 }

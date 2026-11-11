@@ -15,6 +15,7 @@ import {
   type CoworkActivity,
 } from "../../ui/shared/activity.js";
 import type { DesktopBootstrap, DesktopConnectionState, DesktopFrame } from "../ipc-contract.js";
+import { t } from "./i18n.js";
 
 export type DesktopActivity = CoworkActivity;
 
@@ -59,7 +60,7 @@ export class DesktopStore {
     reconnecting: false,
     ...initialProtocolUiState(),
     activities: [],
-    notice: "正在启动 pSpore…",
+    notice: t("正在启动 pSpore…"),
   };
 
   constructor(now: () => number = () => Date.now()) {
@@ -110,7 +111,7 @@ export class DesktopStore {
       this.#state = {
         ...this.#state,
         ...replaceProtocolSnapshot(protocolState(this.#state), frame.snapshot, frame.cursors),
-        notice: "已加载守护进程权威快照",
+        notice: t("已加载守护进程权威快照"),
       };
       delete this.#state.gap;
       return;
@@ -132,7 +133,7 @@ export class DesktopStore {
   }
 
   selectSession(id: string): void {
-    this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: `已切换到 ${id}` };
+    this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: t("已切换到 {id}", { id }) };
   }
 
   setNotice(notice: string): void {
@@ -201,10 +202,10 @@ function protocolState(state: DesktopStoreSnapshot): ProtocolUiState {
 }
 
 function gapNotice(gap: NonNullable<ProtocolUiState["gap"]>): string {
-  return `事件流 ${gap.streamId} 出现缺口：期望 ${gap.expected}，收到 ${gap.received}；正在等待新的权威快照`;
+  return t("事件流 {streamId} 出现缺口：期望 {expected}，收到 {received}；正在等待新的权威快照", { streamId: gap.streamId, expected: gap.expected, received: gap.received });
 }
 
 function connectionNotice(connection: DesktopConnectionState): string {
-  if (connection.phase === "connected") return "已连接本地守护进程";
-  return connection.message ?? (connection.phase === "connecting" ? "正在连接守护进程…" : "守护进程已断开");
+  if (connection.phase === "connected") return t("已连接本地守护进程");
+  return connection.message ?? (connection.phase === "connecting" ? t("正在连接守护进程…") : t("守护进程已断开"));
 }

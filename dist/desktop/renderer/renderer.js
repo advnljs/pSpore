@@ -15,6 +15,7 @@ import { appendMarkdown, createMarkdownSurface } from "./markdown-view.js";
 import { createSessionSearch } from "./session-search.js";
 import { animateMessagesIn, animateTranscriptHero, crossfadeText, flipStatusChip, hideOverlayMotion, introChoreography, nudgeElement, popChips, pulseStatus, revealListItems, revealPanel, setReconnectingPulse, showOverlayMotion, toggleBannerMotion, tweenMetric, } from "./motion.js";
 import { CONNECTION_SETTLE_MS, DesktopStore } from "./store.js";
+import { LANGUAGE_SWITCH, locale, saveLocalePreference, t, translateStaticDocument } from "./i18n.js";
 const store = new DesktopStore();
 const queuedFrames = [];
 let initialized = false;
@@ -26,9 +27,9 @@ let builtinTools = [];
 /** Every skill new sessions are offered, and the ones found but not loaded. */
 let skillCatalog = [];
 const SKILL_SOURCE_LABELS = {
-    installed: "已安装",
-    bundled: "内置",
-    workspace: "本地",
+    installed: t("已安装"),
+    bundled: t("内置"),
+    workspace: t("本地"),
 };
 let inspection;
 let activeApprovalId;
@@ -114,6 +115,7 @@ const elements = {
     usage: byId("usage-value"),
     totalUsage: byId("total-usage-value"),
     cache: byId("cache-value"),
+    languageToggle: byId("language-toggle"),
     themeToggle: byId("theme-toggle"),
     themeColor: byId("theme-color"),
     refresh: byId("refresh-button"),
@@ -258,6 +260,8 @@ const sessionSearch = createSessionSearch({
     },
     isModalOpen: () => !elements.settingsOverlay.hidden || !elements.approvalOverlay.hidden,
 });
+translateStaticDocument(document);
+applyLanguageToggle();
 applyTheme(initialTheme());
 syncResponsivePanels(true);
 const articles = new ArticlePanel({
@@ -285,7 +289,7 @@ void initialize();
 async function initialize() {
     bindStaticActions();
     try {
-        const bootstrap = await window.pspore.bootstrap();
+        const bootstrap = await window.pspore.bootstrap(locale);
         versions = bootstrap.versions;
         desktopPlaces = bootstrap.places;
         store.applyBootstrap(bootstrap);
@@ -299,7 +303,7 @@ async function initialize() {
     }
     catch (error) {
         initialized = true;
-        store.setNotice(`桌面初始化失败：${toError(error).message}`);
+        store.setNotice(t("桌面初始化失败：{message}", { message: toError(error).message }));
         render();
     }
     finally {
@@ -341,6 +345,12 @@ function bindStaticActions() {
         syncResponsivePanels(false);
         scheduleResizeReflow();
     });
+    elements.languageToggle.addEventListener("click", () => {
+        saveLocalePreference(locale === "en" ? "zh-CN" : "en");
+        // Every label is written once at load; a reload rebuilds them all from the
+        // daemon's state instead of re-rendering each one in place.
+        window.location.reload();
+    });
     elements.themeToggle.addEventListener("click", () => {
         const theme = document.documentElement.dataset["theme"] === "light" ? "dark" : "light";
         applyTheme(theme);
@@ -353,9 +363,9 @@ function bindStaticActions() {
     });
     elements.refresh.addEventListener("click", () => void refreshSideData());
     elements.newSession.addEventListener("click", () => {
-        void perform("新建会话", { action: "session.create" }, (result) => {
+        void perform(t("新建会话"), { action: "session.create" }, (result) => {
             if (!isSessionView(result))
-                throw new Error("服务返回了无效的会话");
+                throw new Error(t("服务返回了无效的会话"));
             store.selectSession(result.sessionId);
             articles.onSessionChanged();
             elements.composerInput.focus();
@@ -408,7 +418,7 @@ function bindStaticActions() {
             return;
         const snapshot = store.snapshot();
         const parentId = selectedAgent(snapshot)?.rootId ?? snapshot.selectedSessionId;
-        void perform("启动子 Agent", { action: "agent.spawn", objective, parentId }, () => {
+        void perform(t("启动子 Agent"), { action: "agent.spawn", objective, parentId }, () => {
             elements.spawnObjective.value = "";
             setAgentCompose(false);
             return refreshSideData();
@@ -420,28 +430,28 @@ function bindStaticActions() {
         const command = child
             ? { action: "agent.cancel", agentId: child.id }
             : { action: "abort", sessionId: snapshot.selectedSessionId };
-        void perform(child ? `取消 ${child.id}` : "中止主会话", command);
+        void perform(child ? t("取消 {id}", { id: child.id }) : t("中止主会话"), command);
     });
     elements.compact.addEventListener("click", () => {
         const sessionId = store.snapshot().selectedSessionId;
-        void perform("压缩会话上下文", { action: "compact", sessionId });
+        void perform(t("压缩会话上下文"), { action: "compact", sessionId });
     });
     elements.joinAgent.addEventListener("click", () => {
         const child = selectedAgent(store.snapshot());
         if (child)
-            void perform(`等待 ${child.id} 完成`, { action: "agent.join", agentIds: [child.id] });
+            void perform(t("等待 {id} 完成", { id: child.id }), { action: "agent.join", agentIds: [child.id] });
     });
     elements.cancelAgent.addEventListener("click", () => {
         const child = selectedAgent(store.snapshot());
         if (child)
-            void perform(`取消 ${child.id}`, { action: "agent.cancel", agentId: child.id });
+            void perform(t("取消 {id}", { id: child.id }), { action: "agent.cancel", agentId: child.id });
     });
     elements.inspectForm.addEventListener("submit", (event) => {
         event.preventDefault();
         const stagingName = elements.stagingName.value.trim();
         if (!stagingName)
             return;
-        void perform("检查暂存资源", { action: "resources.inspect", stagingName }, (result) => {
+        void perform(t("检查暂存资源"), { action: "resources.inspect", stagingName }, (result) => {
             inspection = isInspection(result) ? result : undefined;
             renderInspection();
         });
@@ -500,7 +510,7 @@ async function chooseAttachments(kind) {
         chosen = await window.pspore.pickAttachments(kind);
     }
     catch (error) {
-        store.setNotice(`无法打开选择器：${toError(error).message}`);
+        store.setNotice(t("无法打开选择器：{message}", { message: toError(error).message }));
         render();
         return;
     }
@@ -517,11 +527,11 @@ function addComposerFileReferences(incoming) {
     composerFileReferences = merged.references;
     renderComposerFileReferences();
     if (merged.added > 0) {
-        const ignored = merged.skipped > 0 ? `；另有 ${merged.skipped} 个重复引用或超出上限` : "";
-        store.setNotice(`已添加 ${merged.added} 个文件/目录引用，仅会发送路径${ignored}`);
+        const ignored = merged.skipped > 0 ? t("；另有 {skipped} 个重复引用或超出上限", { skipped: merged.skipped }) : "";
+        store.setNotice(t("已添加 {added} 个文件/目录引用，仅会发送路径{ignored}", { added: merged.added, ignored }));
     }
     else {
-        store.setNotice(incoming.length > 0 ? "这些路径已经引用，未重复添加" : "未能获取本地文件或目录路径");
+        store.setNotice(incoming.length > 0 ? t("这些路径已经引用，未重复添加") : t("未能获取本地文件或目录路径"));
     }
     render();
     elements.composerInput.focus();
@@ -572,18 +582,18 @@ function renderComposerFileReferences() {
     const nodes = composerFileReferences.map((reference) => {
         const item = element("div", "composer-reference");
         item.setAttribute("role", "listitem");
-        item.setAttribute("aria-label", `${reference.kind === "directory" ? "目录" : "文件"} ${reference.path}`);
+        item.setAttribute("aria-label", `${reference.kind === "directory" ? t("目录") : t("文件")} ${reference.path}`);
         item.dataset["kind"] = reference.kind;
         const kind = element("span", "composer-reference-kind");
-        kind.textContent = reference.kind === "directory" ? "目录" : "文件";
+        kind.textContent = reference.kind === "directory" ? t("目录") : t("文件");
         const path = element("span", "composer-reference-path");
         path.textContent = composerFileReferenceName(reference.path);
         path.title = reference.path;
         const remove = element("button", "composer-reference-remove");
         remove.type = "button";
         remove.textContent = "×";
-        remove.title = "移除引用";
-        remove.setAttribute("aria-label", `移除引用 ${composerFileReferenceName(reference.path)}`);
+        remove.title = t("移除引用");
+        remove.setAttribute("aria-label", t("移除引用 {value}", { value: composerFileReferenceName(reference.path) }));
         remove.addEventListener("click", () => {
             composerFileReferences = composerFileReferences.filter((candidate) => candidate.path !== reference.path);
             renderComposerFileReferences();
@@ -645,8 +655,8 @@ function setPanelState(panel, open) {
     const button = panel === "navigation" ? elements.navigationToggle : elements.inspectorToggle;
     button.setAttribute("aria-expanded", String(open));
     const label = panel === "navigation"
-        ? open ? "收起会话栏" : "展开会话栏"
-        : open ? "收起检查器" : "展开检查器";
+        ? open ? t("收起会话栏") : t("展开会话栏")
+        : open ? t("收起检查器") : t("展开检查器");
     button.setAttribute("aria-label", label);
     button.title = label;
 }
@@ -677,7 +687,7 @@ async function openSettings() {
     settingsOpen = true;
     elements.settingsOverlay.hidden = false;
     showOverlayMotion(elements.settingsOverlay, elements.settingsDialog);
-    elements.settingsStatus.textContent = "读取设置中…";
+    elements.settingsStatus.textContent = t("读取设置中…");
     elements.settingsSave.disabled = true;
     updateAppInert();
     requestAnimationFrame(() => elements.settingsClose.focus());
@@ -692,7 +702,7 @@ async function openSettings() {
         elements.settingsSave.disabled = false;
     }
     catch (error) {
-        elements.settingsStatus.textContent = `读取失败：${toError(error).message}`;
+        elements.settingsStatus.textContent = t("读取失败：{message}", { message: toError(error).message });
     }
 }
 function populateIndexingSettings(indexing) {
@@ -710,11 +720,11 @@ function populateIndexingSettings(indexing) {
 function indexingSettingsNote(indexing) {
     const notes = [
         indexing.indexerAvailable
-            ? `索引程序：${indexing.indexerPath}`
-            : `本次发行版未包含索引程序（${indexing.indexerPath}），启用后会报告不可用。`,
+            ? t("索引程序：{indexerPath}", { indexerPath: indexing.indexerPath })
+            : t("本次发行版未包含索引程序（{indexerPath}），启用后会报告不可用。", { indexerPath: indexing.indexerPath }),
     ];
     if (indexing.enabled && indexing.directories.length === 0) {
-        notes.push("已启用，但还没有选择目录，索引不会运行。");
+        notes.push(t("已启用，但还没有选择目录，索引不会运行。"));
     }
     return notes.join(" ");
 }
@@ -726,8 +736,8 @@ function renderIndexingDirectories() {
         path.textContent = directory;
         const remove = element("button", "quiet-text-button");
         remove.type = "button";
-        remove.textContent = "移除";
-        remove.setAttribute("aria-label", `移除索引目录 ${directory}`);
+        remove.textContent = t("移除");
+        remove.setAttribute("aria-label", t("移除索引目录 {directory}", { directory }));
         remove.addEventListener("click", () => {
             indexingDirectories = indexingDirectories.filter((candidate) => candidate !== directory);
             renderIndexingDirectories();
@@ -783,20 +793,20 @@ function addCustomHeaderRow(name, hasValue) {
     nameField.maxLength = 63;
     nameField.placeholder = "X-Example";
     nameField.spellcheck = false;
-    nameField.setAttribute("aria-label", "请求头名称");
+    nameField.setAttribute("aria-label", t("请求头名称"));
     const valueField = document.createElement("input");
     valueField.type = "password";
     valueField.className = "settings-header-value";
     valueField.maxLength = 4_096;
     valueField.autocomplete = "new-password";
     valueField.spellcheck = false;
-    valueField.placeholder = hasValue ? "已配置，留空保留" : "值";
+    valueField.placeholder = hasValue ? t("已配置，留空保留") : t("值");
     valueField.dataset["stored"] = hasValue ? "true" : "false";
-    valueField.setAttribute("aria-label", "请求头值");
+    valueField.setAttribute("aria-label", t("请求头值"));
     const remove = document.createElement("button");
     remove.type = "button";
     remove.className = "quiet-text-button";
-    remove.textContent = "移除";
+    remove.textContent = t("移除");
     remove.addEventListener("click", () => row.remove());
     row.append(nameField, valueField, remove);
     elements.settingsHeaderList.append(row);
@@ -828,9 +838,9 @@ function populateSettingsPaths(settings) {
     elements.settingsModelsPath.textContent = settings.modelsPath;
     elements.settingsApiKeyPath.textContent = settings.apiKeyPath;
     elements.settingsCookiePath.textContent = settings.cookiePath;
-    elements.settingsApiKeyState.textContent = settings.hasApiKey ? "已配置" : "未配置";
+    elements.settingsApiKeyState.textContent = settings.hasApiKey ? t("已配置") : t("未配置");
     elements.settingsApiKeyState.dataset["state"] = settings.hasApiKey ? "present" : "absent";
-    elements.settingsCookieState.textContent = settings.hasCookie ? "已配置" : "未配置";
+    elements.settingsCookieState.textContent = settings.hasCookie ? t("已配置") : t("未配置");
     elements.settingsCookieState.dataset["state"] = settings.hasCookie ? "present" : "absent";
 }
 function bindPathCopy(button, source) {
@@ -838,7 +848,7 @@ function bindPathCopy(button, source) {
         const path = source.textContent ?? "";
         if (!path || path === "—")
             return;
-        void navigator.clipboard.writeText(path).then(() => flashButtonLabel(button, "已复制"), () => flashButtonLabel(button, "复制失败"));
+        void navigator.clipboard.writeText(path).then(() => flashButtonLabel(button, t("已复制")), () => flashButtonLabel(button, t("复制失败")));
     });
 }
 function flashButtonLabel(button, label) {
@@ -875,7 +885,7 @@ async function saveSettings() {
     elements.settingsSave.disabled = true;
     elements.settingsCancel.disabled = true;
     elements.settingsClose.disabled = true;
-    elements.settingsStatus.textContent = "正在验证并保存设置…";
+    elements.settingsStatus.textContent = t("正在验证并保存设置…");
     try {
         const result = await window.pspore.saveSettings(update);
         populateSettings(result.settings);
@@ -890,7 +900,7 @@ async function saveSettings() {
         elements.settingsStatus.textContent = `${result.message} ${indexing.message}`;
     }
     catch (error) {
-        elements.settingsStatus.textContent = `保存失败：${toError(error).message}`;
+        elements.settingsStatus.textContent = t("保存失败：{message}", { message: toError(error).message });
     }
     finally {
         savingSettings = false;
@@ -900,10 +910,10 @@ async function saveSettings() {
     }
 }
 const PERMISSION_MODE_HELP = {
-    ask_risky: "越界操作会先弹出批准请求。",
-    ask_all: "所有写入、执行与外部副作用类工具都会先请求批准。",
-    allow_all: "所有工具立即执行，不再产生批准请求。",
-    deny: "所有受控工具都会被直接拒绝，只保留纯读取能力。",
+    ask_risky: t("越界操作会先弹出批准请求。"),
+    ask_all: t("所有写入、执行与外部副作用类工具都会先请求批准。"),
+    allow_all: t("所有工具立即执行，不再产生批准请求。"),
+    deny: t("所有受控工具都会被直接拒绝，只保留纯读取能力。"),
 };
 function configurePermissionFields() {
     const mode = elements.settingsPermissionMode.value;
@@ -921,16 +931,16 @@ function configureProviderFields(resetModel) {
     if (custom) {
         if (elements.settingsApi.value === "provider-default")
             elements.settingsApi.value = "openai-completions";
-        elements.settingsProviderHelp.textContent = "使用 OpenAI 兼容接口；必须填写 Base URL，并选择 Chat Completions 或 Responses。";
-        elements.settingsBaseUrl.placeholder = "例如 https://gateway.example.com/v1";
+        elements.settingsProviderHelp.textContent = t("使用 OpenAI 兼容接口；必须填写 Base URL，并选择 Chat Completions 或 Responses。");
+        elements.settingsBaseUrl.placeholder = t("例如 https://gateway.example.com/v1");
     }
     else {
         elements.settingsBaseUrl.value = "";
         elements.settingsApi.value = "provider-default";
         elements.settingsProviderHelp.textContent = provider === "deepseek"
-            ? "使用 DeepSeek 内置模型目录与默认接口。"
-            : "使用 OpenAI 内置模型目录与默认接口。";
-        elements.settingsBaseUrl.placeholder = "选择“自定义 OpenAI”后配置";
+            ? t("使用 DeepSeek 内置模型目录与默认接口。")
+            : t("使用 OpenAI 内置模型目录与默认接口。");
+        elements.settingsBaseUrl.placeholder = t("选择“自定义 OpenAI”后配置");
     }
 }
 function closeSettings(restoreFocus = true) {
@@ -1001,7 +1011,7 @@ async function submitComposer() {
     else {
         command = { action: "prompt", text: intent.text, sessionId: intent.sessionId };
     }
-    await perform(`发送到 ${intent.target === "agent" ? intent.agentId : shortId(intent.sessionId)}`, command, () => {
+    await perform(t("发送到 {value}", { value: intent.target === "agent" ? intent.agentId : shortId(intent.sessionId) }), command, () => {
         elements.composerInput.value = "";
         composerFileReferences = [];
         renderComposerFileReferences();
@@ -1009,15 +1019,15 @@ async function submitComposer() {
     });
 }
 async function perform(pendingNotice, command, onSuccess) {
-    store.setNotice(`正在${pendingNotice}…`);
+    store.setNotice(t("正在{pendingNotice}…", { pendingNotice }));
     render();
     try {
         const result = await dispatchAcrossReconnect(command);
-        store.setNotice(`${pendingNotice}：完成`);
+        store.setNotice(t("{pendingNotice}：完成", { pendingNotice }));
         await onSuccess?.(result);
     }
     catch (error) {
-        store.setNotice(`${pendingNotice}失败：${toError(error).message}`);
+        store.setNotice(t("{pendingNotice}失败：{message}", { pendingNotice, message: toError(error).message }));
     }
     render();
 }
@@ -1035,7 +1045,7 @@ async function dispatchAcrossReconnect(command) {
         const message = toError(error).message;
         if (!message.includes(DAEMON_NOT_CONNECTED_MESSAGE) || !store.snapshot().reconnecting)
             throw error;
-        store.setNotice("守护进程正在重连，命令将在连接恢复后发送…");
+        store.setNotice(t("守护进程正在重连，命令将在连接恢复后发送…"));
         render();
         if (!(await waitForConnection()))
             throw error;
@@ -1059,11 +1069,11 @@ function waitForConnection() {
 async function refreshSideData() {
     const snapshot = store.snapshot();
     if (snapshot.stableConnection.phase !== "connected") {
-        store.setNotice("守护进程离线；重连后会自动刷新列表");
+        store.setNotice(t("守护进程离线；重连后会自动刷新列表"));
         render();
         return;
     }
-    store.setNotice("正在刷新计划任务与受信资源…");
+    store.setNotice(t("正在刷新计划任务与受信资源…"));
     render();
     const results = await Promise.allSettled([
         window.pspore.dispatch({ action: "jobs.list" }),
@@ -1090,7 +1100,7 @@ async function refreshSideData() {
         resources = resourceResult.value.filter(isResourceEntry);
     }
     const failures = results.filter((result) => result.status === "rejected");
-    store.setNotice(failures.length ? `有 ${failures.length} 项列表刷新失败` : "列表已刷新");
+    store.setNotice(failures.length ? t("有 {length} 项列表刷新失败", { length: failures.length }) : t("列表已刷新"));
     render();
 }
 function render() {
@@ -1218,18 +1228,26 @@ function renderHeader(snapshot) {
         pulseStatus(elements.connectionBadge);
     lastConnectionPhase = connection.phase;
     setReconnectingPulse(elements.connectionBadge, snapshot.reconnecting);
-    elements.daemonInstance.textContent = connection.instanceId ? `daemon ${shortId(connection.instanceId)}` : "等待本地守护进程";
+    elements.daemonInstance.textContent = connection.instanceId ? `daemon ${shortId(connection.instanceId)}` : t("等待本地守护进程");
     toggleBannerMotion(elements.connectionBanner, connection.phase !== "connected");
     elements.connectionMessage.textContent = friendlyConnectionMessage(connection.message, connection.phase);
     const session = snapshot.kernel.sessions[snapshot.selectedSessionId];
     tweenMetric(elements.revision, snapshot.kernel.revision, String);
     if (session?.context) {
         tweenMetric(elements.usage, session.context.tokens, (value) => `≈${formatTokens(value)}`);
-        elements.usage.title = `当前上下文估算 ${session.context.tokens.toLocaleString()} / ${session.context.window.toLocaleString()} tokens${session.context.triggerTokens ? `；自动压缩阈值 ${session.context.triggerTokens.toLocaleString()}` : ""}；累计用量 ${session.usage.total.toLocaleString()} tokens`;
+        const trigger = session.context.triggerTokens
+            ? t("；自动压缩阈值 {tokens}", { tokens: session.context.triggerTokens.toLocaleString() })
+            : "";
+        elements.usage.title = t("当前上下文估算 {tokens} / {window} tokens{trigger}；累计用量 {total} tokens", {
+            tokens: session.context.tokens.toLocaleString(),
+            window: session.context.window.toLocaleString(),
+            trigger,
+            total: session.usage.total.toLocaleString(),
+        });
     }
     else {
         elements.usage.textContent = "—";
-        elements.usage.title = `当前上下文暂不可用；累计用量 ${(session?.usage.total ?? 0).toLocaleString()} tokens`;
+        elements.usage.title = t("当前上下文暂不可用；累计用量 {value} tokens", { value: (session?.usage.total ?? 0).toLocaleString() });
     }
     tweenMetric(elements.totalUsage, session?.usage.total ?? 0, formatTokens);
     tweenMetric(elements.cache, (session?.usage.cacheRead ?? 0) + (session?.usage.cacheWrite ?? 0), formatTokens);
@@ -1291,9 +1309,9 @@ function sessionDeleteButton(session, connected) {
     const button = element("button", `session-delete${armed ? " armed" : ""}`);
     button.type = "button";
     button.disabled = !connected;
-    button.textContent = armed ? "确认删除" : "✕";
+    button.textContent = armed ? t("确认删除") : "✕";
     const label = session.id === "main" ? "main" : shortId(session.id);
-    button.title = armed ? `确认删除会话 ${label}（包括聊天记录）` : `删除会话 ${label}`;
+    button.title = armed ? t("确认删除会话 {label}（包括聊天记录）", { label }) : t("删除会话 {label}", { label });
     button.setAttribute("aria-label", button.title);
     button.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -1302,7 +1320,7 @@ function sessionDeleteButton(session, connected) {
             return;
         }
         disarmSessionDeletion();
-        void perform(`删除会话 ${label}`, { action: "session.delete", sessionId: session.id });
+        void perform(t("删除会话 {label}", { label }), { action: "session.delete", sessionId: session.id });
     });
     return button;
 }
@@ -1375,8 +1393,8 @@ function renderConversation(snapshot) {
     if (lastSessionStatus && status !== lastSessionStatus)
         flipStatusChip(elements.sessionStatus);
     lastSessionStatus = status;
-    elements.modelName.textContent = session?.model ? `${session.model.provider}/${session.model.model}` : "未配置模型";
-    elements.composerInput.placeholder = `向 ${child?.id ?? shortId(snapshot.selectedSessionId)} 发送消息…`;
+    elements.modelName.textContent = session?.model ? `${session.model.provider}/${session.model.model}` : t("未配置模型");
+    elements.composerInput.placeholder = t("向 {value} 发送消息…", { value: child?.id ?? shortId(snapshot.selectedSessionId) });
     const connected = snapshot.stableConnection.phase === "connected";
     elements.composerInput.disabled = !connected;
     elements.send.disabled = !connected;
@@ -1653,9 +1671,9 @@ function renderProcess(row, searchHit) {
     const results = new Map(row.entries.flatMap((entry) => entry.message.toolCallId ? [[entry.message.toolCallId, entry]] : []));
     const orphanResults = row.entries.filter(({ message }) => isToolMessage(message) && (!message.toolCallId || !ids.has(message.toolCallId)));
     const count = calls.length + orphanResults.length;
-    const names = [...new Set([...calls.map((call) => call.name), ...orphanResults.map(({ message }) => message.toolName ?? "工具")])];
+    const names = [...new Set([...calls.map((call) => call.name), ...orphanResults.map(({ message }) => message.toolName ?? t("工具"))])];
     const failed = row.entries.some(({ message }) => message.isError);
-    const label = `${row.active ? "思考与执行中" : "思考与执行过程"}${count ? ` · ${count} 次工具调用` : ""}${names.length ? ` · ${names.join("、")}` : ""}${failed ? " · 含失败调用" : ""}`;
+    const label = `${row.active ? t("思考与执行中") : t("思考与执行过程")}${count ? t(" · {count} 次工具调用", { count }) : ""}${names.length ? ` · ${names.join(t("、"))}` : ""}${failed ? t(" · 含失败调用") : ""}`;
     if (view.summary.textContent !== label)
         view.summary.textContent = label;
     view.summary.title = label;
@@ -1710,27 +1728,30 @@ function renderToolCall(call, result, address, active) {
     target.textContent = toolCallSummary(call);
     target.title = target.textContent;
     const status = element("span", `tool-call-status${result?.isError ? " error" : ""}`);
-    status.textContent = result ? (result.isError ? "失败" : "完成") : active ? "执行中" : "未完成";
+    status.textContent = result ? (result.isError ? t("失败") : t("完成")) : active ? t("执行中") : t("未完成");
     summary.append(name, target, status);
     const inputLabel = element("div", "tool-section-label");
-    inputLabel.textContent = "输入";
+    inputLabel.textContent = t("输入");
     const input = element("pre", "tool-call-input");
     input.textContent = call.input;
     details.append(summary, inputLabel, input);
     if (result) {
         const label = element("div", "tool-section-label");
-        label.textContent = "输出";
+        label.textContent = t("输出");
         const output = element("pre", "tool-call-output");
-        output.textContent = result.text || "（无输出）";
+        output.textContent = result.text || t("（无输出）");
         details.append(label, output);
         const truncation = publishedTextTruncation(result.text);
         if (truncation && address)
             details.append(truncationNotice(address, truncation));
     }
-    details.addEventListener("toggle", () => {
-        rememberDisclosure(stateKey, details.open);
-        scheduleTranscriptMeasurement();
+    // Only a reader's own click is remembered. A running call opens itself, and
+    // remembering that would keep every finished call expanded.
+    summary.addEventListener("click", () => {
+        // The click opens or closes the card after its listeners have run.
+        setTimeout(() => rememberDisclosure(stateKey, details.open), 0);
     });
+    details.addEventListener("toggle", () => scheduleTranscriptMeasurement());
     card.append(details);
     // Preserve the document action even when the raw tool input/output is closed.
     if (result && parseArticleReceipt(result.text))
@@ -1757,8 +1778,8 @@ function renderMessageQueue(snapshot, session) {
         const row = element("article", "queue-message direct");
         row.dataset["queueMode"] = "direct";
         const state = element("span");
-        state.textContent = "直接发送消息";
-        state.title = "等待当前工具步骤结束后发送";
+        state.textContent = t("直接发送消息");
+        state.title = t("等待当前工具步骤结束后发送");
         const copy = element("p");
         copy.textContent = message;
         copy.title = message;
@@ -1769,12 +1790,12 @@ function renderMessageQueue(snapshot, session) {
         const row = element("article", "queue-message");
         row.dataset["queueMode"] = "follow-up";
         const state = element("span");
-        state.textContent = "继续排队";
+        state.textContent = t("继续排队");
         const copy = element("p");
         copy.textContent = message;
         copy.title = message;
-        const sendNow = actionButton("直接发送消息", "ghost-button", () => {
-            void perform("直接发送消息", {
+        const sendNow = actionButton(t("直接发送消息"), "ghost-button", () => {
+            void perform(t("直接发送消息"), {
                 action: "queue.send-now",
                 sessionId: snapshot.selectedSessionId,
                 index,
@@ -1794,19 +1815,19 @@ function renderMessageQueue(snapshot, session) {
  */
 const MAIN_SESSION_EXAMPLES = [
     {
-        label: "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
-        prompt: "把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档",
+        label: t("把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档"),
+        prompt: t("把这台机器的 CPU、内存、磁盘和系统版本整理成一份可导出的说明文档"),
     },
     {
-        label: "看看现在最占内存的 10 个进程，说说哪些可以关掉",
-        prompt: "看看现在最占内存的 10 个进程，说说哪些可以关掉",
+        label: t("看看现在最占内存的 10 个进程，说说哪些可以关掉"),
+        prompt: t("看看现在最占内存的 10 个进程，说说哪些可以关掉"),
     },
     {
         // A template rather than a prompt. Clicking it also attaches the desktop,
         // so the reference a dropped folder produces is already on screen: the way
         // to point this agent at a directory is visible before it is explained.
-        label: "分析一个目录里都有什么 —— 已附上桌面，也可以拖入别的文件夹",
-        prompt: "分析这个目录里都有什么、哪些可以清理，把结论整理成文档：",
+        label: t("分析一个目录里都有什么 —— 已附上桌面，也可以拖入别的文件夹"),
+        prompt: t("分析这个目录里都有什么、哪些可以清理，把结论整理成文档："),
         attach: "desktop",
     },
 ];
@@ -1814,11 +1835,11 @@ function emptyTranscript(isChild) {
     const empty = element("div", "empty-transcript");
     const inner = element("div");
     const heading = element("strong");
-    heading.textContent = isChild ? "子 Agent 尚未产生消息" : "在这台机器上开始一件事";
+    heading.textContent = isChild ? t("子 Agent 尚未产生消息") : t("在这台机器上开始一件事");
     const body = element("span");
     body.textContent = isChild
-        ? "可以继续发送消息推进它；运行中发送的内容会自动排队。"
-        : "pSpore 在本地运行：读写文件、执行命令、安排定时任务；越界操作会先向你请求批准。";
+        ? t("可以继续发送消息推进它；运行中发送的内容会自动排队。")
+        : t("pSpore 在本地运行：读写文件、执行命令、安排定时任务；越界操作会先向你请求批准。");
     inner.append(heading, body);
     if (!isChild) {
         const suggestions = element("div", "transcript-suggestions");
@@ -1854,7 +1875,7 @@ function renderMessage(message, address) {
         thought = element("section", "thinking-stream settled-thinking");
         const heading = element("header");
         const title = element("strong");
-        title.textContent = "思考";
+        title.textContent = t("思考");
         heading.append(title);
         const body = element("div", "thinking-stream-body");
         body.textContent = message.thinking;
@@ -1865,13 +1886,13 @@ function renderMessage(message, address) {
         if (receipt) {
             const card = element("div", "article-receipt");
             const heading = element("strong");
-            heading.textContent = receipt.title ? `文稿 · ${receipt.title}` : "文稿";
+            heading.textContent = receipt.title ? t("文稿 · {title}", { title: receipt.title }) : t("文稿");
             const version = element("span");
-            version.textContent = `第 ${receipt.version} 版`;
+            version.textContent = t("第 {version} 版", { version: receipt.version });
             const open = document.createElement("button");
             open.className = "ghost-button";
             open.type = "button";
-            open.textContent = "打开文稿";
+            open.textContent = t("打开文稿");
             open.addEventListener("click", () => {
                 void articles.open(receipt.id, receipt.version);
             });
@@ -1881,9 +1902,9 @@ function renderMessage(message, address) {
         }
         const details = element("details");
         const summary = element("summary");
-        summary.textContent = `${message.toolName ?? "工具输出"}${message.isError ? " · 失败" : ""} · ${formatBytes(new TextEncoder().encode(message.text).byteLength)} · 点击展开`;
+        summary.textContent = t("{value}{value2} · {value3} · 点击展开", { value: message.toolName ?? t("工具输出"), value2: message.isError ? t(" · 失败") : "", value3: formatBytes(new TextEncoder().encode(message.text).byteLength) });
         const pre = element("pre");
-        pre.textContent = message.text || "（无输出）";
+        pre.textContent = message.text || t("（无输出）");
         details.append(summary, pre);
         details.addEventListener("toggle", scheduleTranscriptMeasurement);
         article.append(meta, details);
@@ -1899,7 +1920,7 @@ function renderMessage(message, address) {
     }
     else {
         const body = element("div", "message-body markdown");
-        appendMarkdown(body, message.text || "（空消息）");
+        appendMarkdown(body, message.text || t("（空消息）"));
         article.append(meta);
         if (thought)
             article.append(thought);
@@ -1919,20 +1940,20 @@ function renderMessage(message, address) {
 function truncationNotice(address, truncation) {
     const notice = element("div", "message-truncated");
     const summary = element("span");
-    summary.textContent = `仅显示前 ${truncation.kept.toLocaleString("zh-CN")} / ${truncation.total.toLocaleString("zh-CN")} 个字符`;
+    summary.textContent = t("仅显示前 {value} / {value2} 个字符", { value: truncation.kept.toLocaleString("zh-CN"), value2: truncation.total.toLocaleString("zh-CN") });
     const button = element("button", "ghost-button");
     button.type = "button";
-    button.textContent = "载入全文";
+    button.textContent = t("载入全文");
     button.addEventListener("click", () => {
         button.disabled = true;
-        button.textContent = "载入中…";
+        button.textContent = t("载入中…");
         void loadFullMessage(store.snapshot().selectedSessionId, address).then((loaded) => {
             // A successful load re-renders the message without this notice; a failed
             // one leaves it on screen, so the button has to become usable again.
             if (loaded)
                 return;
             button.disabled = false;
-            button.textContent = "重试载入全文";
+            button.textContent = t("重试载入全文");
         });
     });
     notice.append(summary, button);
@@ -1959,16 +1980,16 @@ async function loadFullMessage(sessionId, address) {
         // Slices that do not line up would splice two versions of one message
         // together, so the restore is abandoned rather than shown.
         if (restored === undefined)
-            throw new Error("消息内容已变化");
+            throw new Error(t("消息内容已变化"));
         rememberFullText(key, restored);
         // The message array is unchanged, so the cached items have to be rebuilt
         // for the restored text to reach the screen.
         transcriptState.messageSource = undefined;
-        store.setNotice("载入全文：完成");
+        store.setNotice(t("载入全文：完成"));
         return true;
     }
     catch (error) {
-        store.setNotice(`载入全文失败：${toError(error).message}`);
+        store.setNotice(t("载入全文失败：{message}", { message: toError(error).message }));
         return false;
     }
     finally {
@@ -1994,12 +2015,12 @@ function createStreamingView() {
     const label = element("span");
     meta.append(element("i", "role-dot"), label);
     const reasoning = element("section", "thinking-stream");
-    reasoning.setAttribute("aria-label", "思考过程");
+    reasoning.setAttribute("aria-label", t("思考过程"));
     const heading = element("header");
     const title = element("strong");
-    title.textContent = "思考中";
+    title.textContent = t("思考中");
     const hint = element("span");
-    hint.textContent = "回复完成后自动隐藏";
+    hint.textContent = t("回复完成后自动隐藏");
     heading.append(title, hint);
     const thinkingBody = element("div", "thinking-stream-body");
     const thinkingText = document.createTextNode("");
@@ -2053,12 +2074,12 @@ function renderActivities(activities) {
         header.append(title, time);
         card.append(header);
         const summary = element("p");
-        summary.textContent = `${activity.summary}${activity.resultSummary ? ` · ${activity.resultSummary}` : ""}${activity.sessionId ? ` · 会话 ${shortId(activity.sessionId)}` : ""}`;
+        summary.textContent = `${activity.summary}${activity.resultSummary ? ` · ${activity.resultSummary}` : ""}${activity.sessionId ? t(" · 会话 {id}", { id: shortId(activity.sessionId) }) : ""}`;
         card.append(summary);
         if (activity.detail) {
             const details = element("details");
             const summary = element("summary");
-            summary.textContent = "查看已折叠详情";
+            summary.textContent = t("查看已折叠详情");
             const pre = element("pre", "activity-detail");
             pre.textContent = activity.detail;
             details.append(summary, pre);
@@ -2066,7 +2087,7 @@ function renderActivities(activities) {
         }
         return card;
     });
-    elements.activityList.replaceChildren(...(cards.length ? cards : [emptyList("暂无活动事件")]));
+    elements.activityList.replaceChildren(...(cards.length ? cards : [emptyList(t("暂无活动事件"))]));
     // The inspector re-renders on every frame; only animate when the set changed,
     // otherwise a streaming run would restart the stagger dozens of times a second.
     const signature = activities.slice(-12).map((activity) => `${activity.id}:${activity.status}`).join("|");
@@ -2102,7 +2123,7 @@ function renderRunActivity(snapshot) {
     const seconds = Math.floor((Date.now() - (activityPhase?.since ?? Date.now())) / 1000);
     // Silence for a second or two is normal; a count that only appears after that
     // keeps the line calm while still answering "how long" when it matters.
-    elements.runActivityElapsed.textContent = seconds >= 2 ? `已 ${formatElapsed(seconds)}` : "";
+    elements.runActivityElapsed.textContent = seconds >= 2 ? t("已 {value}", { value: formatElapsed(seconds) }) : "";
     startActivityTicker();
 }
 function currentRunPhase(snapshot) {
@@ -2112,27 +2133,29 @@ function currentRunPhase(snapshot) {
     const approval = Object.values(snapshot.kernel.approvals)
         .find((request) => request.sessionId === sessionId);
     if (approval) {
-        return { key: `approval:${approval.id}`, kind: "approval", label: `等待你批准 ${approval.capability}` };
+        return { key: `approval:${approval.id}`, kind: "approval", label: t("等待你批准 {capability}", { capability: approval.capability }) };
     }
     const session = snapshot.kernel.sessions[sessionId];
     const child = selectedAgent(snapshot);
     const running = (session?.status ?? child?.status) === "running";
     if (!running)
         return undefined;
+    // The run itself is an activity too, but it is what the line describes, not a
+    // step inside it: counting it read "执行 run" for every reply.
     const tool = snapshot.activities
-        .filter((activity) => activity.status === "running" && (activity.sessionId ?? sessionId) === sessionId)
+        .filter((activity) => activity.status === "running" && !activity.type.startsWith("run.") && (activity.sessionId ?? sessionId) === sessionId)
         .at(-1);
     if (tool) {
-        const label = tool.toolName === "article" ? "撰写文稿" : tool.toolName === "compaction" ? "正在压缩上下文，完成后继续" : `执行 ${tool.toolName ?? tool.label}`;
+        const label = tool.toolName === "article" ? t("撰写文稿") : tool.toolName === "compaction" ? t("正在压缩上下文，完成后继续") : t("执行 {value}", { value: tool.toolName ?? tool.label });
         return { key: `tool:${tool.id}`, kind: "tool", label };
     }
     if (articles.isWriting())
-        return { key: `article:${articles.writingKey()}`, kind: "tool", label: "撰写文稿" };
+        return { key: `article:${articles.writingKey()}`, kind: "tool", label: t("撰写文稿") };
     if (snapshot.streamingText[sessionId])
-        return { key: `stream:${sessionId}`, kind: "streaming", label: "生成回复中" };
+        return { key: `stream:${sessionId}`, kind: "streaming", label: t("生成回复中") };
     if (snapshot.streamingThinking[sessionId])
-        return { key: `think:${sessionId}`, kind: "thinking", label: "思考中" };
-    return { key: `wait:${sessionId}`, kind: "waiting", label: "等待模型响应" };
+        return { key: `think:${sessionId}`, kind: "thinking", label: t("思考中") };
+    return { key: `wait:${sessionId}`, kind: "waiting", label: t("等待模型响应") };
 }
 /** The elapsed count has to advance without new frames, so it drives itself. */
 function startActivityTicker() {
@@ -2144,7 +2167,7 @@ function startActivityTicker() {
             return;
         }
         const seconds = Math.floor((Date.now() - activityPhase.since) / 1000);
-        elements.runActivityElapsed.textContent = seconds >= 2 ? `已 ${formatElapsed(seconds)}` : "";
+        elements.runActivityElapsed.textContent = seconds >= 2 ? t("已 {value}", { value: formatElapsed(seconds) }) : "";
     }, 1_000);
 }
 function stopActivityTicker() {
@@ -2197,13 +2220,13 @@ function renderJobs(snapshot) {
     const jobNodes = jobs.slice(0, 4).map((job) => {
         const item = denseItem(job.id, job.enabled ? `${job.schedule.cron} · ${job.schedule.timezone}` : "disabled", job.enabled ? "ready" : "disabled");
         const actions = element("div", "item-actions");
-        const run = actionButton("立即运行", "ghost-button", () => void perform(`运行 ${job.id}`, { action: "job.run", jobId: job.id }));
+        const run = actionButton(t("立即运行"), "ghost-button", () => void perform(t("运行 {id}", { id: job.id }), { action: "job.run", jobId: job.id }));
         run.disabled = !connected || !job.enabled;
         actions.append(run);
         item.append(actions);
         return item;
     });
-    elements.jobList.replaceChildren(...(jobNodes.length ? jobNodes : [emptyList("没有已加载的 cron job")]));
+    elements.jobList.replaceChildren(...(jobNodes.length ? jobNodes : [emptyList(t("没有已加载的 cron job"))]));
     const runs = Object.values(snapshot.kernel.runs)
         .sort((left, right) => right.receivedAt.localeCompare(left.receivedAt))
         .slice(0, 5);
@@ -2211,14 +2234,14 @@ function renderJobs(snapshot) {
         const item = denseItem(run.jobId ?? shortId(run.id), `${run.status} · ${clockTime(run.receivedAt)}`, run.status);
         if (run.status === "queued" || run.status === "running") {
             const actions = element("div", "item-actions");
-            const cancel = actionButton("取消运行", "danger-ghost-button", () => void perform(`取消运行 ${run.id}`, { action: "run.cancel", runId: run.id }));
+            const cancel = actionButton(t("取消运行"), "danger-ghost-button", () => void perform(t("取消运行 {id}", { id: run.id }), { action: "run.cancel", runId: run.id }));
             cancel.disabled = !connected;
             actions.append(cancel);
             item.append(actions);
         }
         return item;
     });
-    elements.runList.replaceChildren(...(runNodes.length ? runNodes : [emptyList("暂无运行记录")]));
+    elements.runList.replaceChildren(...(runNodes.length ? runNodes : [emptyList(t("暂无运行记录"))]));
 }
 function isBuiltinTool(value) {
     return typeof value === "object" && value !== null && typeof value.name === "string";
@@ -2239,7 +2262,7 @@ function renderIntegrations(snapshot) {
                 chip.title = `${tool.label ?? tool.name} — ${tool.description}`;
             tools.append(chip);
         }
-        const item = denseItem(`内置工具 · ${builtinTools.length}`, "每个会话都具备", "ready");
+        const item = denseItem(t("内置工具 · {length}", { length: builtinTools.length }), t("每个会话都具备"), "ready");
         item.append(tools);
         nodes.push(item);
     }
@@ -2259,21 +2282,21 @@ function renderIntegrations(snapshot) {
                 .join("\n");
             chips.append(chip);
         }
-        const item = denseItem(`Skills · ${activeSkills.length}`, "新会话可用", "ready");
+        const item = denseItem(`Skills · ${activeSkills.length}`, t("新会话可用"), "ready");
         item.append(chips);
         nodes.push(item);
     }
     for (const skill of skillCatalog.filter((candidate) => candidate.status !== "active")) {
-        const item = denseItem(`未加载 Skill · ${skill.name}`, `${SKILL_SOURCE_LABELS[skill.source]} · ${skill.status === "shadowed" ? "同名被覆盖" : "已跳过"}`, "degraded");
+        const item = denseItem(t("未加载 Skill · {name}", { name: skill.name }), `${SKILL_SOURCE_LABELS[skill.source]} · ${skill.status === "shadowed" ? t("同名被覆盖") : t("已跳过")}`, "degraded");
         const reason = element("p");
-        reason.textContent = skill.message ? `${skill.message}（${skill.path}）` : skill.path;
+        reason.textContent = skill.message ? t("{message}（{path}）", { message: skill.message, path: skill.path }) : skill.path;
         item.append(reason);
         nodes.push(item);
     }
     for (const health of Object.values(snapshot.kernel.mcpServers)) {
         const item = denseItem(`MCP · ${health.serverId}`, `${health.status} · ${health.toolCount} tools`, health.status);
         const actions = element("div", "item-actions");
-        const discover = actionButton("发现工具", "ghost-button", () => void perform(`发现 ${health.serverId} 工具`, { action: "mcp.discover", serverId: health.serverId }));
+        const discover = actionButton(t("发现工具"), "ghost-button", () => void perform(t("发现 {serverId} 工具", { serverId: health.serverId }), { action: "mcp.discover", serverId: health.serverId }));
         const ping = actionButton("Ping", "ghost-button", () => void perform(`Ping ${health.serverId}`, { action: "mcp.ping", serverId: health.serverId }));
         discover.disabled = !connected || health.status === "disabled" || health.status === "untrusted";
         ping.disabled = discover.disabled;
@@ -2287,7 +2310,7 @@ function renderIntegrations(snapshot) {
         const catalog = catalogByKey.get(`${health.kind}:${health.name}`);
         if (catalog?.record.trusted) {
             const actions = element("div", "item-actions");
-            const disable = actionButton("撤销信任", "danger-ghost-button", () => void perform(`撤销 ${health.name} 信任`, {
+            const disable = actionButton(t("撤销信任"), "danger-ghost-button", () => void perform(t("撤销 {name} 信任", { name: health.name }), {
                 action: "resources.disable",
                 kind: health.kind,
                 name: health.name,
@@ -2299,7 +2322,7 @@ function renderIntegrations(snapshot) {
         }
         nodes.push(item);
     }
-    elements.integrationList.replaceChildren(...(nodes.length ? nodes : [emptyList("未配置 MCP 或受信资源")]));
+    elements.integrationList.replaceChildren(...(nodes.length ? nodes : [emptyList(t("未配置 MCP 或受信资源"))]));
 }
 function renderNotifications(snapshot) {
     const nodes = snapshot.kernel.notifications.slice(-5).reverse().map((notification) => {
@@ -2309,7 +2332,7 @@ function renderNotifications(snapshot) {
         item.append(body);
         return item;
     });
-    elements.notificationList.replaceChildren(...(nodes.length ? nodes : [emptyList("暂无通知")]));
+    elements.notificationList.replaceChildren(...(nodes.length ? nodes : [emptyList(t("暂无通知"))]));
 }
 function renderApproval(snapshot) {
     const request = Object.values(snapshot.kernel.approvals).sort((left, right) => left.requestedAt.localeCompare(right.requestedAt))[0];
@@ -2338,10 +2361,10 @@ function renderApproval(snapshot) {
     elements.approvalOverlay.hidden = false;
     updateAppInert();
     elements.approvalTitle.textContent = request.display.summary;
-    elements.approvalSummary.textContent = `Agent ${request.agentPath.join(" → ")} 请求执行受保护操作。批准范围会被守护进程记录并强制执行。`;
+    elements.approvalSummary.textContent = t("Agent {value} 请求执行受保护操作。批准范围会被守护进程记录并强制执行。", { value: request.agentPath.join(" → ") });
     elements.approvalCapability.textContent = request.capability;
-    elements.approvalTarget.textContent = request.canonicalTarget ?? request.display.cwd ?? "未指定";
-    elements.approvalReasons.textContent = request.riskReasons.join("；") || "策略要求确认";
+    elements.approvalTarget.textContent = request.canonicalTarget ?? request.display.cwd ?? t("未指定");
+    elements.approvalReasons.textContent = request.riskReasons.join(t("；")) || t("策略要求确认");
     elements.approvalCommand.hidden = !request.display.command;
     elements.approvalCommand.textContent = request.display.command ?? "";
     // The buttons are rebuilt only for a different request. Replacing them on every
@@ -2350,9 +2373,9 @@ function renderApproval(snapshot) {
     if (activeApprovalId !== request.id) {
         const actions = [];
         const denialScope = request.allowedScopes[0] ?? "once";
-        actions.push(approvalButton("拒绝", "danger-ghost-button", request, false, denialScope));
+        actions.push(approvalButton(t("拒绝"), "danger-ghost-button", request, false, denialScope));
         for (const scope of request.allowedScopes) {
-            const label = scope === "once" ? "仅此一次" : scope === "session" ? "本会话允许" : "此任务允许";
+            const label = scope === "once" ? t("仅此一次") : scope === "session" ? t("本会话允许") : t("此任务允许");
             actions.push(approvalButton(label, scope === "once" ? "primary-button" : "secondary-button", request, true, scope));
         }
         elements.approvalActions.replaceChildren(...actions);
@@ -2363,7 +2386,7 @@ function renderApproval(snapshot) {
     }
 }
 function approvalButton(label, className, request, approved, scope) {
-    return actionButton(label, className, () => void perform(`${approved ? "批准" : "拒绝"} ${request.id}`, {
+    return actionButton(label, className, () => void perform(`${approved ? t("批准") : t("拒绝")} ${request.id}`, {
         action: "approval.resolve",
         approvalId: request.id,
         approved,
@@ -2382,11 +2405,11 @@ function renderInspection() {
     const digest = element("code");
     digest.textContent = result.digest;
     const summary = element("p");
-    summary.textContent = `${result.files.length} 个文件 · ${formatBytes(result.totalBytes)}${result.diagnostics.length ? ` · ${result.diagnostics.join("；")}` : ""}`;
-    const install = actionButton(result.installable ? "信任并安装精确内容" : "不可安装", "secondary-button", () => {
+    summary.textContent = `${t("{count} 个文件", { count: result.files.length })} · ${formatBytes(result.totalBytes)}${result.diagnostics.length ? ` · ${result.diagnostics.join(t("；"))}` : ""}`;
+    const install = actionButton(result.installable ? t("信任并安装精确内容") : t("不可安装"), "secondary-button", () => {
         const stagingName = elements.stagingName.value.trim();
         if (stagingName)
-            void perform(`安装 ${result.name}`, { action: "resources.install", stagingName, expectedDigest: result.digest }, async () => {
+            void perform(t("安装 {name}", { name: result.name }), { action: "resources.install", stagingName, expectedDigest: result.digest }, async () => {
                 inspection = undefined;
                 await refreshSideData();
             });
@@ -2446,7 +2469,7 @@ function bindSecretField(input, reveal, clear) {
     reveal.addEventListener("click", () => {
         const revealing = input.type === "password";
         input.type = revealing ? "text" : "password";
-        reveal.textContent = revealing ? "隐藏" : "显示";
+        reveal.textContent = revealing ? t("隐藏") : t("显示");
     });
     input.addEventListener("input", () => {
         if (input.value)
@@ -2460,14 +2483,14 @@ function bindSecretField(input, reveal, clear) {
 function resetSecretField(input, reveal, clear, configured, label) {
     input.value = "";
     input.type = "password";
-    input.placeholder = configured ? "已配置；留空将保留" : `输入 ${label}`;
-    reveal.textContent = "显示";
+    input.placeholder = configured ? t("已配置；留空将保留") : t("输入 {label}", { label });
+    reveal.textContent = t("显示");
     clear.checked = false;
 }
 function settingsStatus(settings) {
-    const key = settings.hasApiKey ? "已检测到私有 Key" : "尚未保存 API Key";
-    const cookie = settings.hasCookie ? "已检测到 Cookie" : "尚未保存 Cookie";
-    return `${key}；${cookie}。留空会保留当前值。`;
+    const key = settings.hasApiKey ? t("已检测到私有 Key") : t("尚未保存 API Key");
+    const cookie = settings.hasCookie ? t("已检测到 Cookie") : t("尚未保存 Cookie");
+    return t("{key}；{cookie}。留空会保留当前值。", { key, cookie });
 }
 function missingElement(selector) {
     throw new Error(`Missing desktop element ${selector}`);
@@ -2494,18 +2517,26 @@ function initialTheme() {
     // The product default is the daylight (white & cobalt) theme.
     return "light";
 }
+/** Names the other language in that language, so it can be found without reading this one. */
+function applyLanguageToggle() {
+    const target = LANGUAGE_SWITCH[locale];
+    elements.languageToggle.textContent = target.text;
+    elements.languageToggle.lang = target.lang;
+    elements.languageToggle.title = target.label;
+    elements.languageToggle.setAttribute("aria-label", target.label);
+}
 function applyTheme(theme) {
     document.documentElement.dataset["theme"] = theme;
-    const nextLabel = theme === "dark" ? "切换到浅色模式" : "切换到深色模式";
+    const nextLabel = theme === "dark" ? t("切换到浅色模式") : t("切换到深色模式");
     elements.themeToggle.setAttribute("aria-label", nextLabel);
     elements.themeToggle.title = nextLabel;
     elements.themeColor.content = theme === "dark" ? "#0c121b" : "#f4f7fb";
 }
 function friendlyConnectionMessage(message, phase) {
     if (message?.includes("ENOENT") || message?.includes("daemon.sock")) {
-        return "本地守护进程正在启动，连接就绪后会自动恢复…";
+        return t("本地守护进程正在启动，连接就绪后会自动恢复…");
     }
-    return message ?? (phase === "connecting" ? "正在连接本地守护进程…" : "守护进程已断开，正在重试…");
+    return message ?? (phase === "connecting" ? t("正在连接本地守护进程…") : t("守护进程已断开，正在重试…"));
 }
 function isJobDefinition(value) {
     if (!isRecord(value) || value["version"] !== 1 || typeof value["id"] !== "string" || typeof value["enabled"] !== "boolean")

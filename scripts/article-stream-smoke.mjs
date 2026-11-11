@@ -19,7 +19,8 @@ if (!process.versions.electron) {
     compilerOptions: { target: ts.ScriptTarget.ES2023, module: ts.ModuleKind.ESNext },
   }).outputText);
   const electron = createRequire(import.meta.url)("electron");
-  const flags = process.env.PSPORE_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : [];
+  // Assertions read Chinese interface text; pin the interface language.
+  const flags = ["--lang=zh-CN", ...(process.env.PSPORE_ELECTRON_NO_SANDBOX === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : [])];
   const child = spawn("xvfb-run", ["-a", "-s", "-screen 0 2048x1200x24", electron, ...flags, fileURLToPath(import.meta.url)], {
     cwd: root, env: { ...process.env, PSPORE_ARTICLE_FIXTURE: fixturePath }, stdio: "inherit",
   });

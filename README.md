@@ -11,7 +11,7 @@ Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`). MIT l
 
 ![pSpore desktop app in the light theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-light.png)
 
-<sub>The Linux desktop app at 1920 × 1080, showing demonstration data. More screenshots are in the [Desktop app](#desktop-app) section.</sub>
+<sub>The Linux desktop app at 1920 × 1080, showing demonstration data. More screenshots are in the [Terminal UI](#terminal-ui) and [Desktop app](#desktop-app) sections.</sub>
 
 ## Highlights
 
@@ -31,6 +31,7 @@ Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`). MIT l
 ## Contents
 
 - [Quick start](#quick-start)
+- [Terminal UI](#terminal-ui)
 - [Desktop app](#desktop-app)
 - [Configure a model](#configure-a-model)
 - [Approvals](#approvals)
@@ -69,6 +70,32 @@ also send a task without opening a client:
 p-spore prompt "summarize the notes in ~/notes/this-week.md"
 ```
 
+## Terminal UI
+
+`p-spore tui` opens a full-screen client for the same background service. It reconnects by itself
+if the service restarts, and leaving it never stops a running task.
+
+![The pSpore terminal UI at 160 × 45](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/tui.png)
+
+- **Layout.** Sessions and workspace status sit on the left. The conversation fills the middle, with
+  the current run's work steps below it, and you type at the bottom. Terminals narrower than 104
+  columns get a single-column layout.
+- **Sending.** Type a message and press Enter to send it to the selected session. While the session
+  is busy, new messages wait in a queue; `/send-now N` sends queued message N at the next safe point.
+- **Keys.** PgUp/PgDn scroll through history, Esc or `/back` closes a panel, and Ctrl+C stops the
+  running task. With nothing running, press Ctrl+C twice to exit.
+
+| Command | What it does |
+|---|---|
+| `/help` | List every command |
+| `/new [TITLE]` · `/select ID` · `/delete [ID]` | Create, switch to or delete a session |
+| `/abort` · `/compact` | Stop the current run · compact the context now |
+| `/work [STEP_ID]` | Work history, or the redacted details of one step |
+| `/config` · `/config wizard` | Show the model settings · run the guided setup |
+| `/approve [ID] [once\|session\|job]` · `/deny [ID]` | Answer an approval request |
+| `/agents` · `/jobs` · `/runs` · `/skills` · `/mcp` | Child agents, automation, skills and MCP servers |
+| `/quit` | Leave the TUI; the service keeps running |
+
 ## Desktop app
 
 The npm package is the CLI only and does not include Electron. To get the desktop app, download
@@ -99,6 +126,9 @@ Every release asset comes with a SHA-256 checksum, and published releases are ne
 ![pSpore desktop app in the dark theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-dark.png)
 
 The desktop app uses the same service as the TUI. It also adds a few things of its own:
+
+- **English or Chinese.** The interface follows your system language. To switch, click the
+  **EN** / **中** button in the top bar; the app remembers your choice.
 
 - **Tool steps you can open.** While a run is in progress, its thinking and tool calls stay
   open. When it finishes they fold into one summary line, and you can open them again whenever

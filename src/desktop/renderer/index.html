@@ -42,6 +42,7 @@
           <button id="inspector-toggle" class="icon-button" type="button" title="收起检查器" aria-label="收起检查器" aria-controls="inspector-panel" aria-expanded="true">
             <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2"></rect><path d="M14 5v14"></path></svg>
           </button>
+          <button id="language-toggle" class="icon-button language-toggle" type="button" title="Switch to English" aria-label="Switch to English" lang="en">EN</button>
           <button id="theme-toggle" class="icon-button theme-toggle" type="button" title="切换到浅色模式" aria-label="切换到浅色模式">
             <svg class="theme-icon sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3.5"></circle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"></path></svg>
             <svg class="theme-icon moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15.2A8.4 8.4 0 0 1 8.8 4a8.4 8.4 0 1 0 11.2 11.2Z"></path></svg>
@@ -196,7 +197,7 @@
               <span id="article-version" class="count-pill">v1</span>
               <div id="article-views" class="segmented" role="group" aria-label="文稿视图">
                 <button id="article-view-read" class="segment" type="button" data-view="read" aria-pressed="true">正文</button>
-                <button id="article-view-token" class="segment" type="button" data-view="token" aria-pressed="false">修订</button>
+                <button id="article-view-token" class="segment" type="button" data-view="token" aria-pressed="false" data-i18n="修订#文稿视图">修订</button>
                 <button id="article-view-line" class="segment" type="button" data-view="line" aria-pressed="false">行级</button>
               </div>
               <button id="article-close" class="quiet-icon-button" type="button" aria-label="关闭文稿">×</button>

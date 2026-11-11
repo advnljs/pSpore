@@ -16,6 +16,7 @@ import { articleShareForWidth, articleWidthForShare, clampArticleWidth } from ".
 import { reconcileChildren } from "./dom-reconcile.js";
 import { appendMarkdown } from "./markdown-view.js";
 import { animateArticleWidth, collapseArticleRemovals, pulseArticleChanges, type WidthAnimation } from "./motion.js";
+import { t } from "./i18n.js";
 
 /** Where the reading position lands after a repaint. */
 type ScrollAnchor = "top" | "keep";
@@ -360,7 +361,7 @@ export class ArticlePanel {
     this.#status.textContent = "";
     this.#version.textContent = "";
     this.#syncExports();
-    this.#title.textContent = "文稿";
+    this.#title.textContent = t("文稿");
     this.#view = "read";
     this.#syncViews(false);
   }
@@ -370,7 +371,7 @@ export class ArticlePanel {
     if (stringValue(payload["sessionId"]) !== this.#sessionId()) return;
     if (event.type === "run.settled" && this.#waitingForDraft) {
       this.#waitingForDraft = false;
-      this.#status.textContent = "尚未写入新内容";
+      this.#status.textContent = t("尚未写入新内容");
     }
     if ((event.type === "run.settled" || event.type === "runtime.error") && this.#writing) this.#onRejected();
     if (event.type === "article.preview") {
@@ -404,22 +405,22 @@ export class ArticlePanel {
     if (!receipt.id || receipt.id !== this.#articleId) this.#forget();
     this.#titleText = receipt.title;
     this.#show(receipt.title);
-    this.#status.textContent = "文稿已打开，等待正文…";
+    this.#status.textContent = t("文稿已打开，等待正文…");
     if (receipt.id) {
       const loaded = await this.#load(receipt.id, receipt.version);
       if (token !== this.#token) return;
       if (loaded) this.#applyLoaded(loaded, false, "top");
-      this.#status.textContent = this.#waitingForDraft ? "文稿已打开，等待修改…" : "尚未写入新内容";
+      this.#status.textContent = this.#waitingForDraft ? t("文稿已打开，等待修改…") : t("尚未写入新内容");
     }
   }
 
   async open(id: string, version?: number): Promise<void> {
     const token = ++this.#token;
-    this.#show(this.#titleText || "文稿");
-    this.#status.textContent = "正在载入文稿…";
+    this.#show(this.#titleText || t("文稿"));
+    this.#status.textContent = t("正在载入文稿…");
     const loaded = await this.#load(id, version);
     if (token !== this.#token || !loaded) {
-      if (token === this.#token) this.#status.textContent = "没有找到文稿";
+      if (token === this.#token) this.#status.textContent = t("没有找到文稿");
       return;
     }
     // Opening a document, or stepping to another version, is a request to read
@@ -482,10 +483,10 @@ export class ArticlePanel {
       // against until it lands. The reader's choice comes back with the version.
       this.#view = "read";
       this.#syncViews(false);
-      this.#status.textContent = "正在撰写…";
+      this.#status.textContent = t("正在撰写…");
     }
     this.#previewAsked += 1;
-    this.#show(title || this.#titleText || "正在撰写");
+    this.#show(title || this.#titleText || t("正在撰写"));
     this.#pumpPreview();
   }
 
@@ -590,11 +591,11 @@ export class ArticlePanel {
     if (baseline === "" && this.#articleId !== "") this.#forget();
     if (draft.articleId) this.#articleId = draft.articleId;
     if (draft.title) this.#titleText = draft.title;
-    this.#title.textContent = this.#titleText || "正在撰写";
+    this.#title.textContent = this.#titleText || t("正在撰写");
     this.#renderLive(draft.text, baseline, draft.whole);
     this.#status.textContent = !draft.whole
-      ? `${draft.text.length} 字 · 撰写中`
-      : draft.edits > 0 ? `修改中 · 已改 ${draft.edits} 处` : "修改中…";
+      ? t("{length} 字 · 撰写中", { length: draft.text.length })
+      : draft.edits > 0 ? t("修改中 · 已改 {edits} 处", { edits: draft.edits }) : t("修改中…");
   }
 
   /**
@@ -612,14 +613,14 @@ export class ArticlePanel {
         this.#paint(this.#baseline, false, "keep");
       }
     }
-    this.#status.textContent = "这一版没有写入";
+    this.#status.textContent = t("这一版没有写入");
   }
 
   async #onCommitted(id: string, version: number, title: string | undefined): Promise<void> {
     const token = ++this.#token;
     this.#writing = false;
     this.#waitingForDraft = false;
-    this.#show(title || this.#titleText || "文稿");
+    this.#show(title || this.#titleText || t("文稿"));
     // Streaming only kept the draft, so an update that lands without the prior
     // version on screen still diffs against that saved text.
     if (!(this.#articleId === id && this.#loadedVersion === version - 1) && version > 1) {
@@ -655,7 +656,7 @@ export class ArticlePanel {
     this.#view = this.#preferredView;
     this.#syncViews(baseline !== "");
     this.#syncSummary(baseline, loaded.version);
-    this.#status.textContent = `${loaded.text.length} 字 · 第 ${loaded.version} 版`;
+    this.#status.textContent = t("{length} 字 · 第 {version} 版", { length: loaded.text.length, version: loaded.version });
     this.#syncReopen();
     // Reopening a document, or stepping back through the version chips, skips
     // the hand-off the panel would otherwise have watched. Fetching the version
@@ -685,12 +686,12 @@ export class ArticlePanel {
     if (this.#view === "read") {
       const counts = articleChangeCounts(diffArticleBlocks(baseline, this.#committed));
       this.#summary.hidden = counts.added === 0 && counts.removed === 0;
-      this.#summary.textContent = `相对第 ${version - 1} 版 +${counts.added} 段 −${counts.removed} 段`;
+      this.#summary.textContent = t("相对第 {value} 版 +{added} 段 −{removed} 段", { value: version - 1, added: counts.added, removed: counts.removed });
       return;
     }
     const counts = articleLineChangeCounts(diffArticleLines(baseline, this.#committed, "line"));
     this.#summary.hidden = counts.added === 0 && counts.removed === 0;
-    this.#summary.textContent = `相对第 ${version - 1} 版 +${counts.added} 行 −${counts.removed} 行`;
+    this.#summary.textContent = t("相对第 {value} 版 +{added} 行 −{removed} 行", { value: version - 1, added: counts.added, removed: counts.removed });
   }
 
   /**
@@ -749,7 +750,7 @@ export class ArticlePanel {
     if (children.length === 0 && !this.#writing) {
       const empty = document.createElement("p");
       empty.className = "article-empty";
-      empty.textContent = "这一版还没有正文";
+      empty.textContent = t("这一版还没有正文");
       children.push(empty);
     }
     while (this.#nodes.size > BLOCK_POOL_SIZE) {
@@ -858,12 +859,12 @@ export class ArticlePanel {
     if (!this.#articleId || this.#loadedVersion < 1 || this.#exporting) return;
     this.#exporting = true;
     this.#syncExports();
-    this.#status.textContent = "正在导出…";
+    this.#status.textContent = t("正在导出…");
     try {
       const result = await this.#exportArticle({ id: this.#articleId, version: this.#loadedVersion, format });
       this.#status.textContent = result.message;
     } catch (error) {
-      this.#status.textContent = error instanceof Error ? error.message : "导出失败";
+      this.#status.textContent = error instanceof Error ? error.message : t("导出失败");
     } finally {
       this.#exporting = false;
       this.#syncExports();
@@ -905,7 +906,7 @@ export class ArticlePanel {
       this.#reopenTitle = "";
     } else {
       this.#reopenId = id;
-      this.#reopenTitle = stringValue(first?.["title"]) ?? "文稿";
+      this.#reopenTitle = stringValue(first?.["title"]) ?? t("文稿");
     }
     this.#syncReopen();
     this.#drainReopenPending();
@@ -1114,7 +1115,7 @@ export class ArticlePanel {
   #syncReopen(): void {
     const visible = !this.#open && this.#reopenId !== "";
     this.#reopen.hidden = !visible;
-    this.#reopen.textContent = this.#reopenTitle || "文稿";
+    this.#reopen.textContent = this.#reopenTitle || t("文稿");
   }
 
   #pinnedToEnd(): boolean {

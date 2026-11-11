@@ -1,17 +1,22 @@
 // Keep this entry free of business/daemon imports: ESM evaluates every static
 // dependency before running even the first line that can create the splash.
 import { mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { app, BrowserWindow, dialog } from "electron";
 import { captureRendererDiagnostics, waitFor, waitForRenderer } from "./renderer-diagnostics.js";
 import { DESKTOP_ICON } from "./security.js";
 import { connectNativeStartup } from "./native-startup.js";
+import { initialInterfaceLocale, interfaceLocale, mt, readRememberedLocale } from "./main-i18n.js";
 import { hardenWindow, installSessionSecurity } from "./window-security.js";
 const arguments_ = parseArguments(process.argv.slice(1));
 if (arguments_.smokeDirectory)
     app.disableHardwareAcceleration();
 app.setName("pSpore");
+// A visual check starts from defaults: the developer's own window state (theme,
+// language) lives in the real profile and must not leak into its assertions.
+if (arguments_.smokeDirectory && arguments_.home)
+    app.setPath("userData", join(resolve(arguments_.home), "electron"));
 if (process.platform === "linux") {
     // Keep the existing identity: pinned launchers survive overlay upgrades.
     app.setDesktopName("pSpore.desktop");
@@ -32,6 +37,7 @@ if (arguments_.smokeDirectory || app.requestSingleInstanceLock()) {
     app.on("second-instance", focusDesktop);
     app.whenReady().then(async () => {
         installSessionSecurity();
+        initialInterfaceLocale(app.getLocale(), await readRememberedLocale(app.getPath("userData")));
         nativeStartup = await connectNativeStartup(focusDesktop);
         if (!nativeStartup)
             await showStartupWindow();
@@ -71,7 +77,7 @@ async function showStartupWindow() {
         // Electron 43's skipTaskbar is only implemented on macOS/Windows. Linux
         // window managers use the native splash type to omit this transient window.
         ...(process.platform === "linux" ? { type: "splash" } : {}),
-        skipTaskbar: true, autoHideMenuBar: true, title: "pSpore · 正在启动", icon: DESKTOP_ICON,
+        skipTaskbar: true, autoHideMenuBar: true, title: mt("pSpore · 正在启动"), icon: DESKTOP_ICON,
         webPreferences: {
             contextIsolation: true, sandbox: true, nodeIntegration: false,
             webSecurity: true, webviewTag: false, spellcheck: false,
@@ -90,7 +96,7 @@ async function showStartupWindow() {
         if (!shuttingDown && !target.isDestroyed())
             target.show();
     });
-    await target.loadFile(startupPath);
+    await target.loadFile(startupPath, { query: { lang: interfaceLocale() } });
     await waitFor(() => shuttingDown || target.isVisible(), 10_000);
     if (shuttingDown)
         return;
@@ -164,7 +170,7 @@ function failStartup(error) {
     process.stderr.write(`pSpore desktop: ${toError(error).message}\n`);
     if (!arguments_.smokeDirectory && app.isReady()) {
         // A service/configuration failure must not leave an endless loading card.
-        dialog.showErrorBox("pSpore 启动失败", `无法打开工作空间。\n\n${toError(error).message}\n\n可从应用快捷方式菜单打开启动日志。`);
+        dialog.showErrorBox(mt("pSpore 启动失败"), mt("无法打开工作空间。\n\n{message}\n\n可从应用快捷方式菜单打开启动日志。", { message: toError(error).message }));
     }
     shutdown(1);
 }

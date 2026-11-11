@@ -22,6 +22,7 @@ import { DESKTOP_CSP, desktopWindowOptions, isTrustedRendererUrl } from "./secur
 import { createDesktopSmokeState } from "./smoke-fixture.js";
 import { hardenWindow } from "./window-security.js";
 import { captureRendererDiagnostics, waitFor, waitForRenderer } from "./renderer-diagnostics.js";
+import { interfaceLocale, mt, rememberLocale, setInterfaceLocale } from "./main-i18n.js";
 let arguments_;
 let startup;
 let window;
@@ -47,7 +48,7 @@ export async function startDesktop(options, startupWindow) {
     const preloadPath = join(moduleDirectory, "preload.cjs");
     const rendererPath = join(moduleDirectory, "renderer", "index.html");
     rendererUrl = pathToFileURL(rendererPath).href;
-    await startup.setMessage("正在唤醒本地助手");
+    await startup.setMessage(mt("正在唤醒本地助手"));
     if (shuttingDown)
         return;
     if (arguments_.smokeDirectory) {
@@ -89,7 +90,7 @@ export async function startDesktop(options, startupWindow) {
     bridge.start();
     settingsService = new LlmSettingsService(home, paths);
     const indexingService = new IndexingSettingsService(home, paths);
-    await startup.setMessage("正在整理工作空间");
+    await startup.setMessage(mt("正在整理工作空间"));
     if (shuttingDown)
         return;
     window = new BrowserWindow(desktopWindowOptions(preloadPath, primaryWorkArea()));
@@ -166,8 +167,13 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
     ipcMain.removeHandler(DESKTOP_ATTACH_CHANNEL);
     ipcMain.removeHandler(DESKTOP_ARTICLE_EXPORT_CHANNEL);
     ipcMain.removeHandler(DESKTOP_OPEN_LOCAL_PATH_CHANNEL);
-    ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event) => {
+    ipcMain.handle(DESKTOP_BOOTSTRAP_CHANNEL, (event, reportedLocale) => {
         assertTrustedSender(event, target.webContents);
+        // The window owns the language choice; dialogs and messages from here follow it.
+        const previous = interfaceLocale();
+        const next = setInterfaceLocale(reportedLocale);
+        if (next && next !== previous)
+            void rememberLocale(app.getPath("userData"), next);
         return { ...daemonBridge.bootstrap(), places: desktopPlaces() };
     });
     ipcMain.handle(DESKTOP_DISPATCH_CHANNEL, async (event, command) => {
@@ -192,10 +198,10 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
         const caveat = !settings.enabled
             ? ""
             : settings.directories.length === 0
-                ? " 尚未选择索引目录，索引不会运行。"
+                ? mt(" 尚未选择索引目录，索引不会运行。")
                 : settings.indexerAvailable
                     ? ""
-                    : " 本次发行版未包含索引程序，索引不会运行。";
+                    : mt(" 本次发行版未包含索引程序，索引不会运行。");
         // The daemon reads config.indexing once at startup, so a saved change only
         // takes effect after it restarts; the client is told which happened.
         if (systemService) {
@@ -203,9 +209,9 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
             await systemService.restart();
             daemonBridge.start();
             await waitFor(() => daemonBridge.bootstrap().connection.phase === "connected", 10_000);
-            return { settings, applied: true, message: `索引设置已保存并应用，后台服务已重启。${caveat}` };
+            return { settings, applied: true, message: mt("索引设置已保存并应用，后台服务已重启。{caveat}", { caveat }) };
         }
-        return { settings, applied: false, message: `索引设置已保存；重启服务后生效。${caveat}` };
+        return { settings, applied: false, message: mt("索引设置已保存；重启服务后生效。{caveat}", { caveat }) };
     });
     ipcMain.handle(DESKTOP_ARTICLE_EXPORT_CHANNEL, async (event, candidate) => {
         assertTrustedSender(event, target.webContents);
@@ -233,7 +239,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
         assertTrustedSender(event, target.webContents);
         const kind = decodeAttachmentKind(candidate);
         const result = await dialog.showOpenDialog(target, {
-            title: kind === "directory" ? "选择要引用的文件夹" : "选择要引用的文件",
+            title: kind === "directory" ? mt("选择要引用的文件夹") : mt("选择要引用的文件"),
             // One kind per call: the GTK chooser honours only one of openFile and
             // openDirectory, and answers with directories when given both.
             // Only the path is ever sent; nothing here is read or uploaded.
@@ -261,7 +267,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
         // A native chooser is the only way the renderer learns an absolute path: it
         // has no filesystem access of its own.
         const result = await dialog.showOpenDialog(target, {
-            title: "选择要索引的目录",
+            title: mt("选择要索引的目录"),
             properties: ["openDirectory", "createDirectory"],
         });
         return result.canceled ? undefined : result.filePaths[0];
@@ -283,7 +289,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
                     settings,
                     applied: true,
                     restartRequired: false,
-                    message: `设置已保存并应用，后台系统服务已安全重启。${bypassNotice(settings)}`,
+                    message: mt("设置已保存并应用，后台系统服务已安全重启。{notice}", { notice: bypassNotice(settings) }),
                 };
             }
             const ownership = daemonSupervisor?.ownership;
@@ -292,7 +298,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
                     settings,
                     applied: false,
                     restartRequired: true,
-                    message: `设置已安全保存；当前测试使用外部 Daemon，重启后生效。${bypassNotice(settings)}`,
+                    message: mt("设置已安全保存；当前测试使用外部 Daemon，重启后生效。{notice}", { notice: bypassNotice(settings) }),
                 };
             }
             await daemonBridge.stop();
@@ -304,7 +310,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
                 settings,
                 applied: true,
                 restartRequired: false,
-                message: `设置已保存并应用，测试 Daemon 已安全重启。${bypassNotice(settings)}`,
+                message: mt("设置已保存并应用，测试 Daemon 已安全重启。{notice}", { notice: bypassNotice(settings) }),
             };
         }
         finally {
@@ -315,7 +321,7 @@ function installIpc(target, daemonBridge, desktopSettings, indexingSettings) {
 /** Bypassing approvals is a standing risk, so every save restates it. */
 function bypassNotice(settings) {
     return settings.permissionMode === BYPASS_PERMISSION_MODE
-        ? " 授权确认已绕过：工具会以当前用户权限直接执行。"
+        ? mt(" 授权确认已绕过：工具会以当前用户权限直接执行。")
         : "";
 }
 function assertTrustedSender(event, expected) {

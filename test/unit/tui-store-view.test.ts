@@ -15,7 +15,7 @@ import {
   MODEL_SETUP_OFFER_LINES,
   MODEL_SETUP_OFFER_PROMPT,
 } from "../../src/ui/tui/tui-app.js";
-import { maskSecretInput, renderTuiSnapshot } from "../../src/ui/tui/view.js";
+import { maskSecretInput, modifyOtherKeysPrintable, PsporeTuiView, renderTuiSnapshot } from "../../src/ui/tui/view.js";
 
 describe("TUI protocol store", () => {
   test("uses snapshot authority, applies ordered events, and detects gaps", () => {
@@ -639,3 +639,31 @@ function hello(): ServerHelloFrame {
     snapshot: kernel,
   };
 }
+
+describe("TUI keyboard input in xterm's modifyOtherKeys mode", () => {
+  test("Shift+letter sequences decode to the capital letter", () => {
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;2;72~"), "H");
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;2;33~"), "!");
+    // Caps Lock (64) alongside Shift still types a character.
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;66;82~"), "R");
+    // Ctrl or Alt keep the sequence a shortcut, not text.
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;5;72~"), undefined);
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;3;72~"), undefined);
+    assert.equal(modifyOtherKeysPrintable("\u001b[27;2;13~"), undefined);
+    assert.equal(modifyOtherKeysPrintable("H"), undefined);
+  });
+
+  test("capital letters typed in xterm reach the submitted message", () => {
+    const submitted: string[] = [];
+    const view = new PsporeTuiView({
+      state: () => new TuiStore().snapshot(),
+      height: () => 30,
+      requestRender: () => undefined,
+      onSubmit: (input) => submitted.push(input),
+      onInterrupt: () => undefined,
+      onBack: () => undefined,
+    });
+    for (const key of ["\u001b[27;2;72~", "i", " ", "\u001b[27;2;87~", "o", "r", "l", "d", "\r"]) view.handleInput(key);
+    assert.deepEqual(submitted, ["Hi World"]);
+  });
+});

@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 export function isToolMessage(message) {
     return message.role === "tool" || message.role === "toolResult";
 }
@@ -57,7 +58,7 @@ export function toolCallSummary(call) {
     const values = input;
     const fields = ["command", "path", "file_path", "query", "url", "title", "serverId", "toolName", "action", "pattern", "objective", "agentId", "sessionId", "id"];
     const parts = fields.flatMap((field) => typeof values[field] === "string" && values[field] ? [String(values[field])] : []);
-    return compact(parts.length ? parts.slice(0, 2).join(" · ") : call.input === "{}" ? "无参数" : call.input);
+    return compact(parts.length ? parts.slice(0, 2).join(" · ") : call.input === "{}" ? t("无参数") : call.input);
 }
 function compact(value) {
     const line = value.replace(/\s+/g, " ").trim();

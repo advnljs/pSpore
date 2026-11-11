@@ -1,3 +1,4 @@
+import { t } from "./i18n.js";
 export const MAX_COMPOSER_FILE_REFERENCES = 32;
 export const MAX_COMPOSER_MESSAGE_LENGTH = 65_536;
 
@@ -69,7 +70,7 @@ export function composeMessageWithFileReferences(
   const referenceBlock = references.map(composerFileReferenceToken).join("\n");
   const message = body && referenceBlock ? `${body}\n\n${referenceBlock}` : body || referenceBlock;
   if (message.length > maximumLength) {
-    throw new Error(`消息与文件引用合计不能超过 ${maximumLength} 个字符`);
+    throw new Error(t("消息与文件引用合计不能超过 {maximumLength} 个字符", { maximumLength }));
   }
   return message;
 }

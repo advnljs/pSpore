@@ -2,8 +2,10 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
+| P0 | 桌面中英双语、英文 README 截图、README 加 TUI 章节，并发布 0.1.44 | In progress | 发布需用户浏览器 npm 授权 | 实现与截图完成后升版 0.1.44，推送触发双架构 Release，再发布 npm 并复验 |
+| P2 | 原生 GTK 启动窗（`src/desktop/native/startup.c`）仍只有中文 | Pending | 改 C 需在 CI 旧 glibc 容器重建，且 `native-startup-smoke.mjs` 按中文标题找窗口 | 按 LANG/上次界面语言选择文案，并同步更新原生 smoke 的标题匹配 |
+| P3 | 中文界面下检查器活动标签来自共享英文文案 | Pending | `src/ui/shared/activity.ts` 同时服务 TUI（英文） | 在桌面渲染层为共享活动标签加中文映射，TUI 保持英文 |
 | P0 | 为思考/工具折叠挤压修复发布 0.1.43（GitHub Release + npm） | Done | 无 | `185a4a1`（修复与文档）+ `f76cb52`（升版）已推送；CI `42976206054`、ARM64 `42976205938`、Release `42976733226` 成功，`v0.1.43` 于 2026-11-11T07:08:17Z 公开 12 项资产，两份 overlay SHA-256、manifest 与 7 项运行文件逐字核验通过。npm `p-spore@0.1.43` 浏览器登录/2FA 后发布，latest=0.1.43，shasum/integrity/525 文件与候选一致；约 2.5 分钟后从 registry 全新安装复验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.43 |
-| P2 | 检查器「最近活动」与运行状态行仍有英文文案 | Pending | 文案来自 GUI/TUI 共用的 `src/ui/shared/activity.ts`，改动会影响 TUI 与测试 | 「Ran command / Read file / Request finished / output captured」、运行行「执行 run」等与中文界面混排；需先确认 TUI 是否也改为中文，再统一本地化并更新测试 |
 | P2 | search 工具结果在检查器卡片里显示原始 JSON 片段与临时绝对路径 | Pending | 属于活动摘要逻辑，不在本次挤压修复范围 | 摘要改为「N 处匹配 · 文件名」，完整结果留在展开详情 |
 | P3 | 本机 macOS 仍未配置 Git 身份 | Pending | 需要用户决定是否写入配置 | 0.1.43 的提交按用户选择在命令中临时指定仓库既有身份 `ljdavns`（未改任何 Git 配置）；以后在这台 Mac 提交仍需同样处理，或由用户自行配置 `user.name`/`user.email` |
 | P3 | 仓库根目录的未跟踪 `openai_key.txt` 未被 `.gitignore` 覆盖 | Pending | 用户本机文件，未读取、未提交 | 建议用户移出仓库或把 `*_key.txt` 加入忽略规则，避免误提交 |

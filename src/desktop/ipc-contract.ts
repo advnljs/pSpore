@@ -13,6 +13,7 @@ import {
   type ModelApi,
   type ThinkingLevel,
 } from "../settings/llm-settings.js";
+import type { DesktopLocale } from "./i18n.js";
 
 export const DESKTOP_BOOTSTRAP_CHANNEL = "pspore:desktop:bootstrap";
 export const DESKTOP_DISPATCH_CHANNEL = "pspore:desktop:dispatch";
@@ -157,7 +158,8 @@ export interface DesktopProtocolInvocation {
 }
 
 export interface DesktopApi {
-  bootstrap(): Promise<DesktopBootstrap>;
+  /** Reports the window's interface language, which main-process dialogs follow. */
+  bootstrap(locale?: DesktopLocale): Promise<DesktopBootstrap>;
   dispatch(command: DesktopCommand): Promise<unknown>;
   getSettings(): Promise<DesktopLlmSettings>;
   saveSettings(settings: DesktopLlmSettingsUpdate): Promise<DesktopSettingsSaveResult>;

@@ -1,5 +1,6 @@
 import { applyProtocolDelta, applyProtocolEvent, applyTranscriptPage as mergeTranscriptPage, initialProtocolUiState, replaceProtocolSnapshot, selectProtocolSession, } from "../../ui/shared/protocol-state.js";
 import { applyCoworkActivityEvent, } from "../../ui/shared/activity.js";
+import { t } from "./i18n.js";
 /**
  * A reconnect that resolves inside this window is invisible to the user. Long
  * runs briefly drop and re-establish the socket; showing every one of those made
@@ -17,7 +18,7 @@ export class DesktopStore {
         reconnecting: false,
         ...initialProtocolUiState(),
         activities: [],
-        notice: "正在启动 pSpore…",
+        notice: t("正在启动 pSpore…"),
     };
     constructor(now = () => Date.now()) {
         this.#now = now;
@@ -64,7 +65,7 @@ export class DesktopStore {
             this.#state = {
                 ...this.#state,
                 ...replaceProtocolSnapshot(protocolState(this.#state), frame.snapshot, frame.cursors),
-                notice: "已加载守护进程权威快照",
+                notice: t("已加载守护进程权威快照"),
             };
             delete this.#state.gap;
             return;
@@ -85,7 +86,7 @@ export class DesktopStore {
         return true;
     }
     selectSession(id) {
-        this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: `已切换到 ${id}` };
+        this.#state = { ...this.#state, ...selectProtocolSession(protocolState(this.#state), id), notice: t("已切换到 {id}", { id }) };
     }
     setNotice(notice) {
         this.#state = { ...this.#state, notice };
@@ -151,11 +152,11 @@ function protocolState(state) {
     };
 }
 function gapNotice(gap) {
-    return `事件流 ${gap.streamId} 出现缺口：期望 ${gap.expected}，收到 ${gap.received}；正在等待新的权威快照`;
+    return t("事件流 {streamId} 出现缺口：期望 {expected}，收到 {received}；正在等待新的权威快照", { streamId: gap.streamId, expected: gap.expected, received: gap.received });
 }
 function connectionNotice(connection) {
     if (connection.phase === "connected")
-        return "已连接本地守护进程";
-    return connection.message ?? (connection.phase === "connecting" ? "正在连接守护进程…" : "守护进程已断开");
+        return t("已连接本地守护进程");
+    return connection.message ?? (connection.phase === "connecting" ? t("正在连接守护进程…") : t("守护进程已断开"));
 }
 //# sourceMappingURL=store.js.map

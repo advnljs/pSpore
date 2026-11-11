@@ -12,9 +12,12 @@ const desktop = join(root, "dist", "desktop", "main.js");
 const require = createRequire(import.meta.url);
 const electron = require("electron");
 if (typeof electron !== "string") throw new Error("Could not resolve the local Electron executable");
-const electronFlags = process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1"
-  ? ["--no-sandbox", "--disable-dev-shm-usage"]
-  : [];
+// The checks read Chinese interface text, so the interface language is pinned
+// rather than taken from whatever locale the machine running them has.
+const electronFlags = [
+  "--lang=zh-CN",
+  ...(process.env["PSPORE_ELECTRON_NO_SANDBOX"] === "1" ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
+];
 const electronTimeoutMs = parseSmokeTimeout(process.env["PSPORE_ELECTRON_SMOKE_TIMEOUT_MS"]);
 
 const temporaryHome = await mkdtemp(join(tmpdir(), "pspore-electron-smoke-"));
@@ -120,7 +123,7 @@ async function verifyEarlyStartup() {
   const output = join(isolated, "smoke");
   await mkdir(isolated, { recursive: true });
   await writeFile(join(isolated, "package.json"), JSON.stringify({ type: "module" }));
-  for (const name of ["main.js", "native-startup.js", "security.js", "window-security.js", "renderer-diagnostics.js", "assets", "splash"]) {
+  for (const name of ["main.js", "main-i18n.js", "i18n.js", "native-startup.js", "security.js", "window-security.js", "renderer-diagnostics.js", "assets", "splash"]) {
     await cp(join(root, "dist/desktop", name), join(isolated, name), { recursive: true });
   }
   await writeFile(join(isolated, "application.js"), `

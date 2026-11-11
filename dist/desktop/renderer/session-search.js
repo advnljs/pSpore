@@ -1,4 +1,5 @@
 import { findTextHits } from "./session-find.js";
+import { t } from "./i18n.js";
 const FIND_ROOT = ".message-body, .thinking-stream-body, details pre, .tool-call-name, .article-receipt";
 /**
  * Find bar for the open session. Matches come from the transcript texts, not
@@ -52,7 +53,7 @@ export function createSessionSearch(options) {
             return;
         }
         if (hits.length === 0) {
-            options.count.textContent = "无匹配";
+            options.count.textContent = t("无匹配");
             return;
         }
         options.count.textContent = `${active + 1} / ${hits.length}${capped ? "+" : ""}`;

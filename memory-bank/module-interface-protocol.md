@@ -1,5 +1,10 @@
 # Module: Interface and Protocol
 
+## 2026-11-11 TUI 在 xterm 中丢失大写字母
+
+- Pi TUI 在终端不支持 Kitty 键盘协议时启用 xterm modifyOtherKeys（`CSI >4;2m`），Shift+字母以 `CSI 27;2;码点~` 到达；pi-tui 0.84.1 的 `Input` 只解码 Kitty CSI-u，于是 xterm 里所有大写字母被丢弃（隐藏输入同理）。`src/ui/tui/view.ts` 的 `modifyOtherKeysPrintable` 先把这类序列（仅 Shift/锁定键修饰）还原成字符再交给 `Input`；Ctrl/Alt 组合仍是快捷键。真实 xterm 中实测 "Hello World ABC xyz Q" 完整输入。
+- 同期修复：TUI 提交后提示「继续排队」的判断改为发送前的会话状态（此前每条普通消息都被误报为排队）；帮助里 `/delete`、`/send-now` 两行改为英文（队列项标签「继续排队 / 直接发送消息」保持用户指定的中文）。
+
 ## 模块职责
 
 通过 transport-neutral 命令、事件和快照连接 Daemon、TUI 与 Electron 客户端；处理认证、重连、幂等、revision、背压和 UI state reduction。

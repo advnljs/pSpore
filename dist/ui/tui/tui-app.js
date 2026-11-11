@@ -432,8 +432,10 @@ export class PsporeTuiApp {
             this.#store.setNotice(`${intent.mode} queued for ${intent.agentId}`);
             return;
         }
+        // Whether the message waits is decided by the session as it was when sent:
+        // once accepted, the session is running because of this very message.
+        const queued = mode === "auto" && snapshot.kernel.sessions[intent.sessionId]?.status === "running";
         await this.#command("session.prompt", { text: intent.text, mode: intent.mode }, intent.sessionId);
-        const queued = this.#store.snapshot().kernel.sessions[intent.sessionId]?.status === "running" && mode === "auto";
         this.#store.setNotice(queued ? "继续排队" : `Message accepted for ${intent.sessionId}`);
     }
     async #approval(input) {

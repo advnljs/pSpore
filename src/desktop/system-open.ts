@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
+import { mt } from "./main-i18n.js";
 
 /**
  * How long a launcher may stay alive before we treat it as having handed the
@@ -14,15 +15,15 @@ export function openerFailure(code: number | null): string | undefined {
   if (code === 0 || code === null) return undefined;
   switch (code) {
     case 1:
-      return "系统打开器无法识别这个路径";
+      return mt("系统打开器无法识别这个路径");
     case 2:
-      return "文件或目录不存在，或无法访问";
+      return mt("文件或目录不存在，或无法访问");
     case 3:
-      return "系统缺少打开此文件所需的工具";
+      return mt("系统缺少打开此文件所需的工具");
     case 4:
-      return "没有可用于打开此文件的程序，可右键选择打开所在目录";
+      return mt("没有可用于打开此文件的程序，可右键选择打开所在目录");
     default:
-      return `系统打开器退出码 ${code}`;
+      return mt("系统打开器退出码 {code}", { code });
   }
 }
 
@@ -62,7 +63,7 @@ export function launchCommand(command: string, args: readonly string[], graceMs 
     };
     const timer = setTimeout(() => finish(), graceMs);
     child.once("error", (error: NodeJS.ErrnoException) => {
-      finish(new Error(error.code === "ENOENT" ? `未找到 ${command}` : error.message));
+      finish(new Error(error.code === "ENOENT" ? mt("未找到 {command}", { command }) : error.message));
     });
     child.once("exit", (code) => {
       const message = openerFailure(code);

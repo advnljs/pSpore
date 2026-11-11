@@ -1,4 +1,5 @@
 import type { RuntimeMessage, RuntimeToolCall } from "../../domain/runtime.js";
+import { t } from "./i18n.js";
 
 export interface ConversationEntry {
   message: RuntimeMessage;
@@ -61,7 +62,7 @@ export function toolCallSummary(call: RuntimeToolCall): string {
   const values = input as Record<string, unknown>;
   const fields = ["command", "path", "file_path", "query", "url", "title", "serverId", "toolName", "action", "pattern", "objective", "agentId", "sessionId", "id"];
   const parts = fields.flatMap((field) => typeof values[field] === "string" && values[field] ? [String(values[field])] : []);
-  return compact(parts.length ? parts.slice(0, 2).join(" · ") : call.input === "{}" ? "无参数" : call.input);
+  return compact(parts.length ? parts.slice(0, 2).join(" · ") : call.input === "{}" ? t("无参数") : call.input);
 }
 
 function compact(value: string): string {
