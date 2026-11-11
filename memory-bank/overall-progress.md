@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-11 10:37 CST — 0.1.42 真实 GUI 验收与候选打包完成
+
+- 后端基线：本轮前阶段 `npm run check` 320/320、真实 deepseek-v4-flash 压缩续跑通过；功能提交 `df6baa9` 的主 CI `42946217645` 与 ARM64 `42946217514` 均成功。
+- GUI：真实 Electron owned/external 两路径完整 smoke 通过；PC 主基准 **1920×1080**，检查双主题、过程展开/完成折叠/重开、失败状态、搜索穿透、侧栏、设置弹层、文稿分屏/拖动及现有 IPC/重连检查。新增超长中文路径和长命令，并断言标题/状态不重叠、完整输入换行且无溢出；截图已人工复核。既有 smoke 中的其他 PC 尺寸回归一并通过，未新增设备矩阵。
+- 文稿慢机链路：`node scripts/article-stream-smoke.mjs` 在 20× CPU、250 ms 取稿下通过 6 次增量修订、7 次长稿刷新、7 次正文流更新及回执重试/拒绝、读取失败/丢通知恢复、中止、截断；报告 `/tmp/pspore-article-gui-CxXfvs/report.json`。首次与另一 GUI 测试共用显示环境时在关闭动画超时；串行运行通过，未修改生产逻辑或放宽断言。临时读失败与 shell.exec 拒绝是测试主动注入的预期错误。
+- 版本：`package.json`、lockfile 根版本、`src/version.ts` 同步提升 **0.1.42**；严格 typecheck/build 通过。修改 `src/desktop/conversation-smoke.ts` 与同步 dist、模块/导航记录，未新增依赖。
+- 打包：`bash scripts/package-desktop.sh 0.1.42 x64` 成功，CLI 版本/帮助自检及三份 SHA-256 全部通过；本地沿用源码未变的 0.1.40 兼容原生 helper，ABI 检查为 GLIBC_2.10。可选私有 aegis-search 下载在本机仍为 404，沿用既有降级；正式 CI 使用已有凭据。
+- 最终包：直接启动 0.1.42 打包后的 Electron，再跑完整 GUI smoke，通过并保持隔离预览运行。CDP 确认 `ready=true`、显示 0.1.42、1920×1080、无横向溢出；证据 `.cache/gui-preview/0.1.42/`，日志 `.cache/backend-validation/packaged-preview.log`。DISPLAY `:112`，home `/tmp/pspore-electron-owned-smoke-OSfNBa`，未安装或修改系统服务。
+- 当前状态：候选实现、后端和 GUI 验收、本地打包均完成；待推送版本提交、双架构发布及公开资产核验。原有未跟踪 `refer/` 未改动。
+
 ## 2026-11-11 10:27 CST — 发布前后端深度验证与边界修复
 
 - 用户要求：后端详细验证通过后，真实 GUI 验收并发布新版本；GUI 必须无元素挤压、遮挡或溢出。三张上一轮截图已放在项目 `.cache/gui-preview/` 供查看，未纳入 Git。

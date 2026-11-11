@@ -7,16 +7,18 @@ import { DESKTOP_FRAME_CHANNEL, type DesktopBootstrap } from "./ipc-contract.js"
 
 /** Real renderer exercise: snapshots follow a multi-tool turn through completion. */
 export async function exerciseConversation(target: BrowserWindow, base: DesktopBootstrap, output: string): Promise<void> {
+  const longPath = `/project/${"很长的项目目录-".repeat(30)}package.json`;
+  const longCommand = `npm test -- conversation-regression --reporter=${"long-report-name-".repeat(30)}`;
   const messages: RuntimeMessage[] = [
     { role: "user", text: "检查项目配置并运行测试。" },
     {
       role: "assistant", text: "先查看项目入口。", thinking: "核对配置后再执行针对性测试。",
-      toolCalls: [{ id: "conversation-read", name: "read", input: '{\n  "path": "/project/package.json"\n}' }],
+      toolCalls: [{ id: "conversation-read", name: "read", input: JSON.stringify({ path: longPath }, null, 2) }],
     },
     { role: "toolResult", text: '{"scripts":{"test":"tsx --test"}}', toolCallId: "conversation-read", toolName: "read" },
     {
       role: "assistant", text: "继续验证工具调用。", thinking: "确认失败信息也会保留。",
-      toolCalls: [{ id: "conversation-shell", name: "shell", input: '{\n  "command": "npm test -- conversation-regression",\n  "cwd": "/project"\n}' }],
+      toolCalls: [{ id: "conversation-shell", name: "shell", input: JSON.stringify({ command: longCommand, cwd: "/project" }, null, 2) }],
     },
   ];
   const publish = (running: boolean): void => {
@@ -66,6 +68,15 @@ export async function exerciseConversation(target: BrowserWindow, base: DesktopB
   publish(false);
   await wait(`document.querySelector('.process-details')?.open === true && document.querySelector('.tool-call details')?.open === true`);
   await wait(`document.querySelector('.tool-call-status.error')?.textContent === '失败'`);
+  await wait(`Array.from(document.querySelectorAll('.tool-call')).every(card => {
+    const summary = card.querySelector('summary').getBoundingClientRect();
+    const name = card.querySelector('.tool-call-name').getBoundingClientRect();
+    const target = card.querySelector('.tool-call-target').getBoundingClientRect();
+    const status = card.querySelector('.tool-call-status').getBoundingClientRect();
+    const input = card.querySelector('.tool-call-input');
+    return name.right <= target.left && target.right <= status.left && status.right <= summary.right
+      && input.scrollWidth <= input.clientWidth && card.scrollWidth <= card.clientWidth;
+  })`);
   await capture("expanded");
   await target.webContents.executeJavaScript(`(() => {
     document.querySelector('.process-summary')?.click();
@@ -81,5 +92,5 @@ export async function exerciseConversation(target: BrowserWindow, base: DesktopB
   await wait(`document.documentElement.scrollWidth <= innerWidth && document.querySelector('#transcript').scrollWidth <= document.querySelector('#transcript').clientWidth`);
   await capture("search");
   await target.webContents.executeJavaScript(`document.querySelector('#session-search-close')?.click()`);
-  await writeFile(join(output, "desktop-process.json"), JSON.stringify({ viewport: [1920, 1080], activeExpanded: true, completedCollapsed: true, lazyBody: true, disclosureRetained: true, failureVisible: true, inputSearch: true, overflow: false }, null, 2));
+  await writeFile(join(output, "desktop-process.json"), JSON.stringify({ viewport: [1920, 1080], activeExpanded: true, completedCollapsed: true, lazyBody: true, disclosureRetained: true, failureVisible: true, inputSearch: true, longInputsContained: true, summaryLabelsSeparated: true, overflow: false }, null, 2));
 }
