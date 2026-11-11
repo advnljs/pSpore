@@ -2,10 +2,10 @@
 
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
-| P0 | 为思考/工具折叠挤压修复发布 0.1.43（GitHub Release + npm） | Pending | 需用户确认发布并在浏览器完成 npm 登录/2FA | 修复与 `dist/` 已同步并暂存（本机缺 Git 身份，待用户配置后提交）；按 AGENTS 约定同步提升 `package.json`/lockfile/`src/version.ts` 至 0.1.43，`npm run check` 后推送 main 触发双架构 Release，再从已验证 tgz 发布 npm 并从 registry 复验。README 新截图引用的 `docs/images/desktop-process.png` 推送后 npm 页面才能显示 |
+| P0 | 为思考/工具折叠挤压修复发布 0.1.43（GitHub Release + npm） | Done | 无 | `185a4a1`（修复与文档）+ `f76cb52`（升版）已推送；CI `42976206054`、ARM64 `42976205938`、Release `42976733226` 成功，`v0.1.43` 于 2026-11-11T07:08:17Z 公开 12 项资产，两份 overlay SHA-256、manifest 与 7 项运行文件逐字核验通过。npm `p-spore@0.1.43` 浏览器登录/2FA 后发布，latest=0.1.43，shasum/integrity/525 文件与候选一致；约 2.5 分钟后从 registry 全新安装复验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.43 |
 | P2 | 检查器「最近活动」与运行状态行仍有英文文案 | Pending | 文案来自 GUI/TUI 共用的 `src/ui/shared/activity.ts`，改动会影响 TUI 与测试 | 「Ran command / Read file / Request finished / output captured」、运行行「执行 run」等与中文界面混排；需先确认 TUI 是否也改为中文，再统一本地化并更新测试 |
 | P2 | search 工具结果在检查器卡片里显示原始 JSON 片段与临时绝对路径 | Pending | 属于活动摘要逻辑，不在本次挤压修复范围 | 摘要改为「N 处匹配 · 文件名」，完整结果留在展开详情 |
-| P1 | 本机 macOS 未配置 Git 身份，本次改动已暂存未提交 | Pending | 需要用户设置 `user.name`/`user.email` | 配置后直接 `git commit`；暂存集只含本次任务文件 |
+| P3 | 本机 macOS 仍未配置 Git 身份 | Pending | 需要用户决定是否写入配置 | 0.1.43 的提交按用户选择在命令中临时指定仓库既有身份 `ljdavns`（未改任何 Git 配置）；以后在这台 Mac 提交仍需同样处理，或由用户自行配置 `user.name`/`user.email` |
 | P3 | 仓库根目录的未跟踪 `openai_key.txt` 未被 `.gitignore` 覆盖 | Pending | 用户本机文件，未读取、未提交 | 建议用户移出仓库或把 `*_key.txt` 加入忽略规则，避免误提交 |
 | P0 | 将最新 0.1.42 同步发布到 npm，并落实每次更新同步 npm 的约定 | Done | 无 | 浏览器登录/2FA 后发布成功；latest=0.1.42、SHA-1/SHA-512 与候选一致。发布确认后等约 140 秒，从 registry 新 cache/prefix 安装 latest；524 文件逐字匹配，双 CLI 与真实隔离 Daemon 通过。160×45 TUI 与 1920×1080 npm GUI 实测通过，运行条件见 overall-progress |
 | P0 | MIT 开源、英文默认 README、中文链接与真实截图 | Done | 无 | `efa7166` 已推送，仓库 PUBLIC、GitHub 识别 MIT；两份 README、许可证、两张实际 GUI 截图可匿名下载，远端逐字匹配。完整 152 提交历史与 staged gitleaks 扫描未检出凭据；中文已包含信创 PC 定位 |

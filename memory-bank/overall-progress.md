@@ -1,5 +1,14 @@
 # Overall Progress
 
+## 2026-11-11 15:15 CST — v0.1.43 双架构 Release 与 npm 发布完成
+
+- 用户确认发布 0.1.43，并选择沿用仓库既有提交身份（`ljdavns`，仅在提交命令里临时指定，未修改任何 Git 配置）。提交：`185a4a1` 修复思考/工具折叠挤压、标题截断与文档改版；`f76cb52` 同步提升 `package.json`、lockfile 根版本、`src/version.ts` 及 `dist/version.*` 至 0.1.43。推送使用 `gh` 凭据（命令内临时 helper）。
+- 发布前（VM，Node 24.22.2）：`npm run check` 320 项中 316 通过、0 失败、4 项私有索引器跳过；`npm run test:electron` owned/external 均通过，`stepsSpaced/titleWhole` 为 true。
+- GitHub：CI `42976206054`（Check + Tag and release）、ARM64 预览 `42976205938`、Release `42976733226` 全部成功；annotated `v0.1.43` 解引用到 `f76cb52`，2026-11-11T07:08:17Z 公开，非 draft/prerelease，12 项资产。独立下载两份 overlay：SHA-256 校验通过，manifest `0.1.43 / Electron 43.3.0 / x64|arm64`，asar 内 `version.js`、`renderer.js`、`styles.css`、`index.html`、`conversation-smoke.js`、`application.js`、`cli/main.js` 与提交逐字一致（包内 `package.json` 由 electron-builder 精简，版本 0.1.43）。https://github.com/advnljs/pSpore/releases/tag/v0.1.43
+- npm：从 HEAD 的 `git archive`（package.json、README.md、LICENSE、dist）干净打包，525 文件（比 0.1.42 多出 LICENSE），SHA-1 `b849ca4003f94c56fc8cec9bebf023ded2c7a4e0`，tgz SHA-256 `9dcc6a7c…3ebc7`；VM 全新 prefix 安装后双 CLI、init/doctor/status/jobs/skills/sessions 与隔离 Daemon（退出 0）通过，525 文件逐字一致。Mac 上 `npm publish --dry-run` 一致后，在终端面板 `npm login --auth-type=web` → 用户浏览器登录 → 发布 2FA 网页确认，`+ p-spore@0.1.43`。registry：`latest=0.1.43`，shasum/integrity/fileCount 525/unpackedSize 3010221 与候选一致；07:13Z（发布后约 2.5 分钟）从 registry 全新 cache/prefix 安装 `p-spore@latest`，版本、双 CLI、隔离 Daemon 与 525 文件逐字核验通过。未读取或记录任何 npm 令牌。
+- 证据：`.cache/npm-release/0.1.43/`（候选 tgz、candidate.json、脚本）、`.cache/release-0.1.43/`（overlay 与比对脚本），均已忽略。VM 内 `/tmp/pspore-npm-0.1.43-9YK8kV`、`/tmp/pspore-npm-registry-wxXsnu`。
+- 当前状态：0.1.43 的 GitHub Release 与 npm 均已发布并复验。未在目标麒麟机实测；pSpore VM 保持运行。
+
 ## 2026-11-11 14:50 CST — 本机 Linux VM 运行、折叠过程挤压修复与文档改版
 
 - 环境：本机（macOS arm64）无可用容器运行时；唯一现成的 Colima VM 属于 xiaomi-home-setup（启动会连带 Home Assistant），按用户要求先停下，用户选择新建独立 VM。已创建 `COLIMA_HOME=~/Library/pSporeVM` / profile `pspore`（Ubuntu 24.04 aarch64，4 CPU/6 GiB，只挂载本仓库），复用 Colima 缓存镜像；修复镜像失效的 resolv.conf；安装 Node v24.22.2（SHA256 校验）、Xvfb、Noto CJK、Electron 43.3.0（npmmirror）。未触碰 xiaomi 的 VM、容器与配置。细节见 `nav.md`。
