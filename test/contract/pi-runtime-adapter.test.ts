@@ -393,6 +393,41 @@ describe("PiRuntimeAdapter contract against Pi v0.84.1", () => {
     assert.deepEqual(userMessages, ["start", "send this now", "continue waiting"]);
   });
 
+  test("cancels pending messages by revision without consuming duplicates or disturbing delivery order", { timeout: 8_000 }, async () => {
+    let releaseTool!: () => void;
+    let started!: () => void;
+    const held = new Promise<void>((resolve) => { releaseTool = resolve; });
+    const entered = new Promise<void>((resolve) => { started = resolve; });
+    const tool = defineTool({ name: "queue_gate", label: "Queue gate", description: "Wait for cancellation", parameters: Type.Object({}),
+      execute: async () => { started(); await held; return { content: [{ type: "text" as const, text: "ready" }], details: undefined }; } });
+    const { adapter, faux, root } = await fixture({ createTools: () => [tool] });
+    faux.setResponses([fauxAssistantMessage(fauxToolCall(tool.name, {}), { stopReason: "toolUse" }),
+      ...Array.from({ length: 8 }, () => fauxAssistantMessage("delivered"))]);
+    await adapter.create({ ...spec(root), enabledTools: [tool.name] });
+    await adapter.prompt("main", "start");
+    await entered;
+    try {
+      await adapter.followUp("main", "identical");
+      await adapter.followUp("main", "identical");
+      await adapter.followUp("main", "keep last");
+      await adapter.steer("main", "cancel direct");
+      await adapter.steer("main", "keep direct");
+      const revision = adapter.snapshot("main").queueRevision!;
+      await adapter.cancelQueued("main", "followUp", 1, revision);
+      await assert.rejects(adapter.cancelQueued("main", "followUp", 1, revision), /Queue changed/);
+      await assert.rejects(adapter.cancelQueued("main", "followUp", -1, adapter.snapshot("main").queueRevision!), /no longer queued/);
+      await adapter.cancelQueued("main", "steering", 0, adapter.snapshot("main").queueRevision!);
+      assert.deepEqual(adapter.snapshot("main").queue, { steering: ["keep direct"], followUp: ["identical", "keep last"] });
+    } finally { releaseTool(); }
+    await adapter.waitForIdle("main");
+    assert.deepEqual(adapter.branch("main").filter((message) => message.role === "user").map((message) => message.text),
+      ["start", "keep direct", "identical", "keep last"]);
+    await assert.rejects(adapter.cancelQueued("main", "followUp", 0, adapter.snapshot("main").queueRevision!), /no longer queued/);
+    await adapter.followUp("main", "last pending");
+    await adapter.cancelQueued("main", "followUp", 0, adapter.snapshot("main").queueRevision!);
+    assert.deepEqual(adapter.snapshot("main").queue, { steering: [], followUp: [] });
+  });
+
   test("maps manual compaction lifecycle", async () => {
     const { adapter, faux, root } = await fixture({ tokenSize: { min: 1_000, max: 1_000 } });
     const longResponse = "content to compact ".repeat(1_600);

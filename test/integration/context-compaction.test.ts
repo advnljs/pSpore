@@ -50,9 +50,31 @@ test("real daemon/UDS bounds tool results, compacts and drains queues, restores 
     assert.ok(JSON.stringify(api.requests.at(-1)).length < 50_000, "summarization sees only the bounded tool excerpt");
     await waitFor(() => events.some((event) => event.type === "compaction.started"), "compaction before continuation");
     assert.equal(daemon!.kernel.snapshot().sessions["main"]?.status, "running");
+    const compaction = store.snapshot().kernel.sessions["main"]?.compaction;
+    assert.equal(compaction?.status, "running");
+    assert.equal(bridge!.bootstrap().snapshot?.sessions["main"]?.compaction?.id, compaction?.id, "renderer reload uses current progress");
+    // A new client receives the active progress through hello, without replay.
+    const observer = new DaemonBridge({ socketPath: paths.socket, stagingRoot: join(paths.workspace, "staging"),
+      versions: { pspore: "test", pi: "0.84.1", electron: "test", node: process.versions.node } });
+    try {
+      observer.start();
+      await waitFor(() => observer.bootstrap().connection.phase === "connected", "compaction observer");
+      const observerStore = new DesktopStore();
+      observerStore.applyBootstrap(observer.bootstrap());
+      assert.equal(observerStore.snapshot().kernel.sessions["main"]?.compaction?.id, compaction?.id);
+    } finally { await observer.stop(); }
     await bridge!.dispatch({ action: "prompt", sessionId: "main", text: "queued follow-up" });
     await bridge!.dispatch({ action: "prompt", sessionId: "main", text: "prioritize this steering message" });
     await bridge!.dispatch({ action: "queue.send-now", sessionId: "main", index: 1 });
+    await bridge!.dispatch({ action: "prompt", sessionId: "main", text: "CANCELLED-FOLLOW-UP" });
+    await bridge!.dispatch({ action: "prompt", sessionId: "main", text: "CANCELLED-DIRECT" });
+    await bridge!.dispatch({ action: "queue.send-now", sessionId: "main", index: 2 });
+    await bridge!.dispatch({ action: "queue.cancel", sessionId: "main", mode: "followUp", index: 1,
+      revision: daemon!.kernel.snapshot().sessions["main"]!.queueRevision! });
+    await bridge!.dispatch({ action: "queue.cancel", sessionId: "main", mode: "steering", index: 1,
+      revision: daemon!.kernel.snapshot().sessions["main"]!.queueRevision! });
+    await waitFor(() => bridge!.bootstrap().snapshot?.sessions["main"]?.queue.followUp.length === 1, "bootstrap catches queue cancellation");
+    assert.deepEqual(bridge!.bootstrap().snapshot?.sessions["main"]?.queue, { steering: ["prioritize this steering message"], followUp: ["queued follow-up"] });
     reply(summary, "Summary: original request remains. Read completed once; BEGIN-RAW-EVIDENCE and END-RAW-EVIDENCE confirmed. Do not repeat it.");
     const continuation = await api.next();
     assert.match(JSON.stringify(api.requests.at(-1)), /prioritize this steering message/);
@@ -68,6 +90,9 @@ test("real daemon/UDS bounds tool results, compacts and drains queues, restores 
     assert.equal(events.filter((event) => event.type === "runtime.error").length, 0);
     const session = store.snapshot().kernel.sessions["main"];
     assert.ok(session);
+    assert.equal(session.compaction?.status, "succeeded");
+    assert.ok(session.compaction.tokensAfter !== undefined);
+    assert.ok(api.requests.every((request) => !JSON.stringify(request).includes("CANCELLED-")), "cancelled input never reaches a model request");
     assert.deepEqual(session.queue, { steering: [], followUp: [] });
     assert.equal(session.status, "idle");
     assert.ok(session.context && session.context.tokens < session.usage.total);
@@ -101,6 +126,7 @@ test("real daemon/UDS bounds tool results, compacts and drains queues, restores 
     await bridge!.dispatch({ action: "abort", sessionId: "main" });
     await waitFor(() => events.some((event) => event.type === "run.settled"), "aborted compaction settled");
     assert.equal(daemon!.kernel.snapshot().sessions["main"]?.status, "idle");
+    assert.equal(daemon!.kernel.snapshot().sessions["main"]?.compaction?.status, "aborted");
     assert.equal(events.filter((event) => event.type === "runtime.error").length, 0);
     assert.equal(api.requests.length, requestsBeforeAbort, "abort must not start a continuation request");
     assert.equal(bridge!.bootstrap().connection.phase, "connected");

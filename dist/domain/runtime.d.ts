@@ -67,6 +67,17 @@ export interface RuntimeQueueSnapshot {
     steering: readonly string[];
     followUp: readonly string[];
 }
+/** Snapshot-backed so reconnecting clients can recover an in-flight compaction. */
+export interface RuntimeCompaction {
+    id: string;
+    status: "running" | "succeeded" | "failed" | "aborted";
+    reason: string;
+    startedAt: string;
+    completedAt?: string;
+    tokensBefore?: number;
+    tokensAfter?: number;
+    error?: string;
+}
 export interface RootSessionMetadata {
     title: string;
     createdAt: string;
@@ -98,6 +109,9 @@ export interface SessionMetadata {
     /** First user text, so a session can be titled without its transcript. */
     firstUserText?: string;
     queue: RuntimeQueueSnapshot;
+    /** Changes on every queue mutation, including removal of identical text. */
+    queueRevision?: number;
+    compaction?: RuntimeCompaction;
     usage: RuntimeUsage;
     rootSession?: RootSessionMetadata;
     lastError?: string;
@@ -189,6 +203,7 @@ export interface AgentRuntimePort {
     steer(sessionId: SessionId, input: string): Promise<Accepted>;
     followUp(sessionId: SessionId, input: string): Promise<Accepted>;
     promoteFollowUp(sessionId: SessionId, index: number): Promise<Accepted>;
+    cancelQueued(sessionId: SessionId, mode: "steering" | "followUp", index: number, revision: number): Promise<Accepted>;
     abort(sessionId: SessionId, reason: string): Promise<void>;
     compact(sessionId: SessionId, instructions?: string): Promise<void>;
     /** Session state without its transcript: never grows with the conversation. */

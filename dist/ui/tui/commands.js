@@ -5,6 +5,7 @@ export const TUI_HELP_LINES = [
     "  /select ID                   Switch session and history",
     "  /delete [ID]                 Delete a session and its history (default: current)",
     "  /send-now N                  Send queued message N now instead of waiting",
+    "  /cancel-queued N [direct]    Cancel a pending message (default: follow-up)",
     "  /abort  /compact",
     "  /work [STEP_ID]              Work history or step details",
     "",

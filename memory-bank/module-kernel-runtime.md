@@ -1,5 +1,12 @@
 # Module: Kernel Runtime
 
+## 2026-11-16 压缩状态与精确取消
+
+- `RuntimeCompaction` 记录每次压缩的 id、running/succeeded/failed/aborted、reason、开始/完成时间和 token 结果，随会话快照广播；Pi 没有中间进度百分比，不伪造进度。
+- `cancelQueued(sessionId, mode, index, revision)` 校验 `queueRevision`，拒绝过期索引，避免重复文本或消费后的索引位移导致误取消。既处理 SDK 队列，也处理自动压缩期间的 heldQueue。
+- Pi 0.84.1 只提供 clearQueue，因此普通队列取消后同步调用 SDK 的 steer/followUp 还原其余条目，全部入队后才 await，契约测试锁定不重复/不打乱顺序。取消不会 abort 当前任务。
+
+
 ## 模块职责
 
 用单一串行 reducer 归并所有权威状态；管理 session actor registry、effects、Daemon 生命周期与 Pi runtime adapter。

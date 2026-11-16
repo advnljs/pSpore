@@ -241,6 +241,21 @@ export class PsporeTuiApp {
                 this.#store.setNotice("直接发送消息");
                 return;
             }
+            if (input.startsWith("/cancel-queued")) {
+                if (this.#selectedAgent())
+                    throw new Error("Queued root-session messages are unavailable for a child agent");
+                const match = /^\/cancel-queued\s+([1-9]\d*)(?:\s+(direct))?$/.exec(input);
+                if (!match)
+                    throw new Error("Usage: /cancel-queued QUEUE_NUMBER [direct]");
+                const snapshot = this.#store.snapshot();
+                const sessionId = snapshot.selectedSessionId;
+                const revision = snapshot.kernel.sessions[sessionId]?.queueRevision;
+                if (revision === undefined)
+                    throw new Error("Reconnect to an updated daemon to cancel queued messages");
+                await this.#command("session.queue.cancel", { mode: match[2] ? "steering" : "followUp", index: Number(match[1]) - 1, revision }, sessionId);
+                this.#store.setNotice("Queued message cancelled");
+                return;
+            }
             if (input === "/jobs") {
                 const jobs = await this.#command("jobs.list", {});
                 this.#store.setPanel("Automation jobs", jobs.map((job) => (`• ${job.id} · ${job.enabled ? "enabled" : "disabled"}${job.schedule?.cron ? ` · ${job.schedule.cron} ${job.schedule.timezone ?? ""}` : ""}`)));

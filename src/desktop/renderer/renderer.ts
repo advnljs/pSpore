@@ -42,6 +42,7 @@ import {
 } from "./composer-file-references.js";
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
+import { CompactionPanel } from "./compaction-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { conversationRows, conversationRowText, isToolMessage, toolCallSummary, type ConversationRow } from "./conversation.js";
@@ -359,6 +360,10 @@ const articles = new ArticlePanel({
   exportArticle: (request) => window.pspore.exportArticle(request),
   onLayout: () => scheduleResizeReflow(),
 });
+
+const compactionPanel = new CompactionPanel(byId<HTMLElement>("compaction-panel"));
+let queueSignature = "";
+let pendingQueueSession: string | undefined;
 
 const unsubscribe = window.pspore.subscribe((frame) => {
   if (frame.kind === "event") articles.onEvent(frame.event);
@@ -1498,7 +1503,10 @@ function renderConversation(snapshot: DesktopStoreSnapshot): void {
   elements.composerInput.disabled = !connected;
   elements.send.disabled = !connected;
   elements.abort.disabled = !connected || (!child && session?.status !== "running");
-  elements.compact.disabled = !connected || Boolean(child) || !session;
+  const compacting = session?.compaction?.status === "running";
+  elements.compact.disabled = !connected || Boolean(child) || !session || compacting;
+  elements.compact.textContent = compacting ? t("压缩中…") : t("压缩上下文");
+  compactionPanel.render(snapshot.selectedSessionId, session?.compaction);
   renderMessageQueue(snapshot, child ? undefined : session);
 
   const transcript = elements.transcript;
@@ -1866,12 +1874,34 @@ function textFingerprint(value: string): string {
 function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: SessionView | undefined): void {
   const direct = session?.queue.steering ?? [];
   const queued = session?.queue.followUp ?? [];
+  const signature = JSON.stringify([snapshot.selectedSessionId, direct, queued, session?.queueRevision, snapshot.stableConnection.phase, pendingQueueSession]);
+  if (queueSignature === signature) return;
+  queueSignature = signature;
+  const hadQueueFocus = elements.messageQueue.contains(document.activeElement);
+  const disabled = snapshot.stableConnection.phase !== "connected" || pendingQueueSession === snapshot.selectedSessionId;
+  const cancelButton = (mode: "steering" | "followUp", index: number): HTMLButtonElement => {
+    const revision = session?.queueRevision;
+    const button = actionButton(t("取消"), "ghost-button queue-cancel", () => {
+      if (revision === undefined || pendingQueueSession) return;
+      const sessionId = snapshot.selectedSessionId;
+      pendingQueueSession = sessionId;
+      void perform(t("取消排队消息"), { action: "queue.cancel", sessionId, mode, index, revision }).finally(() => {
+        pendingQueueSession = undefined;
+        render();
+      });
+    });
+    button.disabled = disabled || revision === undefined;
+    button.title = t("取消这条尚未发送的消息");
+    button.setAttribute("aria-label", t("取消第 {number} 条{kind}", { number: index + 1, kind: mode === "steering" ? t("直接发送消息") : t("排队消息") }));
+    return button;
+  };
   elements.messageQueue.hidden = direct.length + queued.length === 0;
   if (direct.length + queued.length === 0) {
     elements.messageQueue.replaceChildren();
+    if (hadQueueFocus) elements.composerInput.focus();
     return;
   }
-  const directNodes = direct.map((message) => {
+  const directNodes = direct.map((message, index) => {
     const row = element("article", "queue-message direct");
     row.dataset["queueMode"] = "direct";
     const state = element("span");
@@ -1880,7 +1910,9 @@ function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: SessionView
     const copy = element("p");
     copy.textContent = message;
     copy.title = message;
-    row.append(state, copy);
+    const actions = element("div", "queue-actions");
+    actions.append(cancelButton("steering", index));
+    row.append(state, copy, actions);
     return row;
   });
   const queuedNodes = queued.map((message, index) => {
@@ -1898,11 +1930,16 @@ function renderMessageQueue(snapshot: DesktopStoreSnapshot, session: SessionView
         index,
       });
     });
-    sendNow.disabled = snapshot.stableConnection.phase !== "connected";
-    row.append(state, copy, sendNow);
+    sendNow.disabled = disabled;
+    const actions = element("div", "queue-actions");
+    actions.append(sendNow, cancelButton("followUp", index));
+    row.append(state, copy, actions);
     return row;
   });
   elements.messageQueue.replaceChildren(...directNodes, ...queuedNodes);
+  if (hadQueueFocus) {
+    (elements.messageQueue.querySelector<HTMLButtonElement>("button:not(:disabled)") ?? elements.composerInput).focus();
+  }
 }
 
 /**
@@ -2211,7 +2248,8 @@ function renderActivities(activities: readonly DesktopActivity[]): void {
  * and its own elapsed clock.
  */
 function renderRunActivity(snapshot: DesktopStoreSnapshot): void {
-  const phase = currentRunPhase(snapshot);
+  const phase = snapshot.kernel.sessions[snapshot.selectedSessionId]?.compaction?.status === "running"
+    ? undefined : currentRunPhase(snapshot);
   if (!phase) {
     activityPhase = undefined;
     stopActivityTicker();

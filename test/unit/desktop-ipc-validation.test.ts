@@ -16,6 +16,14 @@ import {
 } from "../../src/desktop/validation.js";
 
 test("desktop IPC decoder exposes only bounded allowlisted actions", () => {
+  const cancellation = { action: "queue.cancel", sessionId: "main", mode: "followUp", index: 0, revision: 7 } as const;
+  assert.deepEqual(decodeDesktopCommand(cancellation), cancellation);
+  assert.deepEqual(toProtocolInvocation(cancellation, { stagingPath: (name) => `/tmp/staging/${name}` }), {
+    type: "session.queue.cancel", sessionId: "main", payload: { mode: "followUp", index: 0, revision: 7 },
+  });
+  for (const invalid of [{ mode: "all" }, { index: -1 }, { index: 0.1 }, { revision: undefined }, { revision: -1 }, { extra: true }]) {
+    assert.throws(() => decodeDesktopCommand({ ...cancellation, ...invalid }));
+  }
   assert.deepEqual(decodeDesktopCommand({ action: "prompt", text: "hello", sessionId: "session-1" }), {
     action: "prompt",
     text: "hello",

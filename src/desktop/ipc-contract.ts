@@ -124,6 +124,7 @@ export type DesktopCommand =
   | { action: "session.transcript"; sessionId: string; from?: number; limit?: number }
   | { action: "session.message"; sessionId: string; id?: string; index?: number; offset?: number; limit?: number }
   | { action: "queue.send-now"; sessionId: string; index: number }
+  | { action: "queue.cancel"; sessionId: string; mode: "steering" | "followUp"; index: number; revision: number }
   | { action: "approval.resolve"; approvalId: string; approved: boolean; scope: "once" | "session" | "job" }
   | { action: "jobs.list" }
   | { action: "runs.list" }
@@ -274,6 +275,16 @@ export function decodeDesktopCommand(value: unknown): DesktopCommand {
         sessionId: identifier(input["sessionId"], "queue.send-now.sessionId"),
         index: nonNegativeInteger(input["index"], "queue.send-now.index", 10_000),
       };
+    case "queue.cancel":
+      exactKeys(input, ["action", "sessionId", "mode", "index", "revision"], "command");
+      if (input["mode"] !== "steering" && input["mode"] !== "followUp") throw new Error("queue.cancel.mode is invalid");
+      return {
+        action,
+        sessionId: identifier(input["sessionId"], "queue.cancel.sessionId"),
+        mode: input["mode"],
+        index: nonNegativeInteger(input["index"], "queue.cancel.index", 10_000),
+        revision: nonNegativeInteger(input["revision"], "queue.cancel.revision", Number.MAX_SAFE_INTEGER),
+      };
     case "tools.list":
     case "jobs.list":
     case "runs.list":
@@ -422,6 +433,8 @@ export function toProtocolInvocation(
       };
     case "queue.send-now":
       return { type: "session.queue.send-now", payload: { index: command.index }, sessionId: command.sessionId };
+    case "queue.cancel":
+      return { type: "session.queue.cancel", payload: { mode: command.mode, index: command.index, revision: command.revision }, sessionId: command.sessionId };
     case "approval.resolve":
       return {
         type: "approval.resolve",

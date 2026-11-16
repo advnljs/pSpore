@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-11-16 压缩进度与队列取消
+
+- `renderer/compaction-panel.ts` 维护固定 DOM 的压缩状态卡：loading 叠页动画、不确定进度条、阶段提示、耗时、成功 token 对比、失败/中止结果；完成 8 秒后收起，失败可主动关闭。动画沿用 cobalt paper token/GSAP，CSS 只动 transform/opacity，并支持 reduced-motion。
+- 压缩状态来自 `SessionMetadata.compaction`，不依赖 renderer 的短期 activity 列表；压缩按钮处理中禁用，避免重复请求。
+- `queue.cancel` 对 follow-up/steering 都显示取消按钮；按队列签名复用 DOM，流式 token 不再重建按钮；仅收到后端状态才移除消息，发送失败保留并提示。
+- `DaemonBridge.bootstrap()` 通过共享 reducer 跟随 durable 事件刷新状态，缓存最多 200 条 transcript；切换语言/重载窗口能恢复压缩状态和队列，避免带最新 cursor 返回启动时的旧快照。
+- GUI 验收：`npm run test:context-queue`，真实 Electron + Daemon/UDS + 本机 HTTP/SSE 演示模型，真实鼠标点击/键盘输入，1920×1080；覆盖双主题/双语、队列取消（普通及压缩暂存）、刷新恢复、动画/reduced-motion、自动/手动压缩、成功/失败/中止。
+
+
 ## 2026-11-11 中英双语界面（0.1.44）
 
 - 共享核心 `src/desktop/i18n.ts`（无 DOM/Node）：`DesktopLocale = "zh-CN" | "en"`、`localeFromLanguageTag`（仅 `zh*` 为中文）、`formatMessage`（`{name}` 占位）、`translateMessage`（缺词回落中文）。

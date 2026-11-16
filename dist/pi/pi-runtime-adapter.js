@@ -223,6 +223,34 @@ export class PiRuntimeAdapter {
         await record.runtime.session.abort();
         await record.activeTask?.catch(() => undefined);
     }
+    async cancelQueued(sessionId, mode, index, revision) {
+        const record = this.#record(sessionId);
+        if (mode !== "steering" && mode !== "followUp")
+            throw new Error("Invalid queue mode");
+        if (revision !== record.queueRevision)
+            throw new Error("Queue changed; refresh and try again");
+        if (!Number.isSafeInteger(index) || index < 0 || index >= record.queue[mode].length) {
+            throw new Error("Message is no longer queued");
+        }
+        const session = record.runtime.session;
+        const liveCount = mode === "steering" ? session.getSteeringMessages().length : session.getFollowUpMessages().length;
+        if (index >= liveCount) {
+            record.heldQueue[mode].splice(index - liveCount, 1);
+            this.#publishQueue(record);
+        }
+        else {
+            const queue = session.clearQueue();
+            queue[mode].splice(index, 1);
+            // Pi 0.84.1 enqueues synchronously before these promises resolve. Restore
+            // all remaining entries before yielding, so the agent cannot drain a
+            // half-restored queue between awaits. Contract tests pin this behavior.
+            await Promise.all([
+                ...queue.steering.map((text) => session.steer(text)),
+                ...queue.followUp.map((text) => session.followUp(text)),
+            ]);
+        }
+        return this.#accepted();
+    }
     async compact(sessionId, instructions) {
         await this.abort(sessionId, "manual compaction");
         const session = this.#record(sessionId).runtime.session;
@@ -249,7 +277,7 @@ export class PiRuntimeAdapter {
             upstreamSessionId: session.sessionId,
             ...(sessionFile ? { sessionFile } : {}),
             cwd: record.runtime.cwd,
-            status: lastError ? "failed" : session.isStreaming || record.activeTask || record.thresholdCompaction ? "running" : "idle",
+            status: lastError ? "failed" : session.isStreaming || record.activeTask || record.thresholdCompaction || record.compaction?.status === "running" ? "running" : "idle",
             ...(model ? { model: { provider: model.provider, model: model.id } } : {}),
             thinking: session.thinkingLevel,
             ...(session.model ? { context: this.#contextUsage(record) } : {}),
@@ -259,6 +287,8 @@ export class PiRuntimeAdapter {
                 steering: [...record.queue.steering],
                 followUp: [...record.queue.followUp],
             },
+            queueRevision: record.queueRevision,
+            ...(record.compaction ? { compaction: { ...record.compaction } } : {}),
             usage: {
                 input: stats.tokens.input,
                 output: stats.tokens.output,
@@ -405,6 +435,8 @@ export class PiRuntimeAdapter {
             runStarted: false,
             abortRequested: false,
             heldQueue: { steering: [], followUp: [] },
+            queueRevision: 0,
+            compaction: undefined,
             lastError: undefined,
             streaming: undefined,
             itemSequence: 0,
@@ -550,6 +582,8 @@ export class PiRuntimeAdapter {
         record.upstreamSessionId = session.sessionId;
         record.lastError = undefined;
         record.queue = { steering: [], followUp: [] };
+        record.queueRevision += 1;
+        record.compaction = undefined;
         record.streaming = undefined;
         record.firstUserText = undefined;
         const previousStop = session.agent.shouldStopAfterTurn;
@@ -649,9 +683,25 @@ export class PiRuntimeAdapter {
                 this.#publishQueue(record);
                 break;
             case "compaction_start":
+                record.compaction = {
+                    id: this.#idFactory(),
+                    status: "running",
+                    reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
+                    startedAt: this.#clock().toISOString(),
+                    tokensBefore: this.#contextUsage(record).tokens,
+                };
                 this.#emit(record, "compaction.started", { reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason }, false);
                 break;
             case "compaction_end":
+                record.compaction = {
+                    id: record.compaction?.id ?? this.#idFactory(),
+                    startedAt: record.compaction?.startedAt ?? this.#clock().toISOString(),
+                    completedAt: this.#clock().toISOString(),
+                    reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
+                    status: event.aborted ? "aborted" : event.errorMessage || !event.result ? "failed" : "succeeded",
+                    ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
+                    ...(event.errorMessage ? { error: event.errorMessage } : {}),
+                };
                 this.#emit(record, "compaction.completed", {
                     reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
                     aborted: event.aborted,
@@ -822,6 +872,7 @@ export class PiRuntimeAdapter {
         return Math.max(1, Math.min(settings.triggerTokens, limit - settings.reserveTokens));
     }
     #publishQueue(record) {
+        record.queueRevision += 1;
         record.queue = {
             steering: [...record.runtime.session.getSteeringMessages(), ...record.heldQueue.steering],
             followUp: [...record.runtime.session.getFollowUpMessages(), ...record.heldQueue.followUp],

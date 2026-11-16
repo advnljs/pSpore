@@ -60,6 +60,32 @@ test("desktop daemon bridge validates commands and coalesces text and thinking i
   await bridge.stop();
 });
 
+test("bootstrap follows durable progress and keeps a bounded transcript after renderer reload", async () => {
+  const client = new FakeProtocolClient();
+  const bridge = new DaemonBridge({ socketPath: "/unused/daemon.sock", stagingRoot: "/tmp/staging",
+    versions: { pspore: "test", pi: "0.84.1", electron: "43.3.0", node: "24" }, clientFactory: () => client });
+  bridge.start();
+  try {
+    await waitFor(() => bridge.bootstrap().connection.phase === "connected");
+    const session = { sessionId: "main", upstreamSessionId: "upstream-main", cwd: "/tmp", status: "running", thinking: "off",
+      messageCount: 250, messageOffset: 0, messages: Array.from({ length: 250 }, (_, index) => ({ role: "user", text: String(index) })),
+      queue: { steering: [], followUp: ["pending"] }, queueRevision: 5,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, costUsd: 0 },
+      compaction: { id: "compact-1", status: "running", reason: "manual", startedAt: "2026-11-16T00:00:00Z" } };
+    client.emit({ ...event(1, "compaction.started", { sessionId: "main", session }), durable: true });
+    const bootstrap = bridge.bootstrap();
+    assert.equal(bootstrap.snapshot?.sessions["main"]?.compaction?.status, "running");
+    assert.equal(bootstrap.snapshot?.sessions["main"]?.queueRevision, 5);
+    assert.equal(bootstrap.snapshot?.sessions["main"]?.messages.length, 200);
+    assert.equal(bootstrap.snapshot?.sessions["main"]?.messageOffset, 50);
+    assert.equal(bootstrap.cursors["stream-1"], 1);
+    client.emit(event(2, "transcript.delta", { sessionId: "main", itemId: "item-1", kind: "text", delta: "transient" }));
+    client.emit({ ...event(3, "queue.updated", { sessionId: "main", session: { ...session, queueRevision: 6, queue: { steering: [], followUp: [] } } }), durable: true });
+    assert.deepEqual(bridge.bootstrap().snapshot?.sessions["main"]?.queue.followUp, []);
+    assert.equal(bridge.bootstrap().cursors["stream-1"], 3);
+  } finally { await bridge.stop(); }
+});
+
 test("reports why a rejected daemon frame closed the connection", async () => {
   const client = new FakeProtocolClient();
   const bridge = new DaemonBridge({

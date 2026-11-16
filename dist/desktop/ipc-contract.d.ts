@@ -135,6 +135,12 @@ export type DesktopCommand = {
     sessionId: string;
     index: number;
 } | {
+    action: "queue.cancel";
+    sessionId: string;
+    mode: "steering" | "followUp";
+    index: number;
+    revision: number;
+} | {
     action: "approval.resolve";
     approvalId: string;
     approved: boolean;

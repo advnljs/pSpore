@@ -1,5 +1,15 @@
 # Project Navigation
 
+## 2026-11-16 当前工作环境与新增入口
+
+- 本轮环境为 Linux x64 / WSL2，仓库 `/home/ubuntu/pSpore`；下文 macOS/Colima 为其他开发机历史记录。
+- 当前 Node 24.19.0：`/tmp/pspore-node.zT4XXY/node-v24.19.0-linux-x64/bin`；Electron 使用既有 devDependency，运行库只通过测试进程的 `LD_LIBRARY_PATH=/tmp/pspore-toolchain/libs/usr/lib/x86_64-linux-gnu` 加载，未改动生产服务。
+- 本轮 Xvfb 为 DISPLAY `:114`，屏幕 2048×1200；GUI 主验收 viewport 1920×1080。测试命令加 `PSPORE_ELECTRON_NO_SANDBOX=1` 以适配当前 WSL 容器。
+- `src/desktop/renderer/compaction-panel.ts`：上下文压缩状态卡与进度动画。
+- `scripts/context-queue-smoke.mjs` / `npm run test:context-queue`：真实 GUI 交互与后端链路回归；`PSPORE_CONTEXT_OUTPUT` 指定截图/报告目录，`PSPORE_SMOKE_KEEP_OPEN=1` 验收后保留隔离预览窗口。
+- 本轮证据：`.cache/gui-preview/0.1.45/`（10 个交互阶段截图与 report.json）、`.cache/context-ui-release-check.log`（完整检查）、`.cache/context-full-electron.log`（既有 Electron smoke）。
+
+
 - **2026-11-11 起的开发主机是 macOS（arm64）**，Linux 运行/截图在 pSpore 专用 Colima VM 中完成（与 xiaomi-home-setup 的 VM 完全分开，不得借用）：`COLIMA_HOME=~/Library/pSporeVM`，profile `pspore`（lima 实例 `colima-pspore`，Ubuntu 24.04 aarch64，4 CPU / 6 GiB，vz + virtiofs，只挂载本仓库）。colima/limactl 二进制借用 `~/Documents/Codex/2026-10-27/zh/work/xiaomi-home-setup/tools/bin/`；操作命令：`LIMA_HOME=~/Library/pSporeVM/_lima <tools>/limactl shell colima-pspore -- bash -c '...'`，启停 `COLIMA_HOME=~/Library/pSporeVM <tools>/colima start|stop pspore`。
 - VM 内：Node v24.22.2 在 `/opt/node`（官方 tarball，SHA256 已校验）；Xvfb、Noto CJK 字体、Electron 运行库已装；`/etc/resolv.conf` 已改为 `nameserver 192.168.5.2`（镜像自带的 stub 链接失效会卡住开机装包）。工作副本 `~/pspore` 由 rsync 从挂载的宿主仓库同步（排除 `node_modules`、`.cache`、`release-dist`、`*_key.txt` 等密钥文件），在 VM 内 `npm ci`/构建/测试，再把 `dist/` 与截图同步回宿主。npm 11.19 默认跳过未授权的 install 脚本，需手动 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node node_modules/electron/install.js`（npmmirror 明显快于 GitHub）。Chromium 沙箱在该 VM 不可用，GUI 命令加 `PSPORE_ELECTRON_NO_SANDBOX=1`。
 - README 截图：`scripts/readme-demo.mjs`（演示模型与演示数据，中英各一套）；`scripts/readme-screenshots.mjs --lang en|zh-CN`（英文写 `docs/images/desktop-*.png`，中文写 `desktop-*.zh-CN.png`；英文模式截图前扫描界面残留中文）；`scripts/readme-tui-screenshot.mjs`（xvfb + 160×45 xterm + 隔离 Daemon，写 `docs/images/tui.png`，需 xterm/xdotool/ImageMagick，VM 已装）。

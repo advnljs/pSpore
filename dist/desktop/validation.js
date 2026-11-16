@@ -244,6 +244,22 @@ function validateSessionMetadata(value, path) {
     const queue = record(snapshot["queue"], `${path}.queue`);
     validateStringArray(queue["steering"], `${path}.queue.steering`);
     validateStringArray(queue["followUp"], `${path}.queue.followUp`);
+    if (snapshot["queueRevision"] !== undefined)
+        nonNegativeInteger(snapshot["queueRevision"], `${path}.queueRevision`);
+    if (snapshot["compaction"] !== undefined) {
+        const compaction = record(snapshot["compaction"], `${path}.compaction`);
+        identifier(compaction["id"], `${path}.compaction.id`);
+        if (!["running", "succeeded", "failed", "aborted"].includes(String(compaction["status"])))
+            throw new Error(`${path}.compaction.status is invalid`);
+        for (const field of ["reason", "startedAt"])
+            boundedString(compaction[field], `${path}.compaction.${field}`, 256);
+        optionalBoundedString(compaction["completedAt"], `${path}.compaction.completedAt`, 256);
+        optionalBoundedString(compaction["error"], `${path}.compaction.error`, MAX_STRING_LENGTH);
+        for (const field of ["tokensBefore", "tokensAfter"]) {
+            if (compaction[field] !== undefined)
+                nonNegativeInteger(compaction[field], `${path}.compaction.${field}`);
+        }
+    }
     const usage = record(snapshot["usage"], `${path}.usage`);
     for (const field of ["input", "output", "cacheRead", "cacheWrite", "total", "costUsd"]) {
         const amount = usage[field];

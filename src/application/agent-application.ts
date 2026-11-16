@@ -278,6 +278,18 @@ export class AgentApplication implements AgentSessionHost {
           return this.#runtime.promoteFollowUp(sessionId, index);
         });
       }
+      case "session.queue.cancel": {
+        const payload = exactPayload(command.payload, ["mode", "index", "revision"], command.type);
+        const mode = optionalEnum(payload["mode"], ["steering", "followUp"], "payload.mode");
+        if (!mode) throw new Error("payload.mode is required");
+        const index = nonNegativeIntegerValue(payload["index"], "payload.index", 10_000);
+        const revision = nonNegativeIntegerValue(payload["revision"], "payload.revision", Number.MAX_SAFE_INTEGER);
+        const sessionId = requiredSessionId(command);
+        this.#assertRootSession(sessionId);
+        // Cancellation must not wait behind a long manual compact command.
+        // The runtime validates and removes the entry before its first await.
+        return this.#runtime.cancelQueued(sessionId, mode, index, revision);
+      }
       case "session.abort": {
         const payload = exactPayload(command.payload, ["reason"], command.type);
         const reason = optionalString(payload["reason"], "payload.reason") ?? "user requested abort";

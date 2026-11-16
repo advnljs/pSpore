@@ -1,5 +1,7 @@
 # Todo
 
+- P1 / In progress（2026-11-16）：压缩状态卡与队列取消已实现，332 项检查与真实 GUI 验证通过；待发布 0.1.45（npm + GitHub）。npm 登录失效（E401），候选验证后需浏览器认证。
+
 | 优先级 | 待办任务 | 状态 | 阻塞项 | 下一步建议 |
 |---|---|---|---|---|
 | P0 | 桌面中英双语、英文 README 截图、README 加 TUI 章节，并发布 0.1.44 | Done | 无 | `464a1ec` 已推送；CI `42983917360`、ARM64 `42983917263`、Release `42984539333` 成功，12 项资产公开且 overlay/asar 核验通过；npm `p-spore@0.1.44` 为 latest，registry 全新安装复验通过。https://github.com/advnljs/pSpore/releases/tag/v0.1.44 |

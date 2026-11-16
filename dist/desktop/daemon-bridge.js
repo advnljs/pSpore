@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { ProtocolClient } from "../protocol/client.js";
+import { applyProtocolEvent, initialProtocolUiState } from "../ui/shared/protocol-state.js";
 import { DAEMON_NOT_CONNECTED_MESSAGE, decodeDesktopCommand, toProtocolInvocation, } from "./ipc-contract.js";
 import { validateEventEnvelope, validateKernelState, validateProtocolResult, validateServerHello } from "./validation.js";
+// Bootstrap keeps the same bounded transcript tail as the daemon's SessionView.
+const BOOTSTRAP_TAIL_MESSAGES = 200;
 export class DaemonBridge {
     #versions;
     #reconnectDelay;
@@ -170,6 +173,23 @@ export class DaemonBridge {
             this.#protocolFailure = `Event gap on ${event.streamId}: expected ${expected}, received ${event.seq}`;
             void client.close();
             return;
+        }
+        // A renderer reload (including a language switch) starts from bootstrap,
+        // not from hello again. Keep its snapshot at the same cursor as the events
+        // it has already received, so an in-flight queue/compaction cannot vanish.
+        // Transient deltas need no second copy in the bridge's snapshot cache.
+        if (this.#snapshot && event.durable) {
+            this.#snapshot = applyProtocolEvent({ ...initialProtocolUiState(), kernel: this.#snapshot, cursors: this.#cursors }, event).state.kernel;
+            const payload = event.payload;
+            const metadata = payload["session"];
+            const sessionId = metadata?.sessionId ?? (typeof payload["sessionId"] === "string" ? payload["sessionId"] : undefined);
+            const session = sessionId ? this.#snapshot.sessions[sessionId] : undefined;
+            if (session && session.messages.length > BOOTSTRAP_TAIL_MESSAGES) {
+                const dropped = session.messages.length - BOOTSTRAP_TAIL_MESSAGES;
+                this.#snapshot = { ...this.#snapshot, sessions: { ...this.#snapshot.sessions,
+                        [session.sessionId]: { ...session, messages: session.messages.slice(dropped), messageOffset: session.messageOffset + dropped },
+                    } };
+            }
         }
         this.#cursors = { ...this.#cursors, [event.streamId]: event.seq };
         const payload = event.payload;

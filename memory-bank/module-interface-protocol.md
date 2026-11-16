@@ -1,5 +1,12 @@
 # Module: Interface and Protocol
 
+## 2026-11-16 队列取消与压缩状态
+
+- 新增 `session.queue.cancel {mode: "steering" | "followUp", index, revision}`，必须指定根会话；桌面 IPC 为 `queue.cancel`，TUI 为 `/cancel-queued N [direct]`。
+- 取消命令在 runtime 首个 await 前完成版本验证、移除及剩余 SDK 消息还原，不排在耗时的手动 compact 命令之后；队列版本不一致则拒绝，不猜测另一条消息。
+- 会话元数据新增可选 `queueRevision`、`compaction`（兼容旧快照）；桌面校验器验证类型/枚举/数量边界。旧 daemon 无队列版本时禁用取消。
+
+
 ## 2026-11-11 TUI 在 xterm 中丢失大写字母
 
 - Pi TUI 在终端不支持 Kitty 键盘协议时启用 xterm modifyOtherKeys（`CSI >4;2m`），Shift+字母以 `CSI 27;2;码点~` 到达；pi-tui 0.84.1 的 `Input` 只解码 Kitty CSI-u，于是 xterm 里所有大写字母被丢弃（隐藏输入同理）。`src/ui/tui/view.ts` 的 `modifyOtherKeysPrintable` 先把这类序列（仅 Shift/锁定键修饰）还原成字符再交给 `Input`；Ctrl/Alt 组合仍是快捷键。真实 xterm 中实测 "Hello World ABC xyz Q" 完整输入。

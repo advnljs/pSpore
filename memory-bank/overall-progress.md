@@ -1,5 +1,18 @@
 # Overall Progress
 
+## 2026-11-16 18:07 CST — 0.1.45 压缩进度、队列取消与本地验收完成
+
+- 先以 `git pull --ff-only` 从 `73b1b19` 拉取至最新 `4159173`（0.1.44），保留原有未跟踪 `refer/`。
+- 压缩：新增快照中的生命周期状态与 `compaction-panel.ts`，显示 loading、阶段/耗时、不确定进度条、实际完成结果及失败/中止状态；沿用中英双语、cobalt paper 深浅主题、GSAP 与 reduced-motion，不新增依赖。
+- 队列：GUI 两类队列均可取消；TUI 新增 `/cancel-queued N [direct]`。后端 `session.queue.cancel` 检查队列 revision，防止过期索引/同文消息误取消；覆盖 Pi 队列及压缩 heldQueue，不中断当前任务。流式输出不再反复替换队列 DOM。
+- 实机发现并修复：切换语言会重载 renderer，bridge 原先提供启动时旧 snapshot 却携带最新 cursor；现在用共享 reducer 跟踪 durable 状态、保留最多 200 条尾窗，使队列/压缩状态可恢复。
+- 关键文件：`src/domain/runtime.ts`、`pi/pi-runtime-adapter.ts`、`application/agent-application.ts`、`desktop/daemon-bridge.ts`、IPC/validation、renderer、TUI；新增 `scripts/context-queue-smoke.mjs`，对应契约/集成/IPC 回归；README 双语与 memory-bank 同步。版本同步为 **0.1.45**，含 `package.json`、lockfile、`src/version.ts` 和 dist。
+- 验证：`npm run check` **332/332 通过，0 跳过**，typecheck/build 成功；`git diff --check` 通过。新 GUI 脚本在 **1920×1080** 用真实鼠标/键盘操作，真实 Daemon/UDS + 本机 OpenAI SSE 演示模型，10 阶段覆盖两类队列/heldQueue 取消、自动/手动压缩、语言重载、双主题、reduced-motion、成功/失败/中止；后续模型请求完全不包含取消的消息。截图人工复核无溢出或挤压。
+- 既有 `node scripts/electron-smoke.mjs` 完整验收通过（owned/external Daemon、启动顺序、文件/目录拖拽与打开、设置、审批、文稿分屏、重连等；沿用脚本内既有额外 PC 尺寸，没有新增设备矩阵）。报告 `/tmp/pspore-electron-smoke-CiAQFa/smoke` 和 `/tmp/pspore-electron-owned-smoke-t2LT32/smoke`。
+- 证据：`.cache/context-ui-release-check.log`、`.cache/context-full-electron.log`、`.cache/gui-preview/0.1.45/`；WSL2 下临时 Xvfb `:114`、Node 24.19.0、Electron 43.3.0。用户生产 home/系统服务未改动。持续预览使用当前 dist 与独立临时 home。
+- 当前状态：实现和本地验收完成；待提交推送、GitHub 双架构发行、干净 tarball 实装与 npm 发布/registry 复验。npm `whoami` 返回 E401，需按项目约定在候选验证后由用户完成浏览器认证；尚未声称 npm 发布完成。
+
+
 ## 2026-11-11 16:25 CST — v0.1.44 双架构 Release 与 npm 发布完成
 
 - 提交 `464a1ec`（Release 0.1.44：桌面中英双语、README TUI 章节与中英/TUI 截图、xterm 大写字母等修复）已推送；CI `42983917360`（Check + Tag and release）、ARM64 预览 `42983917263`、Release `42984539333` 全部成功。annotated `v0.1.44` 解引用到 `464a1ec`，2026-11-11T08:12:09Z 公开，非 draft/prerelease，12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.44

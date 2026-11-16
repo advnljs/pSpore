@@ -953,6 +953,15 @@ class FakeRuntime implements AgentRuntimePort {
     this.#resolveIdle.get(sessionId)?.();
     this.#resolveIdle.delete(sessionId);
   }
+  async cancelQueued(sessionId: string, mode: "steering" | "followUp", index: number): Promise<Accepted> {
+    const session = this.required(sessionId);
+    const values = [...session.queue[mode]];
+    values.splice(index, 1);
+    this.#snapshots.set(sessionId, { ...session, queue: { ...session.queue, [mode]: values } });
+    this.#emit(sessionId, "queue.updated", false);
+    return { accepted: true, commandId: "cancel", acceptedAt: new Date().toISOString() };
+  }
+
   async compact(): Promise<void> {}
   snapshot(sessionId: string): SessionMetadata {
     const { messages, messageOffset, ...metadata } = this.required(sessionId);

@@ -1,0 +1,1 @@
+{"version":3,"file":"compaction-panel.d.ts","sourceRoot":"","sources":["../../../src/desktop/renderer/compaction-panel.ts"],"names":[],"mappings":"AAAA,OAAO,KAAK,EAAE,iBAAiB,EAAE,MAAM,yBAAyB,CAAC;AAQjE,iFAAiF;AACjF,qBAAa,eAAe;;gBAad,IAAI,EAAE,WAAW;IAyB7B,MAAM,CAAC,SAAS,EAAE,MAAM,EAAE,KAAK,EAAE,iBAAiB,GAAG,SAAS,GAAG,IAAI;CAqEtE"}

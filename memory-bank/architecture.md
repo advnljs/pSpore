@@ -1,5 +1,12 @@
 # Architecture
 
+## 2026-11-16 变更：压缩状态可恢复与队列取消
+
+- 压缩生命周期作为会话元数据由 runtime 统一发布，GUI 按 snapshot 恢复；进度卡不自行计时猜百分比。
+- 队列取消使用版本号保护索引，防止异步消费和同文消息造成误取消，GUI/TUI 共用协议与 adapter。
+- 桌面 bridge 用已有共享 reducer 维护最新 durable 快照，并限制 transcript 尾窗为 200，修复 renderer 重载后快照与 cursor 不一致。
+
+
 ## 2026-11-11 变更：当前上下文预算与长任务压缩
 
 - 累计用量继续沿用 `usage`；新增可选 `SessionMetadata.context` 表达当前模型上下文估算、窗口和实际触发阈值，GUI/TUI 独立显示两类指标，兼容旧快照缺少 context。

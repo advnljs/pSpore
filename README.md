@@ -90,6 +90,7 @@ if the service restarts, and leaving it never stops a running task.
 | `/help` | List every command |
 | `/new [TITLE]` · `/select ID` · `/delete [ID]` | Create, switch to or delete a session |
 | `/abort` · `/compact` | Stop the current run · compact the context now |
+| `/cancel-queued N [direct]` | Cancel pending message N; add `direct` for a message waiting to send now |
 | `/work [STEP_ID]` | Work history, or the redacted details of one step |
 | `/config` · `/config wizard` | Show the model settings · run the guided setup |
 | `/approve [ID] [once\|session\|job]` · `/deny [ID]` | Answer an approval request |
@@ -186,6 +187,8 @@ p-spore config compact on 16384 20000 100000   # RESERVE  KEEP  TRIGGER  (tokens
 Compaction runs as soon as either `TRIGGER` or `RESERVE` is reached. The same settings are under
 **Settings** in the desktop app and `/config compact` in the TUI.
 
+The desktop shows an animated progress card and elapsed time while summarizing, then the token count before and after compaction. Your full chat history stays available. The progress bar is indeterminate while the model works; it does not estimate a percentage.
+
 ## Approvals
 
 One service-wide policy decides which tool calls need your approval:
@@ -225,6 +228,7 @@ p-spore help                       # every command
 - **Messages sent while a session is busy** wait in a queue, marked `继续排队` ("queued"). Choose
   `直接发送消息` ("send now") in the desktop app or `/send-now N` in the TUI to send one at the next
   safe point instead of waiting.
+- **Cancel pending messages** with the `Cancel` button next to a queued or send-now message. Messages already delivered to the model are no longer in the queue.
 - **Documents.** The built-in `document` tool reads `.docx`/`.doc`, `.xlsx`/`.xls`, `.pptx`/`.ppt`,
   PDF and text files. It recognizes the format from the file's contents, so a renamed file still
   works. WPS's own `.wps`/`.et`/`.dps` formats are not supported, so save those as `.docx`, `.xlsx` or
