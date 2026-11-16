@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-11-16 18:20 CST — 0.1.45 GitHub 发行完成，npm 候选已验证、待网页认证
+
+- 代码提交 `09f597e2db99503c96e3abff9c982d3cfacf8898` 已推送 main；CI `43846110683`、ARM64 预览 `43846110624`、双架构 Release `43846747135` 全部成功。`v0.1.45` 已于 `2026-11-16T10:17:18Z` 公开，非 draft/prerelease，包含 x64/ARM64 CLI、完整桌面包、overlay 及各自 SHA-256，共 12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.45。
+- 下载独立核对两份 overlay：ZIP SHA-256、payload digest、manifest（0.1.45 / Electron 43.3.0 / 对应架构）、启动器 ELF/权限、图标与升级脚本均通过；两种架构 asar 中全部 13 个变更的运行文件与已提交 dist 逐字一致。证据 `.cache/release-0.1.45/`。
+- npm 候选从已检查且与 Git 一致的 `package.json`、README、LICENSE 与 dist 的 `git archive` 生成；545 文件、732071 bytes，SHA-1 `a626deb291f1a6bf18623b525f2f89b0c5573fb4`。未带入用户未跟踪内容或原生二进制缓存（bin 仅保留跟踪的 `.gitkeep`）。候选位于 `.cache/npm-release/0.1.45/p-spore-0.1.45.tgz`。
+- 仓库外全新 prefix/cache 安装候选成功；545 文件与干净 stage 逐字一致，`p-spore`/`pspore` 的 version/help、init/doctor/status/jobs/skills/sessions 通过，隔离 Daemon ready 并退出 0。`npm publish --dry-run` 通过；未新增或升级项目依赖。
+- **npm 尚未发布**：registry latest 核对仍为 0.1.44；本机 `npm whoami` 返回 E401。依约用交互终端发起 npm web 登录并通过 Windows 默认浏览器打开认证页。未收到网页认证完成，CLI 后续退回 Username 提示，已取消回退，不收集账号密码/token/OTP。用户准备好认证后重新发起短时效 web 登录，再发布上述候选，核对 registry 摘要，等待至少 2 分钟后全新下载复验 CLI/TUI。
+- 发布后 registry 安装与 TUI 验证脚本已准备于 `.cache/npm-release/0.1.45/`，目前未执行，不能将候选验证称为 registry 验证。
+- 当前最新代码预览仍在本次工作会话运行：Xvfb `:114`，隔离 home `/tmp/pspore-context-gui-KKxP8d`，日志 `.cache/context-queue-preview.log`；10 阶段真实 GUI 报告与截图 `.cache/gui-preview/0.1.45/`。未操作用户生产 home/系统服务，原有 `refer/` 保持不变。本次记录仅更新文档，不重复升版。
+
+
 ## 2026-11-16 18:07 CST — 0.1.45 压缩进度、队列取消与本地验收完成
 
 - 先以 `git pull --ff-only` 从 `73b1b19` 拉取至最新 `4159173`（0.1.44），保留原有未跟踪 `refer/`。
