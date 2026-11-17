@@ -9,6 +9,7 @@
 - 最新安装包预览保持于本工作会话：Electron PID 15052、Xvfb :115、隔离 home `/tmp/pspore-notification-gui-9AsaVk`，只使用演示数据。预览来自 `/tmp/pspore-npm-local-0.1.46-744kj_1v/lib/node_modules/p-spore`，通知卡片暂停消失便于查看；日志/截图在候选证据目录的 `gui.log` / `gui/`。
 - **npm 尚未发布**：registry latest 核对仍为 0.1.44，whoami E401。完成候选验证后已通过交互终端发起 npm web 登录，修正 WSL 所需 BROWSER 环境后成功打开 Windows 默认浏览器；网页授权仍待用户完成，未索取/读取 token 或 OTP。registry 新安装与发布后等待至少两分钟的 TUI 复验尚未执行，不能将候选实装称为 registry 实装。
 - registry 安装与 TUI 脚本已准备，授权完成后应发布当前候选 tgz、核对版本/latest/shasum/integrity，再等待至少两分钟从 registry 下载复验。当前 GitHub 发布完成，npm 发布条件未完成。本条仅文档同步，不重复发版。
+- 14:45 CST 后续：npm web 流程未返回授权成功，CLI 退回 Username 提示，已 Ctrl+C 取消。未输入账号密码/token/OTP；后续需重新发起短时效 web 登录，不能继续使用本次登录会话。
 
 ## 2026-11-17 14:32 CST — 0.1.46 桌面通知实现与本地验收
 
