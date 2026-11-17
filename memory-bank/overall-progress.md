@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-17 14:43 CST — 0.1.46 双架构发布与 npm 候选实装验证
+
+- 代码 `7a24812c5db1ff389221376a33a705a842208e6e` 已推送 main；CI `44031973283`、ARM64 预览 `44031973418`、Release `44032512844` 全部成功。annotated `v0.1.46` 指向该提交，2026-11-17T06:41:30Z 公开，非 draft/prerelease，12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.46。
+- 独立下载 x64/ARM64 overlay，校验 ZIP SHA-256、GitHub digest、payload digest、manifest 版本/架构、图标与升级脚本、原生启动器 ELF/权限；两种架构 asar 中全部 12 个变更运行文件与已提交 dist 逐字一致。证据 `.cache/release-0.1.46/`。
+- npm 候选用 HEAD 的 git archive（dist、package.json、README、LICENSE）生成，排除未跟踪内容和本机二进制缓存：564 文件、742296 bytes，SHA-1 `c0b3121e80f95587473ded66abca0a0cf3bbb120`。打包与 publish dry-run 的 shasum/integrity 一致。
+- 仓库外全新 prefix/cache 安装候选后，564 文件逐字比对、双 CLI version/help、init/doctor/status/jobs/skills/sessions 与隔离 Daemon（退出 0）全部通过；再用已安装包的桌面代码和现有 Electron 运行完整通知 smoke，14 项真实交互检查通过，1920×1080 内容视口。候选证据 `.cache/npm-release/0.1.46/`。
+- 最新安装包预览保持于本工作会话：Electron PID 15052、Xvfb :115、隔离 home `/tmp/pspore-notification-gui-9AsaVk`，只使用演示数据。预览来自 `/tmp/pspore-npm-local-0.1.46-744kj_1v/lib/node_modules/p-spore`，通知卡片暂停消失便于查看；日志/截图在候选证据目录的 `gui.log` / `gui/`。
+- **npm 尚未发布**：registry latest 核对仍为 0.1.44，whoami E401。完成候选验证后已通过交互终端发起 npm web 登录，修正 WSL 所需 BROWSER 环境后成功打开 Windows 默认浏览器；网页授权仍待用户完成，未索取/读取 token 或 OTP。registry 新安装与发布后等待至少两分钟的 TUI 复验尚未执行，不能将候选实装称为 registry 实装。
+- registry 安装与 TUI 脚本已准备，授权完成后应发布当前候选 tgz、核对版本/latest/shasum/integrity，再等待至少两分钟从 registry 下载复验。当前 GitHub 发布完成，npm 发布条件未完成。本条仅文档同步，不重复发版。
+
 ## 2026-11-17 14:32 CST — 0.1.46 桌面通知实现与本地验收
 
 - 开工前创建并推送 annotated tag `pre-desktop-notifications-20261117`，准确指向原 HEAD `c4668401c9b5e0f3030aabfa5504cebb130ddc9b`；未修改已有版本/tag，未触碰未跟踪 `refer/`。

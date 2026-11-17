@@ -7,6 +7,8 @@
 - `npm run test:notifications` / `scripts/notification-smoke.mjs`：真实 Daemon/UDS + Electron + 鼠标点击，主内容视口 1920×1080；`PSPORE_NOTIFICATION_OUTPUT` 控制证据目录，`PSPORE_SMOKE_KEEP_OPEN=1` 验收后保留隔离预览。
 - 当前 Linux/WSL 环境复用 Node 24.19.0、Electron 43.3.0 和 `/tmp/pspore-toolchain/libs`；本轮独立 Xvfb DISPLAY `:115`（2048×1200，主窗口内容 1920×1080），Openbox 窗管。运行时 PATH 加 Node bin 与 `/tmp/pspore-toolchain/bin`，LD_LIBRARY_PATH 指向 libs/usr/lib/x86_64-linux-gnu，`PSPORE_ELECTRON_NO_SANDBOX=1` 仅用于当前容器验收。
 - 本轮截图/报告：`.cache/gui-preview/0.1.46/`；完整检查：`.cache/notification-release-check.log`；通知实测日志 `.cache/notification-smoke.log`。
+- 0.1.46 已从 npm 候选包全新安装并实跑 GUI；当前隔离预览 home `/tmp/pspore-notification-gui-9AsaVk`，Electron PID 15052 / DISPLAY :115，包在 `/tmp/pspore-npm-local-0.1.46-744kj_1v/lib/node_modules/p-spore`。日志与 14 项交互/截图 `.cache/npm-release/0.1.46/gui.log`、`gui/`。预览仅保证本工作会话；复现可使用本节 `test:notifications` 命令及 KEEP_OPEN 环境变量。
+- GitHub 当前为 0.1.46（双架构 12 资产和 overlay/asar 实际下载核验完成）；npm latest 仍 0.1.44，0.1.46 候选已验证、待 npm 网页认证。下方 0.1.45 及更早信息是历史环境记录。
 
 ## 2026-11-16 当前工作环境与新增入口
 
