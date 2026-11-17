@@ -1,6 +1,6 @@
 {
   "name": "p-spore",
-  "version": "0.1.45",
+  "version": "0.1.46",
   "description": "Linux-first local proactive agent built on Pi",
   "keywords": [
     "ai",
@@ -44,6 +44,7 @@
     "test:electron": "npm run build && node scripts/electron-smoke.mjs",
     "test:article-stream": "npm run build && node scripts/article-stream-smoke.mjs",
     "test:context-queue": "npm run build && node scripts/context-queue-smoke.mjs",
+    "test:notifications": "npm run build && node scripts/notification-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "check": "npm run typecheck && npm test && npm run build"
   },

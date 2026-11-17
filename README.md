@@ -131,6 +131,13 @@ The desktop app uses the same service as the TUI. It also adds a few things of i
 - **English or Chinese.** The interface follows your system language. To switch, click the
   **EN** / **中** button in the top bar; the app remembers your choice.
 
+- **Notifications while you work elsewhere.** Closing the window keeps pSpore in the system
+  tray. Agent notifications and scheduled task updates appear in a small bottom-right card
+  while the workspace is hidden, minimized, or out of focus. **Open session** returns to the
+  conversation; hover to keep the card visible. New updates share one card, and notification
+  history stays in the Activity panel. Use **Quit pSpore** in the tray to stop desktop popups;
+  the background service continues running. Start the desktop app once to enable this receiver.
+
 - **Tool steps you can open.** While a run is in progress, its thinking and tool calls stay
   open. When it finishes they fold into one summary line, and you can open them again whenever
   you like.

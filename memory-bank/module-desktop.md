@@ -1,5 +1,13 @@
 # Module: Electron Desktop
 
+## 2026-11-17 后台通知与托盘
+
+- `application.ts` 创建 `DesktopNotifications` 并转发 bridge 事件；正常关闭窗口改为隐藏，托盘提供打开/退出。smoke 仍按已有关闭方式清理隔离 Daemon。
+- `desktop-notifications.ts` 创建独立通知窗并处理主进程路由；`notification-model.ts` 负责通知去重、来源 session 解析与 workArea 定位；`notification/` 是隔离 preload 和 HTML/CSS/TS 卡片。
+- `notification.open` 为 main→renderer 的界面帧，不新增 Daemon 命令。目标不存在则显示活动面板；历史通知也提供「进入会话」。主窗口 API 权限不扩大。
+- 实测：`npm run test:notifications`，PC 内容视口 1920×1080，覆盖关闭保留、失焦显示、点击跳转、合并/旧按钮保护、悬停/超时、重连、双主题双语、长文本、reduced-motion、IPC 隔离。
+- 完全退出桌面客户端后不弹窗；再次启动不重放已有通知。实现边界与维护位置详见 `module-notifications.md`。
+
 ## 2026-11-16 压缩进度与队列取消
 
 - `renderer/compaction-panel.ts` 维护固定 DOM 的压缩状态卡：loading 叠页动画、不确定进度条、阶段提示、耗时、成功 token 对比、失败/中止结果；完成 8 秒后收起，失败可主动关闭。动画沿用 cobalt paper token/GSAP，CSS 只动 transform/opacity，并支持 reduced-motion。

@@ -1,5 +1,13 @@
 # Project Navigation
 
+## 2026-11-17 通知功能入口与验收
+
+- `src/desktop/desktop-notifications.ts`：托盘、后台接收与通知卡片窗口；`notification-model.ts` / `notification-contract.ts`：路由、去重、位置和最小 API 类型。
+- `src/desktop/notification/`：独立通知 UI 与 preload，构建由 `scripts/copy-desktop-assets.mjs` 复制资源。
+- `npm run test:notifications` / `scripts/notification-smoke.mjs`：真实 Daemon/UDS + Electron + 鼠标点击，主内容视口 1920×1080；`PSPORE_NOTIFICATION_OUTPUT` 控制证据目录，`PSPORE_SMOKE_KEEP_OPEN=1` 验收后保留隔离预览。
+- 当前 Linux/WSL 环境复用 Node 24.19.0、Electron 43.3.0 和 `/tmp/pspore-toolchain/libs`；本轮独立 Xvfb DISPLAY `:115`（2048×1200，主窗口内容 1920×1080），Openbox 窗管。运行时 PATH 加 Node bin 与 `/tmp/pspore-toolchain/bin`，LD_LIBRARY_PATH 指向 libs/usr/lib/x86_64-linux-gnu，`PSPORE_ELECTRON_NO_SANDBOX=1` 仅用于当前容器验收。
+- 本轮截图/报告：`.cache/gui-preview/0.1.46/`；完整检查：`.cache/notification-release-check.log`；通知实测日志 `.cache/notification-smoke.log`。
+
 ## 2026-11-16 当前工作环境与新增入口
 
 - 本轮环境为 Linux x64 / WSL2，仓库 `/home/ubuntu/pSpore`；下文 macOS/Colima 为其他开发机历史记录。

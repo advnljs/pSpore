@@ -20,6 +20,7 @@ import {
   type SessionListItem,
 } from "../../ui/shared/presentation.js";
 import { readFullMessage } from "../../ui/shared/full-message.js";
+import { notificationSession } from "../notification-model.js";
 import { isScrollNearEnd, VirtualHeightIndex } from "../../ui/shared/virtual-list.js";
 import {
   DAEMON_NOT_CONNECTED_MESSAGE,
@@ -370,6 +371,10 @@ const unsubscribe = window.pspore.subscribe((frame) => {
   if (!initialized) queuedFrames.push(frame);
   else {
     store.applyFrame(frame);
+    if (frame.kind === "notification.open" && !frame.sessionId) {
+      setPanelState("inspector", true);
+      selectInspectorTab("activity");
+    }
     // The selection can change without anyone clicking: a restored session
     // arrives with the first snapshot, and a reconnect replaces it. The panel
     // no-ops when nothing changed.
@@ -2484,6 +2489,12 @@ function renderNotifications(snapshot: DesktopStoreSnapshot): void {
     const body = element("p");
     body.textContent = notification.body;
     item.append(body);
+    const sessionId = notificationSession(notification, snapshot.kernel);
+    if (sessionId) item.append(actionButton(t("进入会话"), "ghost-button", () => {
+      store.selectSession(sessionId);
+      articles.onSessionChanged();
+      render();
+    }));
     return item;
   });
   elements.notificationList.replaceChildren(...(nodes.length ? nodes : [emptyList(t("暂无通知"))]));

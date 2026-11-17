@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>pSpore · Notification</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="module" src="./notification.js"></script>
+  </head>
+  <body>
+    <main class="card" role="status" aria-live="polite">
+      <header><img src="../assets/pspore.svg" width="30" height="30" alt="" /><strong>pSpore</strong><span id="label"></span><time id="time"></time><button id="dismiss" class="close" type="button" aria-label="Dismiss">×</button></header>
+      <section><div class="eyebrow"><span id="level"></span><span id="count"></span></div><h1 id="title"></h1><p id="body"></p></section>
+      <footer><div class="source"><span class="source-icon" aria-hidden="true">↳</span><span id="session"></span></div><button id="open" type="button"><span id="open-label"></span><span aria-hidden="true">↗</span></button></footer>
+      <div class="timer" aria-hidden="true"><i></i></div>
+    </main>
+  </body>
+</html>

@@ -57,6 +57,11 @@ export class DesktopStore {
         this.#setConnection(bootstrap.connection);
     }
     applyFrame(frame) {
+        if (frame.kind === "notification.open") {
+            if (frame.sessionId && Object.hasOwn(this.#state.kernel.sessions, frame.sessionId))
+                this.selectSession(frame.sessionId);
+            return;
+        }
         if (frame.kind === "connection") {
             this.#setConnection(frame.connection);
             return;

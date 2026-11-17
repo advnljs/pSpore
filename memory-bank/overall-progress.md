@@ -1,5 +1,16 @@
 # Overall Progress
 
+## 2026-11-17 14:32 CST — 0.1.46 桌面通知实现与本地验收
+
+- 开工前创建并推送 annotated tag `pre-desktop-notifications-20261117`，准确指向原 HEAD `c4668401c9b5e0f3030aabfa5504cebb130ddc9b`；未修改已有版本/tag，未触碰未跟踪 `refer/`。
+- 独立右下角通知卡片：蓝白/深色、双语、级别/时间/来源、内容预览与会话按钮；showInactive 不抢焦点，连续通知合并，12 秒消失、悬停/键盘焦点暂停、reduced-motion。
+- 正常关闭工作区改为隐藏并保留托盘通知；显式退出清理 shell，生产 Daemon 生命周期不变。首次快照静默、重连恢复未见消息；主进程按权威 session 路由，删除后的目标回退到活动通知列表。
+- 修改入口：`desktop-notifications.ts`、`notification-model.ts`、`notification-contract.ts`、`notification/*`，application、IPC/store/renderer、构建资源复制；新增 unit 与 GUI smoke，README 双语与 memory-bank 同步。版本四处同步为 0.1.46，无新增依赖。
+- `npm run check`：336/336，0 失败、0 跳过，typecheck/build 通过；`git diff --check` 通过。`node scripts/electron-smoke.mjs` 原有完整桌面回归通过（启动、owned/external、重连、双主题、设置、文稿、搜索与本地文件入口）。
+- `npm run test:notifications` 实跑通过：真实隔离 Daemon/NotificationService/UDS、1920×1080 主内容视口、鼠标点击、关闭后台保留、不抢焦点、准确跳转、合并/旧按钮、悬停/超时、重连去重、长文本注入惰性显示、删除会话回退、最小化恢复、双语双主题/reduced-motion。浅/深卡片和完整桌面截图已人工检查，无挤压/溢出。
+- 证据 `.cache/gui-preview/0.1.46/`、`.cache/notification-release-check.log`、`.cache/notification-smoke.log`、`.cache/notification-full-electron.log`。测试未使用生产 home/凭据，未安装系统服务。
+- 当前发布状态：本地实现已验证；待提交/push、双架构发行、干净 npm tarball 实装和 registry 发布复验。npm 身份检查仍 E401，需候选检查后按项目约定完成浏览器 web 认证；尚未声称 npm 发布成功。
+
 ## 2026-11-16 18:20 CST — 0.1.45 GitHub 发行完成，npm 候选已验证、待网页认证
 
 - 代码提交 `09f597e2db99503c96e3abff9c982d3cfacf8898` 已推送 main；CI `43846110683`、ARM64 预览 `43846110624`、双架构 Release `43846747135` 全部成功。`v0.1.45` 已于 `2026-11-16T10:17:18Z` 公开，非 draft/prerelease，包含 x64/ARM64 CLI、完整桌面包、overlay 及各自 SHA-256，共 12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.45。

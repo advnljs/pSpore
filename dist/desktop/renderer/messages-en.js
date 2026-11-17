@@ -5,6 +5,7 @@
  * `data-i18n`. Kept in step by test/unit/desktop-i18n.test.ts.
  */
 export const EN_MESSAGES = Object.freeze({
+    "进入会话": "Open session",
     "上下文压缩进度": "Context compaction progress",
     "收起压缩结果": "Dismiss compaction result",
     "正在压缩上下文": "Compacting context",

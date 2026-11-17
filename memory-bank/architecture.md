@@ -1,5 +1,13 @@
 # Architecture
 
+## 2026-11-17 桌面后台通知
+
+- Daemon 的 `NotificationService`、持久记录与协议保持不变；Electron 主进程订阅已验证的 `notification.created` 与权威 snapshot。
+- `DesktopNotifications` 在窗口关闭时隐藏主窗口并保留托盘/桥接，独立沙箱通知窗展示最新消息；显式退出清理通知窗、托盘和 bridge，不停止生产 systemd Daemon。
+- 新 preload 只开放 current/act/subscribe，IPC 校验窗口、主 frame、精确 URL 和当前 notification id；会话地址在主进程从权威状态解析。弹窗文本仅用 textContent。
+- 首次快照建立已见基线；后续快照照常接收离线期间的新通知，去重集合有界。通知窗口使用显示器 workArea 右下角坐标和 showInactive，不请求 Web Notification 权限。
+- 仅桌面接收端运行期间弹窗；不新增登录自启服务、生产依赖或系统 Daemon GUI 权限。Wayland/目标麒麟窗口管理器的定位与托盘支持需目标机复验。
+
 ## 2026-11-16 变更：压缩状态可恢复与队列取消
 
 - 压缩生命周期作为会话元数据由 runtime 统一发布，GUI 按 snapshot 恢复；进度卡不自行计时猜百分比。

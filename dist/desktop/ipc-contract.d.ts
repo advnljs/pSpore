@@ -69,6 +69,10 @@ export interface DesktopAttachment {
 export declare function decodeAttachmentKind(value: unknown): DesktopAttachment["kind"];
 export type DesktopFrame = {
     version: 1;
+    kind: "notification.open";
+    sessionId?: string;
+} | {
+    version: 1;
     kind: "connection";
     connection: DesktopConnectionState;
 } | {

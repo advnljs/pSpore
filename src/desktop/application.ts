@@ -19,6 +19,7 @@ import { exportArticleFile } from "./article-export.js";
 import { decodeLocalPathRequest, resolveLocalPath } from "./local-path.js";
 import { openLocalItem, revealLocalItem } from "./system-open.js";
 import { DaemonBridge } from "./daemon-bridge.js";
+import { DesktopNotifications, openNotificationTarget } from "./desktop-notifications.js";
 import {
   DESKTOP_ARTICLE_EXPORT_CHANNEL,
   DESKTOP_OPEN_LOCAL_PATH_CHANNEL,
@@ -286,6 +287,7 @@ let startup: DesktopStartup;
 
 let window: BrowserWindow | undefined;
 let bridge: DaemonBridge | undefined;
+let notifications: DesktopNotifications | undefined;
 let daemonSupervisor: DaemonSupervisor | undefined;
 let systemService: SystemServiceManager | undefined;
 let settingsService: LlmSettingsService | undefined;
@@ -355,7 +357,13 @@ export async function startDesktop(options: DesktopArguments, startupWindow: Des
   captureRendererDiagnostics(window);
   hardenWindow(window, rendererUrl);
   installIpc(window, bridge, settingsService, indexingService);
-  unsubscribeBridge = bridge.subscribe((frame) => sendFrame(window, frame));
+  notifications = new DesktopNotifications({ target: window, bootstrap: () => bridge!.bootstrap(),
+    open: openDesktopNotification, quit: () => requestShutdown(0), tray: !arguments_.smokeDirectory });
+  window.on("close", (event) => {
+    // Existing smoke scripts close the window to clean up their isolated daemon.
+    if (!shuttingDown && !arguments_.smokeDirectory) notifications?.hideOnClose(event);
+  });
+  unsubscribeBridge = bridge.subscribe((frame) => { sendFrame(window, frame); notifications?.receive(frame); });
   await window.loadFile(rendererPath);
   await waitForRenderer(window, "document.documentElement.dataset.ready === 'true'", 15_000);
   if (shuttingDown) return;
@@ -375,6 +383,12 @@ export async function startDesktop(options: DesktopArguments, startupWindow: Des
   // the display instead of leaving the desktop visible around a floating window.
   showMaximized(window);
   startup.close();
+}
+
+async function openDesktopNotification(sessionId?: string): Promise<void> {
+  const target = window;
+  if (!target || target.isDestroyed() || shuttingDown) return;
+  await openNotificationTarget(target, () => bridge!.bootstrap(), sessionId);
 }
 
 /** At most this many paths from one chooser, matching the composer's own ceiling. */
@@ -433,6 +447,7 @@ function installIpc(
     const previous = interfaceLocale();
     const next = setInterfaceLocale(reportedLocale);
     if (next && next !== previous) void rememberLocale(app.getPath("userData"), next);
+    notifications?.updateLocale();
     return { ...daemonBridge.bootstrap(), places: desktopPlaces() };
   });
   ipcMain.handle(DESKTOP_DISPATCH_CHANNEL, async (event, command: unknown) => {
@@ -1941,6 +1956,8 @@ export function requestShutdown(code: number): void {
   exitCode = code;
   unsubscribeBridge?.();
   unsubscribeBridge = undefined;
+  notifications?.dispose();
+  notifications = undefined;
   void (async () => {
     await bridge?.stop();
     // Production GUI is only a shell. The system service intentionally keeps
