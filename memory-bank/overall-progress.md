@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-18 15:15 CST — npm p-spore@0.1.46 发布并完成 registry 复验
+
+- 用户要求拉取最新代码并发布 npm，不改任何代码。`git pull --ff-only` 后本地与 `origin/main` 同为 `84e80dcfa96c6cce28ec41ae36e0a2d3fe1e79fc`，版本仍是 0.1.46。未跟踪的 `openai_key.txt` 未读取、未提交。
+- 本机 macOS 的 `npm run check` 因 `/var` 与 `/private/var`、以及 `/proc` 断言失败，不能代表 Linux 包。检查改在专用 Colima VM（profile `pspore`，未使用 xiaomi VM）里对同步后的 `~/pspore` 执行：336 项中 332 通过、0 失败、4 项私有索引器跳过；构建后 `dist` 与 HEAD 一致。
+- 从 HEAD 的 `package.json`、`README.md`、`LICENSE`、`dist` 打包：564 文件、742296 bytes，SHA-1 `c0b3121e80f95587473ded66abca0a0cf3bbb120`，integrity `sha512-0TLAVhyjM/+p3rAY2gEW1+K6AhXcK6VLniaCR8qCekm459QrHP6eADTLvpJnPgyYgzMm5zz4VEAX2UgLmigBIA==`。VM 内全新 prefix 安装后双 CLI 为 `pSpore 0.1.46`，隔离 Daemon `ready` 且退出 0，564 个文件逐字一致。没有带入本机二进制缓存。
+- npm 身份原先为 E401。用网页登录打开浏览器，用户完成授权后身份为 `ljdavns`；发布同一 tarball 时再次打开浏览器确认。CLI 回执 `+ p-spore@0.1.46`。未读取或记录 token/OTP。
+- registry 在 2026-11-18T07:08:00.910Z 可见该版本。直接查询 `dist-tags.latest=0.1.46`，shasum、integrity、fileCount 564、unpackedSize 3171650 与候选一致。发布成功两分钟后从 registry 下载的 tarball SHA-1 相同，解包 564 个文件与 Git HEAD 逐字一致；全新 prefix 的 `p-spore`/`pspore` 版本正确。
+- 隔离 home 中实际启动 160×45 TUI：出现模型配置询问后回答 n，看到跳过提示，执行 `/help` 后出现 “Launch guided setup”，再 `/quit`，进程退出 0。随后 `status` 为 Daemon ready。临时 user service `pspore-01f7878175b1.service` 已卸载。证据在已忽略的 `.cache/npm-release/0.1.46/`。
+- 本条只同步发布记录，没有改功能代码，也没有新的 GitHub Release。
+
 ## 2026-11-17 14:43 CST — 0.1.46 双架构发布与 npm 候选实装验证
 
 - 代码 `7a24812c5db1ff389221376a33a705a842208e6e` 已推送 main；CI `44031973283`、ARM64 预览 `44031973418`、Release `44032512844` 全部成功。annotated `v0.1.46` 指向该提交，2026-11-17T06:41:30Z 公开，非 draft/prerelease，12 项资产：https://github.com/advnljs/pSpore/releases/tag/v0.1.46。

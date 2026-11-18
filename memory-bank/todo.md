@@ -1,6 +1,6 @@
 # Todo
 
-- P1 / Blocked（2026-11-17）：0.1.46 已提交/push、336 项检查与 GUI 验收通过，GitHub 双架构发行/远端 overlay 核验完成；npm 候选 564 文件及全新 CLI/Daemon/GUI 实装通过。npm 网页认证未完成，CLI 退回 Username 后已取消；需重新发起 web 登录并由用户完成授权。之后发布 `.cache/npm-release/0.1.46/p-spore-0.1.46.tgz`，核对 registry 并等待至少 2 分钟后全新下载/TUI 复验。目前 npm latest 仍 0.1.44。
+- P1 / Done（2026-11-18）：npm `p-spore@0.1.46` 已发布，`latest` 指向 0.1.46。未改代码；registry SHA-1 `c0b3121e80f95587473ded66abca0a0cf3bbb120`、integrity 与 564 文件和候选一致。发布两分钟后从 registry 全新安装，双 CLI、隔离 Daemon 与 160×45 TUI（跳过模型向导、`/help`、`/quit`）通过，临时 user service 已卸载。
 - P2 / Pending（2026-11-17）：在目标麒麟/Wayland 桌面复验通知定位、无焦点抢占、托盘可见与点击跳转；本机 Xvfb + Openbox 已通过，当前环境无真实系统托盘宿主。
 
 - P1 / Done（2026-11-16）：压缩状态卡与队列取消已实现，332 项检查与真实 GUI 验证通过；GitHub 0.1.45 双架构发行及下载核验完成。
