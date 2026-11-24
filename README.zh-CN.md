@@ -6,6 +6,8 @@
 
 项目基于 [Pi](https://github.com/earendil-works/pi)（锁定 `v0.84.1`），采用 [MIT 许可证](LICENSE)开源。
 
+如果 pSpore 对你有用，欢迎在 [GitHub 上点个 star](https://github.com/advnljs/pSpore)，这能帮更多人发现它。
+
 **pSpore 非常适合用于信创 PC**：面向 Linux 桌面办公，提供 x86_64 和 ARM64 发行包，ARM64 构建以银河麒麟 V10、飞腾平台的 glibc 2.31 环境为适配目标。可连接自建的 OpenAI 兼容模型服务，处理本机文档、文件和日常工作任务。
 
 ![pSpore 桌面客户端（浅色主题）](docs/images/desktop-light.zh-CN.png)

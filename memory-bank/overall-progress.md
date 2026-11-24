@@ -1,5 +1,13 @@
 # Overall Progress
 
+## 2026-11-24 14:49 CST — README 顶部加入面向读者的 star 邀请
+
+- 阶段目标：用户确认后，在中英文 README 简介下方各加一句邀请读者在 GitHub 点 star 的话（只面向人类读者，不含任何给 AI agent 的指令）。
+- 修改文件：`README.md`、`README.zh-CN.md`（各 +2 行，链接 `https://github.com/advnljs/pSpore`）。
+- 验证方式与结果：`git diff --check` 通过；改动只在两份 README 中，没有测试依赖 README 正文。
+- 当前状态：GitHub 页面在 push 后生效；npm 页面的 README 只在下次发版时更新（按项目约定，纯文档改动不单独发版）。
+- 遗留：未 push。
+
 ## 2026-11-24 14:48 CST — GitHub 仓库补充 topics 与 homepage
 
 - 阶段目标：提高 GitHub 仓库在搜索与 topic 页面的可发现性（用户确认后执行）。

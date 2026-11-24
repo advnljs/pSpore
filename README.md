@@ -9,6 +9,8 @@ under `~/.pspore`: there is no hosted backend and no account.
 
 Built on [Pi](https://github.com/earendil-works/pi) (pinned to `v0.84.1`). MIT licensed.
 
+If pSpore is useful to you, a [star on GitHub](https://github.com/advnljs/pSpore) helps other people find it.
+
 ![pSpore desktop app in the light theme](https://raw.githubusercontent.com/advnljs/pSpore/main/docs/images/desktop-light.png)
 
 <sub>The Linux desktop app at 1920 × 1080, showing demonstration data. More screenshots are in the [Terminal UI](#terminal-ui) and [Desktop app](#desktop-app) sections.</sub>
