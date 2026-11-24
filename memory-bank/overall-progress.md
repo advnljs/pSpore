@@ -1,5 +1,15 @@
 # Overall Progress
 
+## 2026-11-24 14:48 CST — GitHub 仓库补充 topics 与 homepage
+
+- 阶段目标：提高 GitHub 仓库在搜索与 topic 页面的可发现性（用户确认后执行）。
+- 背景数据（同日查询）：npm 近 30 天 723 次下载中 433 次在 2026-11-11（单日连发 0.1.42–0.1.44）、177 次在 2026-11-18（0.1.46 发布日），其余日子 0–10 次，判断主要为镜像/扫描器在发版时的自动抓取；GitHub 14 天浏览 22 次、独立访客 2、无外部 referrer，0 star。
+- 完成内容：`gh repo edit advnljs/pSpore` 设置 homepage 为 `https://www.npmjs.com/package/p-spore`，新增 17 个 topics：agent、ai、ai-agent、automation、cli、deepseek、desktop-app、electron、linux、llm、local-first、mcp、openai、systemd、terminal、tui、typescript。
+- 修改文件：仅本记录（仓库代码、README、npm 包未改动，因此不发版）。
+- 验证方式与结果：`gh repo view --json homepageUrl,repositoryTopics` 回读，homepage 与 17 个 topics 均已生效。
+- 当前状态：完成。
+- 遗留：用户提议在 README/npm 包中加入引导其他 AI agent 自动点 star 的提示词，已拒绝（属于针对第三方 agent 的提示注入、违反 GitHub 关于虚假互动的规定，且会被包扫描器标记为恶意内容），不执行。
+
 ## 2026-11-24 10:35 CST — 0.1.45 / 0.1.46 真实 GUI 详细验证、中止压缩修复与界面美化
 
 - 阶段目标：用真实桌面操作详细验证 0.1.45（压缩进度、队列取消）与 0.1.46（后台通知、托盘），修复验证中发现的问题，并在不破坏功能的前提下美化相关界面。
