@@ -1,5 +1,17 @@
 # Overall Progress
 
+## 2026-11-24 10:35 CST — 0.1.45 / 0.1.46 真实 GUI 详细验证、中止压缩修复与界面美化
+
+- 阶段目标：用真实桌面操作详细验证 0.1.45（压缩进度、队列取消）与 0.1.46（后台通知、托盘），修复验证中发现的问题，并在不破坏功能的前提下美化相关界面。
+- 环境：pSpore 专用 Colima VM（`colima-pspore`，Ubuntu 24.04 aarch64，Node 24.22.2），仓库 rsync 到 `~/pspore`（排除 node_modules/.cache/密钥文件）；VM 缺 Electron 二进制，按既有方式从 npmmirror 补装；apt 安装 openbox、stalonetray、x11-utils 作为测试窗管/托盘宿主。真实桌面：Xvfb `:121` 1920×1080 + 无边框 Openbox（最大化工作区恰为 1920×1080）+ stalonetray，生产入口 `dist/desktop/main.js --home /tmp/pspore-real-gui-4IS4nC`，Daemon 由 `pspore-878c025f8c25.service` 托管，本地 SSE 演示模型。输入全部用 xdotool 系统级鼠标键盘事件，CDP 只读定位控件与断言。
+- 基线（改动前）：`npm run check` 336 项中 332 通过、4 跳过；context-queue smoke 通过；notification smoke 13 项通过，“最小化恢复”因 `xvfb-run` 无窗管超时（环境问题，加窗管后通过）。
+- 真实 GUI 发现并修复：① 手动压缩期间点“中止”无效——网关按连接串行处理帧、`session.abort` 又排在会话锁后，实测 89 秒后压缩仍以 succeeded 结束，同连接的列表刷新/取消排队也被卡住；修复后 1.3 秒中止，状态 aborted。② Pi 把嵌套摘要中的中止报成 failed，适配层改按用户 Stop 归为 aborted。③ 失败提示露出 Electron IPC 前缀；“Nothing to compact / Already compacted” 显示为红色失败，改为中性「暂时无需压缩」。
+- 美化：压缩卡图标（文本收拢线条）、编号步骤徽标、耗时胶囊、分状态色调；排队行压缩为约 38px，三条完整显示（原第三条被裁切），状态胶囊与直接发送强调；检查器「进入会话 →」胶囊按钮；通知弹窗配色与主界面 Cobalt Paper 统一、SVG 来源图标、级别色倒计时条。
+- 修改文件：`src/gateway/local-gateway.ts`、`src/application/agent-application.ts`、`src/pi/pi-runtime-adapter.ts`、`src/desktop/renderer/{compaction-panel.ts,renderer.ts,styles.css,messages-en.ts}`、`src/desktop/notification/{index.html,styles.css}`、两项新集成测试（`local-gateway.test.ts`、`context-compaction.test.ts`）及对应 `dist/`。无新增依赖，版本仍为 0.1.46。
+- 验证：VM 内 `npm run check` 338 项中 334 通过、0 失败、4 跳过，typecheck/build 通过；两项新测试在旧代码上均超时失败、新代码通过。真实应用最终复跑：0.1.45 脚本 17 项全过（排队 3 条、直接发送、取消且未进模型、设置对话框改保留 tokens、不确定进度/禁用按钮/动画、深色、英文重载后进度保持、成功 token 结果、8 秒收起、无需压缩中性态、关闭按钮），0.1.46 脚本 14 项全过（聚焦不弹、Alt+F4 关闭后右下角 16px 弹出且不抢焦点、进入原会话、检查器跳转、最小化悬停暂停/离开消失/点击恢复、深色英文、Esc 关闭、托盘图标与左键打开），托盘菜单“退出 pSpore”后壳退出且 Daemon 仍 active。项目自带 smoke 用带 Openbox 的 `:122` 复跑：context-queue、notification（14 项含最小化）与 electron-smoke（1920×1080/1440×900/1180×720 等）全部通过。`git diff --check` 通过；VM 与宿主 `dist` 均为同样 21 个文件变化。
+- 运行状态：VM 内最新构建的真实应用仍在 Xvfb `:121` 运行（无 VNC，用户不可直接看到），证据截图/日志在已忽略的 `.cache/verify-45-46/`（`real/`、`smokes/`、`baseline/`）。
+- 遗留：代码已变化但未升版、未发布；按项目约定需升 0.1.47 并发布 GitHub Release 与 npm（需要用户浏览器授权）。
+
 ## 2026-11-18 15:15 CST — npm p-spore@0.1.46 发布并完成 registry 复验
 
 - 用户要求拉取最新代码并发布 npm，不改任何代码。`git pull --ff-only` 后本地与 `origin/main` 同为 `84e80dcfa96c6cce28ec41ae36e0a2d3fe1e79fc`，版本仍是 0.1.46。未跟踪的 `openai_key.txt` 未读取、未提交。

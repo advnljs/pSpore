@@ -9,7 +9,7 @@ import { DAEMON_NOT_CONNECTED_MESSAGE, } from "../ipc-contract.js";
 import { composeMessageWithFileReferences, composerFileReference, composerFileReferenceName, mergeComposerFileReferences, } from "./composer-file-references.js";
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
-import { CompactionPanel } from "./compaction-panel.js";
+import { CompactionPanel, compactionNotNeeded } from "./compaction-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { conversationRows, conversationRowText, isToolMessage, toolCallSummary } from "./conversation.js";
@@ -443,7 +443,21 @@ function bindStaticActions() {
     });
     elements.compact.addEventListener("click", () => {
         const sessionId = store.snapshot().selectedSessionId;
-        void perform(t("压缩会话上下文"), { action: "compact", sessionId });
+        const previous = store.snapshot().kernel.sessions[sessionId]?.compaction?.id;
+        void perform(t("压缩会话上下文"), { action: "compact", sessionId }).then(() => {
+            // Stop during the summary, or a session with nothing to summarize, rejects
+            // the command; neither is an error the user has to act on.
+            const compaction = store.snapshot().kernel.sessions[sessionId]?.compaction;
+            if (!compaction || compaction.id === previous)
+                return;
+            if (compaction.status === "aborted")
+                store.setNotice(t("压缩已停止"));
+            else if (compactionNotNeeded(compaction))
+                store.setNotice(t("暂时无需压缩"));
+            else
+                return;
+            render();
+        });
     });
     elements.joinAgent.addEventListener("click", () => {
         const child = selectedAgent(store.snapshot());
@@ -1036,9 +1050,13 @@ async function perform(pendingNotice, command, onSuccess) {
         await onSuccess?.(result);
     }
     catch (error) {
-        store.setNotice(t("{pendingNotice}失败：{message}", { pendingNotice, message: toError(error).message }));
+        store.setNotice(t("{pendingNotice}失败：{message}", { pendingNotice, message: commandErrorMessage(error) }));
     }
     render();
+}
+/** Electron prefixes errors thrown by an IPC handler; the user only needs the cause. */
+function commandErrorMessage(error) {
+    return toError(error).message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, "");
 }
 /**
  * The shell keeps its controls enabled through a short reconnect, so a command
@@ -2376,12 +2394,20 @@ function renderNotifications(snapshot) {
         body.textContent = notification.body;
         item.append(body);
         const sessionId = notificationSession(notification, snapshot.kernel);
-        if (sessionId)
-            item.append(actionButton(t("进入会话"), "ghost-button", () => {
+        if (sessionId) {
+            const actions = element("div", "item-actions notification-actions");
+            const open = actionButton(t("进入会话"), "ghost-button notification-open", () => {
                 store.selectSession(sessionId);
                 articles.onSessionChanged();
                 render();
-            }));
+            });
+            const arrow = element("span", "notification-open-arrow");
+            arrow.setAttribute("aria-hidden", "true");
+            arrow.textContent = "→";
+            open.append(arrow);
+            actions.append(open);
+            item.append(actions);
+        }
         return item;
     });
     elements.notificationList.replaceChildren(...(nodes.length ? nodes : [emptyList(t("暂无通知"))]));

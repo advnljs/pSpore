@@ -1,5 +1,10 @@
 # Module: Interface and Protocol
 
+## 2026-11-24 手动压缩期间的命令并发
+
+- `src/gateway/local-gateway.ts`：`DETACHED_COMMANDS = {"session.compact"}` 不再阻塞连接的帧链；`#inflight` 按 `clientId\0commandId` 合并执行中的重复命令，`#respond` 负责生成响应。新增测试 `local-gateway.test.ts`「a long manual compaction does not hold back later commands…」（5 秒超时，旧代码会超时失败）。
+- `src/application/agent-application.ts`：`session.abort` 对正在压缩的会话先中断再进入会话锁。集成测试 `context-compaction.test.ts`「a manual compaction does not hold back the desktop connection…」覆盖同连接 `jobs.list`/Stop 3 秒内返回、状态为 aborted、无后续模型请求。
+
 ## 2026-11-16 队列取消与压缩状态
 
 - 新增 `session.queue.cancel {mode: "steering" | "followUp", index, revision}`，必须指定根会话；桌面 IPC 为 `queue.cancel`，TUI 为 `/cancel-queued N [direct]`。

@@ -1,5 +1,13 @@
 # Specifications
 
+## 2026-11-24 0.1.45 / 0.1.46 真实 GUI 详细验证与界面美化
+
+- 用户要求详细验证 0.1.45（压缩进度、队列取消）和 0.1.46（后台桌面通知、托盘）两版的大改动，必须包含真实 GUI 操作，并在确保功能的前提下美化界面风格。
+- 用户中途提示“本机有容器和虚拟机”：Linux 运行与截图使用 pSpore 专用 Colima VM（profile `pspore`），不借用 xiaomi-home-setup 的 VM。
+- “真实 GUI”按生产桌面入口执行：`dist/desktop/main.js --home <隔离 home>`、systemd user service 托管 Daemon、Openbox 窗管、XEmbed 托盘宿主，用 xdotool 发送系统级鼠标键盘事件；不只依赖拼装式 harness。
+- 沿用：PC 主基准 1920×1080、只用演示数据、中英双语与深浅主题、无新增生产依赖、不改未跟踪的 `openai_key.txt`。
+- 代码有改动即需按项目约定升版并同步 npm；发布需用户浏览器授权，本轮先完成本地实现、验证与提交，发布由用户决定。
+
 ## 2026-11-17 主动桌面通知
 
 - 用户要求先为当前代码打 tag，再增加精美的主动通知弹窗；未打开界面时在桌面右下角显示最新通知，按钮进入对应 pSpore session。

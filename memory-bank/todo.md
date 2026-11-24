@@ -1,5 +1,10 @@
 # Todo
 
+- P1 / Pending（2026-11-24）：本轮修复与美化尚未发版。按项目约定需升版 0.1.47（package.json、package-lock、src/version.ts、dist），推送后发布 GitHub 双架构 Release，并经用户浏览器授权发布 npm、registry 全新安装复验。等待用户决定。
+- P3 / Pending（2026-11-24）：检查器活动卡对用户中止/“Already compacted” 仍显示 “Context compaction stopped / Compaction failed: …” 与红点，文案来自 TUI 共享的 `src/ui/shared/activity.ts`；可在桌面层改为中性展示。
+- P3 / Pending（2026-11-24）：已配置模型的新会话在首条消息前标题栏显示「未配置模型」；桌面启动早期 renderer 发出的命令会在主进程日志打出多条 “pSpore daemon is not connected”（会自动重试，属日志噪音）。均为既有行为。
+- P3 / Pending（2026-11-24）：`scripts/notification-smoke.mjs` 的最小化步骤依赖窗管；CI/本机若用不带窗管的 `xvfb-run` 会超时。可在 smoke 内启动轻量窗管或跳过并说明。
+
 - P1 / Done（2026-11-18）：npm `p-spore@0.1.46` 已发布，`latest` 指向 0.1.46。未改代码；registry SHA-1 `c0b3121e80f95587473ded66abca0a0cf3bbb120`、integrity 与 564 文件和候选一致。发布两分钟后从 registry 全新安装，双 CLI、隔离 Daemon 与 160×45 TUI（跳过模型向导、`/help`、`/quit`）通过，临时 user service 已卸载。
 - P2 / Pending（2026-11-17）：在目标麒麟/Wayland 桌面复验通知定位、无焦点抢占、托盘可见与点击跳转；本机 Xvfb + Openbox 已通过，当前环境无真实系统托盘宿主。
 

@@ -140,6 +140,62 @@ test("real daemon/UDS bounds tool results, compacts and drains queues, restores 
   }
 });
 
+test("a manual compaction does not hold back the desktop connection, and Stop ends it while it summarizes", { timeout: 30_000 }, async () => {
+  const home = await mkdtemp(join(tmpdir(), "pspore-manual-compact-"));
+  const api = await articleApi();
+  let daemon: PsporeDaemon | undefined;
+  let bridge: DaemonBridge | undefined;
+  const store = new DesktopStore();
+  const prompt = async (): Promise<void> => {
+    await bridge!.dispatch({ action: "prompt", sessionId: "main", text: "Summarize the demo project status in two sentences." });
+    reply(await api.next(), "The demo project is on track. Next step: confirm owners and dates.");
+    await waitFor(() => daemon!.kernel.snapshot().sessions["main"]?.status === "idle", "reply settled");
+  };
+  const within = async <T>(promise: Promise<T>, label: string, ms = 3_000): Promise<T> => {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([promise, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`${label} waited behind the compaction`)), ms); })]);
+    } finally { clearTimeout(timer); }
+  };
+  try {
+    const paths = await api.configure(home);
+    const config = await loadConfig(home);
+    config.context.autoCompaction = { enabled: true, triggerTokens: 100_000, reserveTokens: 1_024, keepRecentTokens: 10 };
+    await atomicWriteJson(paths.config, config);
+    daemon = await PsporeDaemon.start({ home });
+    bridge = new DaemonBridge({ socketPath: paths.socket, stagingRoot: join(paths.workspace, "staging"),
+      versions: { pspore: "test", pi: "0.84.1", electron: "test", node: process.versions.node } });
+    bridge.subscribe((frame) => store.applyFrame(frame));
+    bridge.start();
+    await waitFor(() => bridge?.bootstrap().connection.phase === "connected", "manual compact bridge");
+    await prompt();
+    await prompt();
+
+    const compact = bridge.dispatch({ action: "compact", sessionId: "main" });
+    const settled = compact.then(() => "resolved", (error: unknown) => (error instanceof Error ? error.message : String(error)));
+    const summary = await api.next();
+    assert.match(JSON.stringify(api.requests.at(-1)), /summar/i);
+    await waitFor(() => store.snapshot().kernel.sessions["main"]?.compaction?.status === "running", "manual summary running");
+    // The same connection keeps answering while the model is still summarizing.
+    await within(bridge.dispatch({ action: "jobs.list" }), "jobs.list");
+    const requestsBeforeAbort = api.requests.length;
+    await within(bridge.dispatch({ action: "abort", sessionId: "main" }), "Stop");
+    await waitFor(() => daemon!.kernel.snapshot().sessions["main"]?.compaction?.status === "aborted", "manual compaction aborted");
+    assert.equal(daemon!.kernel.snapshot().sessions["main"]?.compaction?.error, undefined, "a user Stop is not reported as a failure");
+    assert.notEqual(await within(settled, "compact response"), "resolved", "an aborted compaction is not reported as done");
+    summary.destroy();
+    await waitFor(() => daemon!.kernel.snapshot().sessions["main"]?.status === "idle", "idle after Stop");
+    assert.equal(api.requests.length, requestsBeforeAbort, "Stop must not start another model request");
+    assert.equal(bridge.bootstrap().connection.attempt, 0);
+    assert.deepEqual(api.errors, []);
+  } finally {
+    await bridge?.stop();
+    await daemon?.stop();
+    await api.close();
+    await rm(home, { recursive: true, force: true });
+  }
+});
+
 function chunk(response: ServerResponse, delta: Record<string, unknown>, finishReason: string | null = null): void {
   response.write(`data: ${JSON.stringify({ id: "context-test", object: "chat.completion.chunk", created: 0, model: "article-fixture",
     choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`);

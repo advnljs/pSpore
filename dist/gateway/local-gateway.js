@@ -21,6 +21,14 @@ const DEFAULT_MAX_OUTGOING_BYTES = 64 * 1_048_576;
  * replay depth for bounded memory costs nothing but a little extra traffic.
  */
 const DEFAULT_MAX_REPLAY_BYTES = 16 * 1_048_576;
+/**
+ * Frames on one connection are otherwise handled strictly in order. A manual
+ * compaction waits on the model for as long as the summary takes, so in order
+ * it would hold back everything the same client sends after it — including the
+ * Stop meant to end it. Session-level ordering is still enforced by the
+ * application, which serializes commands per session.
+ */
+const DETACHED_COMMANDS = new Set(["session.compact"]);
 export class LocalGateway {
     #socketPath;
     #instanceId;
@@ -40,6 +48,8 @@ export class LocalGateway {
     #replay = [];
     #replayBytes = 0;
     #commandCache = new Map();
+    /** A retry can arrive while a detached command is still running. */
+    #inflight = new Map();
     #server;
     #seq = 0;
     constructor(options) {
@@ -186,6 +196,11 @@ export class LocalGateway {
         if (frame.clientId !== connection.clientId) {
             throw new ProtocolError("client_mismatch", "Command clientId does not match hello clientId");
         }
+        if (DETACHED_COMMANDS.has(frame.type)) {
+            void this.#command(connection, frame)
+                .catch((error) => this.#protocolFailure(connection, normalizeProtocolError(error)));
+            return;
+        }
         await this.#command(connection, frame);
     }
     #hello(connection, hello) {
@@ -223,6 +238,17 @@ export class LocalGateway {
             this.#write(connection, cached);
             return;
         }
+        let pending = this.#inflight.get(cacheKey);
+        if (!pending) {
+            pending = this.#respond(command).then((response) => {
+                this.#remember(cacheKey, response);
+                return response;
+            }).finally(() => this.#inflight.delete(cacheKey));
+            this.#inflight.set(cacheKey, pending);
+        }
+        this.#write(connection, await pending);
+    }
+    async #respond(command) {
         let response;
         const currentRevision = this.#snapshot().revision;
         if (command.expectedRevision !== undefined && command.expectedRevision !== currentRevision) {
@@ -245,8 +271,7 @@ export class LocalGateway {
                 response = this.#errorResponse(command.id, normalized.code, normalized.message);
             }
         }
-        this.#remember(cacheKey, response);
-        this.#write(connection, response);
+        return response;
     }
     #errorResponse(commandId, code, message, currentRevision) {
         return {

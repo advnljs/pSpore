@@ -1,5 +1,12 @@
 # Architecture
 
+## 2026-11-24 长命令不阻塞同一连接
+
+- `LocalGateway` 对每个连接默认严格按帧顺序处理命令。`DETACHED_COMMANDS`（目前只有 `session.compact`）改为后台执行、完成后再回响应，后续帧照常处理；同一会话的先后顺序仍由 `AgentApplication#serializeSession` 保证。
+- 同一 `clientId+commandId` 在执行中再次到达时复用同一个 in-flight 结果，避免分离执行后重试导致重复压缩；完成后仍进入原有响应缓存。
+- `session.abort` 在等待会话锁之前，若该会话压缩正在运行，先直接调用 runtime abort（内部 `abortCompaction`），再走原有串行中止流程。
+- 原因：真实 GUI 复现到手动压缩期间“中止”要等整段摘要结束才执行（89 秒且结果仍为 succeeded），侧栏刷新、取消排队等同连接命令也一并卡住。
+
 ## 2026-11-17 桌面后台通知
 
 - Daemon 的 `NotificationService`、持久记录与协议保持不变；Electron 主进程订阅已验证的 `notification.created` 与权威 snapshot。

@@ -1,5 +1,9 @@
 # Module: Notifications
 
+## 2026-11-24 通知卡片配色统一
+
+- `notification/styles.css` 改用主界面 Cobalt Paper 色值（浅色 accent #2563eb、深色 #5f8dff 配深色文字），级别色复用 live/honey/rust，倒计时条随级别着色；时间与计数为胶囊，`#count` 为空时隐藏。来源图标由 `↳` 改为内联 SVG 对话气泡（CSP 不变）。
+
 ## 职责与入口
 
 - `src/notifications/notification-service.ts`：有界持久通知列表，agent notify 与自动化 run 投递，初始化从 JSONL 恢复。

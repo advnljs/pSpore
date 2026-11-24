@@ -67,6 +67,48 @@ describe("local UDS gateway", () => {
     assert.equal(calls, 1);
   });
 
+  test("a long manual compaction does not hold back later commands on the same connection", { timeout: 5_000 }, async () => {
+    const root = await mkdtemp(join(tmpdir(), "pspore-gateway-detached-"));
+    const socketPath = join(root, "daemon.sock");
+    const handled: string[] = [];
+    let release: (() => void) | undefined;
+    const gateway = new LocalGateway({
+      socketPath,
+      instanceId: "daemon-detached",
+      snapshot: () => ({ ...initialKernelState(), daemon: { phase: "ready" as const } }),
+      handleCommand: async (command) => {
+        handled.push(command.type);
+        if (command.type === "session.compact") await new Promise<void>((resolve) => { release = resolve; });
+        return { type: command.type };
+      },
+    });
+    await gateway.start();
+    const client = new ProtocolClient({ socketPath, clientId: "desktop-test" });
+    const retry = new ProtocolClient({ socketPath, clientId: "desktop-test" });
+    cleanups.push(async () => {
+      release?.();
+      await client.close();
+      await retry.close();
+      await gateway.stop();
+      await rm(root, { recursive: true, force: true });
+    });
+    await client.connect();
+    await retry.connect();
+
+    const compact = client.command("session.compact", {}, { id: "compact-1", sessionId: "main" });
+    await waitFor(() => release !== undefined);
+    // Stop and ordinary reads answer while the summary is still being written.
+    assert.deepEqual(await client.command("session.abort", {}, { sessionId: "main" }), { type: "session.abort" });
+    assert.deepEqual(await client.command("jobs.list", {}), { type: "jobs.list" });
+    // A retry of the same command id joins the running one instead of running twice.
+    const duplicate = retry.command("session.compact", {}, { id: "compact-1", sessionId: "main" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    release!();
+    assert.deepEqual(await compact, { type: "session.compact" });
+    assert.deepEqual(await duplicate, { type: "session.compact" });
+    assert.deepEqual(handled, ["session.compact", "session.abort", "jobs.list"]);
+  });
+
   test("a reconnect in the middle of a run does not read transient events as lost", async () => {
     const root = await mkdtemp(join(tmpdir(), "pspore-gateway-resume-"));
     const socketPath = join(root, "daemon.sock");

@@ -219,6 +219,8 @@ export class PiRuntimeAdapter {
     async abort(sessionId, _reason) {
         const record = this.#record(sessionId);
         record.abortRequested = true;
+        if (record.compaction?.status === "running")
+            record.compactionStopRequested = true;
         record.runtime.session.abortCompaction();
         await record.runtime.session.abort();
         await record.activeTask?.catch(() => undefined);
@@ -437,6 +439,7 @@ export class PiRuntimeAdapter {
             heldQueue: { steering: [], followUp: [] },
             queueRevision: 0,
             compaction: undefined,
+            compactionStopRequested: false,
             lastError: undefined,
             streaming: undefined,
             itemSequence: 0,
@@ -683,6 +686,7 @@ export class PiRuntimeAdapter {
                 this.#publishQueue(record);
                 break;
             case "compaction_start":
+                record.compactionStopRequested = false;
                 record.compaction = {
                     id: this.#idFactory(),
                     status: "running",
@@ -692,24 +696,28 @@ export class PiRuntimeAdapter {
                 };
                 this.#emit(record, "compaction.started", { reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason }, false);
                 break;
-            case "compaction_end":
+            case "compaction_end": {
+                const aborted = event.aborted || (record.compactionStopRequested && !event.result);
+                const errorMessage = aborted ? undefined : event.errorMessage;
+                record.compactionStopRequested = false;
                 record.compaction = {
                     id: record.compaction?.id ?? this.#idFactory(),
                     startedAt: record.compaction?.startedAt ?? this.#clock().toISOString(),
                     completedAt: this.#clock().toISOString(),
                     reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
-                    status: event.aborted ? "aborted" : event.errorMessage || !event.result ? "failed" : "succeeded",
+                    status: aborted ? "aborted" : errorMessage || !event.result ? "failed" : "succeeded",
                     ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
-                    ...(event.errorMessage ? { error: event.errorMessage } : {}),
+                    ...(errorMessage ? { error: errorMessage } : {}),
                 };
                 this.#emit(record, "compaction.completed", {
                     reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
-                    aborted: event.aborted,
+                    aborted,
                     willRetry: event.willRetry,
-                    ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+                    ...(errorMessage ? { errorMessage } : {}),
                     ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
                 }, false);
                 break;
+            }
             case "auto_retry_start":
                 this.#emit(record, "retry.started", { attempt: event.attempt, maxAttempts: event.maxAttempts, delayMs: event.delayMs }, false);
                 break;

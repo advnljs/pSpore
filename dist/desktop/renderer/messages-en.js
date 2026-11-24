@@ -7,6 +7,9 @@
 export const EN_MESSAGES = Object.freeze({
     "进入会话": "Open session",
     "上下文压缩进度": "Context compaction progress",
+    "暂时无需压缩": "No compaction needed yet",
+    "会话内容还不多，保留完整上下文即可": "This conversation is still short, so the full context is kept",
+    "上下文刚刚精简过，新的对话积累后再压缩": "Context was just compacted. Compact again once the conversation grows",
     "收起压缩结果": "Dismiss compaction result",
     "正在压缩上下文": "Compacting context",
     "上下文已精简": "Context compacted",

@@ -6,6 +6,16 @@ import { t } from "./i18n.js";
 
 const SUCCESS_VISIBLE_MS = 8_000;
 
+/**
+ * Pi refuses a manual compaction that has nothing to summarize. That is a
+ * quiet "not needed yet", not an error the user has to act on.
+ */
+export function compactionNotNeeded(state: RuntimeCompaction | undefined): "small" | "recent" | undefined {
+  if (state?.status !== "failed" || !state.error) return undefined;
+  if (/Nothing to compact/i.test(state.error)) return "small";
+  return /Already compacted/i.test(state.error) ? "recent" : undefined;
+}
+
 /** The model reports no measurable intermediate percentage; never invent one. */
 export class CompactionPanel {
   readonly #root: HTMLElement;
@@ -57,17 +67,22 @@ export class CompactionPanel {
     const reveal = this.#root.hidden || changed;
     this.#root.hidden = false;
     this.#root.dataset["status"] = state.status;
+    const notNeeded = compactionNotNeeded(state);
+    if (notNeeded) this.#root.dataset["tone"] = "quiet";
+    else delete this.#root.dataset["tone"];
     const running = state.status === "running";
     this.#bar.setAttribute("aria-busy", String(running));
     this.#dismiss.hidden = running;
     this.#title.textContent = running ? t("正在压缩上下文")
       : state.status === "succeeded" ? t("上下文已精简")
-        : state.status === "aborted" ? t("压缩已停止") : t("上下文压缩失败");
+        : state.status === "aborted" ? t("压缩已停止") : notNeeded ? t("暂时无需压缩") : t("上下文压缩失败");
     this.#detail.textContent = running
       ? t("正在生成摘要，保留关键进展与最近消息")
       : state.status === "succeeded" && state.tokensBefore !== undefined && state.tokensAfter !== undefined
         ? t("{before} → ≈{after} tokens · 完整聊天记录仍可查看", { before: formatTokens(state.tokensBefore), after: formatTokens(state.tokensAfter) })
-        : state.error ?? t("原始聊天记录已保留");
+        : notNeeded === "small" ? t("会话内容还不多，保留完整上下文即可")
+          : notNeeded === "recent" ? t("上下文刚刚精简过，新的对话积累后再压缩")
+            : state.error ?? t("原始聊天记录已保留");
     this.#detail.title = this.#detail.textContent;
     this.#bar.removeAttribute("aria-valuenow");
     this.#bar.setAttribute("aria-valuetext", running ? t("正在生成摘要，进度未知") : this.#title.textContent);
@@ -78,7 +93,12 @@ export class CompactionPanel {
         const step = node("span", "compaction-step");
         const done = state.status === "succeeded" || (running && index === 0);
         step.dataset["state"] = done ? "done" : running && index === 1 ? "active" : "pending";
-        step.textContent = `${done ? "✓" : `0${index + 1}`}  ${label}`;
+        const badge = node("i", "compaction-step-index");
+        badge.setAttribute("aria-hidden", "true");
+        badge.textContent = done ? "✓" : String(index + 1);
+        const text = node("span", "compaction-step-label");
+        text.textContent = label;
+        step.append(badge, text);
         return step;
       }));
     }

@@ -43,7 +43,7 @@ import {
 } from "./composer-file-references.js";
 import { parseArticleReceipt } from "../../articles/receipt.js";
 import { ArticlePanel } from "./article-panel.js";
-import { CompactionPanel } from "./compaction-panel.js";
+import { CompactionPanel, compactionNotNeeded } from "./compaction-panel.js";
 import { formatElapsed, presentIndexing } from "./indexing-view.js";
 import { reconcileChildren } from "./dom-reconcile.js";
 import { conversationRows, conversationRowText, isToolMessage, toolCallSummary, type ConversationRow } from "./conversation.js";
@@ -527,7 +527,17 @@ function bindStaticActions(): void {
   });
   elements.compact.addEventListener("click", () => {
     const sessionId = store.snapshot().selectedSessionId;
-    void perform(t("压缩会话上下文"), { action: "compact", sessionId });
+    const previous = store.snapshot().kernel.sessions[sessionId]?.compaction?.id;
+    void perform(t("压缩会话上下文"), { action: "compact", sessionId }).then(() => {
+      // Stop during the summary, or a session with nothing to summarize, rejects
+      // the command; neither is an error the user has to act on.
+      const compaction = store.snapshot().kernel.sessions[sessionId]?.compaction;
+      if (!compaction || compaction.id === previous) return;
+      if (compaction.status === "aborted") store.setNotice(t("压缩已停止"));
+      else if (compactionNotNeeded(compaction)) store.setNotice(t("暂时无需压缩"));
+      else return;
+      render();
+    });
   });
   elements.joinAgent.addEventListener("click", () => {
     const child = selectedAgent(store.snapshot());
@@ -1119,9 +1129,14 @@ async function perform(
     store.setNotice(t("{pendingNotice}：完成", { pendingNotice }));
     await onSuccess?.(result);
   } catch (error) {
-    store.setNotice(t("{pendingNotice}失败：{message}", { pendingNotice, message: toError(error).message }));
+    store.setNotice(t("{pendingNotice}失败：{message}", { pendingNotice, message: commandErrorMessage(error) }));
   }
   render();
+}
+
+/** Electron prefixes errors thrown by an IPC handler; the user only needs the cause. */
+function commandErrorMessage(error: unknown): string {
+  return toError(error).message.replace(/^Error invoking remote method '[^']*': (?:[A-Za-z]*Error: )?/, "");
 }
 
 /**
@@ -2490,11 +2505,20 @@ function renderNotifications(snapshot: DesktopStoreSnapshot): void {
     body.textContent = notification.body;
     item.append(body);
     const sessionId = notificationSession(notification, snapshot.kernel);
-    if (sessionId) item.append(actionButton(t("进入会话"), "ghost-button", () => {
-      store.selectSession(sessionId);
-      articles.onSessionChanged();
-      render();
-    }));
+    if (sessionId) {
+      const actions = element("div", "item-actions notification-actions");
+      const open = actionButton(t("进入会话"), "ghost-button notification-open", () => {
+        store.selectSession(sessionId);
+        articles.onSessionChanged();
+        render();
+      });
+      const arrow = element("span", "notification-open-arrow");
+      arrow.setAttribute("aria-hidden", "true");
+      arrow.textContent = "→";
+      open.append(arrow);
+      actions.append(open);
+      item.append(actions);
+    }
     return item;
   });
   elements.notificationList.replaceChildren(...(nodes.length ? nodes : [emptyList(t("暂无通知"))]));

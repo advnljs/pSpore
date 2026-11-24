@@ -1,5 +1,9 @@
 # Module: Kernel Runtime
 
+## 2026-11-24 用户中止压缩的归类
+
+- Pi 0.84.1 在嵌套摘要请求（如 turn prefix summarization）中被中止时，`compaction_end` 报 `aborted:false` 与 “Compaction failed: … This operation was aborted”。`PiRuntimeAdapter` 新增 `compactionStopRequested`：压缩运行中收到 abort 时置位，`compaction_start` 清零；结束时若已置位且无结果，则归为 `aborted` 并不写 error。
+
 ## 2026-11-16 压缩状态与精确取消
 
 - `RuntimeCompaction` 记录每次压缩的 id、running/succeeded/failed/aborted、reason、开始/完成时间和 token 结果，随会话快照广播；Pi 没有中间进度百分比，不伪造进度。

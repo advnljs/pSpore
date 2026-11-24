@@ -94,6 +94,12 @@ interface SessionRecord {
   heldQueue: { steering: string[]; followUp: string[] };
   queueRevision: number;
   compaction: RuntimeCompaction | undefined;
+  /**
+   * Stop arrived while a summary was being written. Pi reports an abort that
+   * lands inside a nested summary request as a plain failure, so this is what
+   * tells the user's own Stop apart from a real error.
+   */
+  compactionStopRequested: boolean;
   lastError: string | undefined;
   /**
    * Pi's message objects carry no identity — only persisted branch entries do —
@@ -321,6 +327,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
   async abort(sessionId: SessionId, _reason: string): Promise<void> {
     const record = this.#record(sessionId);
     record.abortRequested = true;
+    if (record.compaction?.status === "running") record.compactionStopRequested = true;
     record.runtime.session.abortCompaction();
     await record.runtime.session.abort();
     await record.activeTask?.catch(() => undefined);
@@ -553,6 +560,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
       heldQueue: { steering: [], followUp: [] },
       queueRevision: 0,
       compaction: undefined,
+      compactionStopRequested: false,
       lastError: undefined,
       streaming: undefined,
       itemSequence: 0,
@@ -810,6 +818,7 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
         this.#publishQueue(record);
         break;
       case "compaction_start":
+        record.compactionStopRequested = false;
         record.compaction = {
           id: this.#idFactory(),
           status: "running",
@@ -824,29 +833,33 @@ export class PiRuntimeAdapter implements AgentRuntimePort {
           false,
         );
         break;
-      case "compaction_end":
+      case "compaction_end": {
+        const aborted = event.aborted || (record.compactionStopRequested && !event.result);
+        const errorMessage = aborted ? undefined : event.errorMessage;
+        record.compactionStopRequested = false;
         record.compaction = {
           id: record.compaction?.id ?? this.#idFactory(),
           startedAt: record.compaction?.startedAt ?? this.#clock().toISOString(),
           completedAt: this.#clock().toISOString(),
           reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
-          status: event.aborted ? "aborted" : event.errorMessage || !event.result ? "failed" : "succeeded",
+          status: aborted ? "aborted" : errorMessage || !event.result ? "failed" : "succeeded",
           ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
-          ...(event.errorMessage ? { error: event.errorMessage } : {}),
+          ...(errorMessage ? { error: errorMessage } : {}),
         };
         this.#emit(
           record,
           "compaction.completed",
           {
             reason: record.thresholdCompaction && event.reason === "manual" ? "token_threshold" : event.reason,
-            aborted: event.aborted,
+            aborted,
             willRetry: event.willRetry,
-            ...(event.errorMessage ? { errorMessage: event.errorMessage } : {}),
+            ...(errorMessage ? { errorMessage } : {}),
             ...(event.result ? { tokensBefore: event.result.tokensBefore, tokensAfter: event.result.estimatedTokensAfter } : {}),
           },
           false,
         );
         break;
+      }
       case "auto_retry_start":
         this.#emit(
           record,

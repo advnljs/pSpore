@@ -294,6 +294,12 @@ export class AgentApplication implements AgentSessionHost {
         const payload = exactPayload(command.payload, ["reason"], command.type);
         const reason = optionalString(payload["reason"], "payload.reason") ?? "user requested abort";
         const sessionId = requiredSessionId(command);
+        // A manual compaction holds this session's lock while the model writes
+        // the summary. Stop has to reach it now, not after the summary it is
+        // meant to cancel; the serialized abort below then finds nothing left.
+        if (this.#sessions.has(sessionId) && this.#runtime.snapshot(sessionId).compaction?.status === "running") {
+          await this.#runtime.abort(sessionId, reason);
+        }
         return this.#serializeSession(sessionId, async () => {
           this.#assertSession(sessionId);
           await this.#approvals.cancelSession(sessionId);

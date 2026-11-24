@@ -1,5 +1,14 @@
 # Module: Electron Desktop
 
+## 2026-11-24 0.1.45/0.1.46 界面美化与提示修正
+
+- 压缩卡：图标改为三行“文本收拢”线条（仍沿用 `.compaction-sheet` 类与 `context-fold` 动画，reduced-motion 下为 none）；步骤改为编号徽标 + 文案的三列网格（完成 ✓、进行中脉冲）；耗时为胶囊；成功/失败/中止/无需压缩各有边框与色调。
+- `compactionNotNeeded()`：Pi 的 “Nothing to compact” / “Already compacted” 显示为中性 `data-tone="quiet"` 的「暂时无需压缩」与说明，不再红色报错，也不显示耗时。手动压缩命令被用户中止或无需压缩时，提示行显示「压缩已停止」/「暂时无需压缩」。
+- `perform()` 的失败提示去掉 Electron 的 `Error invoking remote method '…': Error:` 前缀。
+- 排队行压缩为约 38px：三条排队消息完整显示不再被裁切；状态改为胶囊（继续排队为中性、直接发送为琥珀色并带左侧强调线）；按钮 hover 分别为蓝/红色调。
+- 检查器「最近通知」的「进入会话」放进 `.notification-actions`，右对齐的描边胶囊按钮带 → 箭头。
+- 新增文案已补英文：`暂时无需压缩`、`会话内容还不多，保留完整上下文即可`、`上下文刚刚精简过，新的对话积累后再压缩`。
+
 ## 2026-11-17 后台通知与托盘
 
 - `application.ts` 创建 `DesktopNotifications` 并转发 bridge 事件；正常关闭窗口改为隐藏，托盘提供打开/退出。smoke 仍按已有关闭方式清理隔离 Daemon。

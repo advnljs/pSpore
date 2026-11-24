@@ -1,5 +1,14 @@
 # Project Navigation
 
+## 2026-11-24 真实桌面 GUI 验证（本机 VM）
+
+- 本机 Mac 用 pSpore 专用 Colima VM：`LIMA_HOME=~/Library/pSporeVM/_lima <xiaomi tools>/limactl shell colima-pspore -- bash -c '...'`，启动 `COLIMA_HOME=~/Library/pSporeVM <tools>/colima start pspore`（PATH 需含 tools 目录，否则 colima 找不到 limactl）。VM 已装 openbox、stalonetray、x11-utils。
+- 同步：`rsync -a --exclude node_modules --exclude .cache --exclude release-dist --exclude "*_key.txt" --exclude .git --exclude dist <仓库>/ ~/pspore/`；VM 构建后 `rsync -a ~/pspore/dist/ <仓库>/dist/`（不加 --delete，避免删本机缓存）。
+- 真实桌面驱动（已忽略目录 `.cache/verify-45-46/`，仅本机）：`env-up.sh`（Xvfb :121 1920×1080 + 无边框 Openbox + 托盘 + `fake-llm.mjs` + 隔离 home + 生产入口与 `--remote-debugging-port=9333`）、`restart-app.sh`（重启壳与 systemd 服务）、`restart-llm.sh`（`SLOW_MS`/`SUMMARY_MS`/`NOTIFY_DELAY_MS`）、`drive-045.mjs`、`drive-046.mjs`、`probe-abort.mjs`、`tray-quit.mjs`，`lib.mjs` 提供 xdotool 点击/输入与截图。
+- 注意：xdotool 输入中文会在流式渲染时错字且慢，排队类消息用英文；`xdotool mousemove --sync` 在指针已在目标处时会阻塞，不要用；`pkill -f` 的模式若出现在 `bash -c` 命令行里会杀掉自身，用 `[x]` 括号写法或独立脚本。
+- 项目 smoke 需要窗管时：`run-smokes.sh` 用 `shim/xvfb-run` 把 `xvfb-run` 指向带 Openbox 的 `:122`（2048×1200），串行跑 context-queue、notification、electron smoke。
+- 测试临时 user service：`pspore-878c025f8c25.service`（home `/tmp/pspore-real-gui-4IS4nC`）；清理用 `systemctl --user disable --now <unit>` 后删 `~/.config/systemd/user/<unit>` 并 `daemon-reload`。
+
 ## 2026-11-17 通知功能入口与验收
 
 - `src/desktop/desktop-notifications.ts`：托盘、后台接收与通知卡片窗口；`notification-model.ts` / `notification-contract.ts`：路由、去重、位置和最小 API 类型。
